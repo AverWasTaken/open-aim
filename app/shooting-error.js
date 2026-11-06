@@ -1,7 +1,9 @@
 // Shooting error graph and end-of-round shooting summary.
 //
-// Live graph: one bar per shot. New bars enter at the right edge and older ones move left.
-// Bar height is the shot's total error (spray + movement), so a spray climbs bar by bar.
+// Live graph: one bar per shot, on a time axis like a heart-rate monitor. The right edge is
+// "now" and the strip keeps scrolling left while the round runs (WINDOW seconds wide), so a
+// pause in shooting shows as empty space. It runs on the game's own round clock (sim ticks),
+// so it freezes while the game is paused. Bar height is the shot's total error (spray + movement), so a spray climbs bar by bar.
 // Orange bar: fired standing still. Blue bar: fired while moving (the darker blue part at
 // the bottom is the spray share, the bright part on top is the extra error from moving).
 //
@@ -17,8 +19,9 @@
 //    (idle / running / paused / result) with the drill's map id.
 // Turned on in Settings > Video > Stats (saved in localStorage, default Graph).
 //
-// Kept cheap: the graph is one small canvas that repaints only when a shot arrives; the
-// per-frame hook only compares two numbers unless the player moved.
+// Kept cheap: the graph is one small canvas. It repaints every frame only while a round is
+// running and the graph is on screen (no allocations per frame); otherwise it repaints only
+// when something changes. The per-frame hook only compares a few numbers unless the player moved.
 (() => {
   if (window.__aimShotGraph) return;
   window.__aimShotGraph = true;
@@ -48,8 +51,11 @@
   }
   const recording = () => round && (!round.endedAt || performance.now() - round.endedAt < LATE_MS);
 
+  let phase = "idle";
   window.addEventListener("aim-round-phase", (ev) => {
     const d = ev.detail || {};
+    phase = d.phase || "idle";
+    queue(); // start or stop the scroll loop
     if (d.phase === "running" && d.previous !== "running" && d.previous !== "paused") newRound(d.mapId);
     else if (d.phase === "result" && round && !round.endedAt) { round.endedAt = performance.now(); waitForResult(round); }
     else if (d.phase === "idle" && round && !round.endedAt) round = null; // left before the end
@@ -59,6 +65,7 @@
   // Per frame: the player's feet. Distance adds up every frame (horizontal only); the path
   // keeps a point about every 15 cm. Jumps over 3 m in one frame are respawns/teleports.
   window.__aimTick = (state) => {
+    if (state && typeof state.tick === "number") clockTick(state.tick);
     if (!round || round.endedAt) return;
     const p = state && state.player && state.player.position;
     if (!p) return;
@@ -81,14 +88,39 @@
   };
 
   // ---------- live graph ----------
-  const SHOTS = 36, BAR = 4, GAP = 2;
+  // Time axis: the right edge is the round clock's "now" and each bar sits left of it by its
+  // age, WINDOW seconds across the plot. Bars are BAR wide, narrowed (down to MIN_BAR) when
+  // shots come faster than the bars fit, so a full-auto spray (about 10 shots/s) still shows
+  // one bar per shot with a gap.
+  const CAP = 128, BAR = 4, MIN_BAR = 2, WINDOW = 5;
   const SCALES = [0.5, 1, 2, 3, 5, 8, 12, 20, 30, 45]; // fixed steps: a height means the same from shot to shot
-  const AXIS = 34, PLOT_W = SHOTS * (BAR + GAP) + 2, PLOT_H = 50, TOP = 18, NUMS = 46, H = TOP + PLOT_H + 1;
-  const firing = new Float32Array(SHOTS), movement = new Float32Array(SHOTS), isMoving = new Uint8Array(SHOTS);
+  const AXIS = 34, PLOT_W = 36 * 6 + 2, PLOT_H = 50, TOP = 18, NUMS = 46, H = TOP + PLOT_H + 1;
+  const PPS = (PLOT_W - 2) / WINDOW; // pixels per second of round time
+  const firing = new Float32Array(CAP), movement = new Float32Array(CAP), isMoving = new Uint8Array(CAP);
+  const at = new Float64Array(CAP); // round time of each shot, seconds
   let count = 0, head = 0; // ring buffer: head is the next slot to write
-  let canvas = null, g = null, queued = false, shown = "";
+  let canvas = null, g = null, raf = 0, shown = "";
 
   function clearGraph() { count = 0; head = 0; queue(); }
+
+  // Round clock: the sim's tick (128 per second) from the per-frame hook. It does not advance
+  // while the game is paused. Between ticks it is moved on by wall time, never more than one
+  // tick ahead, so the scroll is smooth at any frame rate.
+  const TICK_S = 1 / 128;
+  let simTick = -1, tickAt = 0, lastClock = 0;
+  function clockTick(t) {
+    if (t === simTick) return;
+    if (t < simTick) { lastClock = 0; clearGraph(); } // the sim started over
+    simTick = t;
+    tickAt = performance.now();
+  }
+  function clockNow() {
+    if (simTick < 0) return 0;
+    const ahead = phase === "running" ? Math.min(TICK_S, (performance.now() - tickAt) / 1000) : 0;
+    // never step back the bit of interpolation already shown (on pause the strip holds still)
+    lastClock = Math.max(simTick * TICK_S + ahead, Math.min(lastClock, (simTick + 1) * TICK_S));
+    return lastClock;
+  }
 
   window.__aimShot = (e) => {
     if (!e || typeof e.spreadDeg !== "number") return;
@@ -98,11 +130,14 @@
     // a perfect-accuracy drill reports 0 total error even while you move.
     const moving = rawMove !== null ? rawMove > CLEAN : typeof e.firingDeg === "number" && total - e.firingDeg > CLEAN;
     const f = rawMove !== null ? total - Math.min(total, rawMove) : Math.min(total, typeof e.firingDeg === "number" ? Math.max(0, e.firingDeg) : total);
+    const tick = typeof e.tick === "number" ? e.tick : null;
+    if (tick !== null && simTick < 0) clockTick(tick);
     firing[head] = f;
     movement[head] = total - f;
     isMoving[head] = moving ? 1 : 0;
-    head = (head + 1) % SHOTS;
-    if (count < SHOTS) count++;
+    at[head] = tick !== null ? tick * TICK_S : clockNow();
+    head = (head + 1) % CAP;
+    if (count < CAP) count++;
     queue();
     if (recording()) {
       const t = round.stats[moving ? "moving" : "still"];
@@ -116,10 +151,17 @@
     }
   };
 
+  // One rAF loop. It keeps going only while the round runs and the graph is on screen, and
+  // paints one last frame when that stops, so a pause freezes the strip where it is.
+  const live = () => canvas && !canvas.style.display && phase === "running" && !document.hidden;
+  function frame() {
+    raf = 0;
+    paint();
+    if (live()) raf = requestAnimationFrame(frame);
+  }
   function queue() {
-    if (queued || !canvas || canvas.style.display) return;
-    queued = true;
-    requestAnimationFrame(() => { queued = false; paint(); });
+    if (raf || !canvas || canvas.style.display) return;
+    raf = requestAnimationFrame(frame);
   }
 
   function build() {
@@ -138,9 +180,12 @@
     g.fillText(text, x, y);
   }
 
+  // per-frame text, rebuilt only when the scale changes
+  let movingW = 0, labelTop = -1, labelHi = "", labelMid = "";
+
   function paint() {
     if (!canvas) return;
-    const numbers = mode() === "numbers";
+    const numbers = shown === "numbers";
     const W = AXIS + PLOT_W + (numbers ? NUMS : 2);
     // grows a little on tall windows, like the game's own HUD
     const ui = Math.min(1.5, Math.max(1, window.innerHeight / 1000));
@@ -154,16 +199,24 @@
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, W, H);
 
-    let max = 0;
-    for (let i = 0; i < count; i++) max = Math.max(max, firing[i] + movement[i]);
-    const top = SCALES.find((s) => s >= max) ?? Math.ceil(max / 15) * 15;
-
     const x0 = AXIS, y0 = TOP, right = x0 + PLOT_W;
+    const now = clockNow();
+    // bars still on the strip: newest first, until one is older than the window
+    let visible = 0, max = 0;
+    for (; visible < count; visible++) {
+      const i = (head - 1 - visible + CAP) % CAP;
+      if ((now - at[i]) * PPS >= PLOT_W - 1) break; // past the left edge
+      max = Math.max(max, firing[i] + movement[i]);
+    }
+    let top = SCALES[SCALES.length - 1];
+    for (const s of SCALES) if (s >= max) { top = s; break; }
+    if (max > top) top = Math.ceil(max / 15) * 15;
+
     g.font = "700 12px Bahnschrift, Segoe UI, sans-serif";
     label("Shooting error", x0, 12, "#fff", "left");
     // legend, right-aligned over the plot
     g.font = "600 11px Bahnschrift, Segoe UI, sans-serif";
-    const movingW = g.measureText("moving").width;
+    if (!movingW) movingW = g.measureText("moving").width;
     label("moving", right, 12, MOVING, "right");
     label("still", right - movingW - 10, 12, STILL, "right");
 
@@ -176,35 +229,49 @@
     g.fillRect(x0, y0 + PLOT_H - 1, PLOT_W, 1);
 
     g.font = "10px Bahnschrift, Segoe UI, sans-serif";
-    const digits = top < 4 ? 2 : 1;
-    label(`${top.toFixed(digits)}°`, x0 - 4, y0 + 8, "#c9ced6", "right");
-    label(`${(top / 4).toFixed(digits)}°`, x0 - 4, y0 + PLOT_H / 2 + 4, "#c9ced6", "right");
+    if (top !== labelTop) {
+      const digits = top < 4 ? 2 : 1;
+      labelTop = top;
+      labelHi = `${top.toFixed(digits)}°`;
+      labelMid = `${(top / 4).toFixed(digits)}°`;
+    }
+    label(labelHi, x0 - 4, y0 + 8, "#c9ced6", "right");
+    label(labelMid, x0 - 4, y0 + PLOT_H / 2 + 4, "#c9ced6", "right");
 
-    // bars, newest at the right edge. Square-root heights: a 1° spray stays readable next to
-    // a 6° moving shot (the half line is a quarter of the top value). Snapped to device pixels.
-    const inner = PLOT_H - 3, base = y0 + PLOT_H - 1;
-    const px = (deg) => (deg <= 0 ? 0 : Math.max(1, Math.round(Math.sqrt(deg / top) * inner * dpr)) / dpr);
-    for (let n = 0; n < count; n++) {
-      const i = (head - count + n + SHOTS) % SHOTS;
-      const x = right - 1 - (count - n) * (BAR + GAP) + GAP;
+    // bars by age. Square-root heights: a 1° spray stays readable next to a 6° moving shot
+    // (the half line is a quarter of the top value). Snapped to device pixels.
+    const inner = PLOT_H - 3, base = y0 + PLOT_H - 1, edge = right - 1;
+    let newer = Infinity; // round time of the next newer shot
+    for (let n = 0; n < visible; n++) {
+      const i = (head - 1 - n + CAP) % CAP;
+      const t = at[i];
+      const older = n + 1 < count ? at[(head - 2 - n + CAP) % CAP] : -Infinity;
+      // room to the nearest neighbour, minus a 1 px gap
+      const room = Math.min(newer - t, t - older) * PPS - 1;
+      newer = t;
+      let w = Math.max(MIN_BAR, Math.min(BAR, Math.floor(room * dpr) / dpr));
+      let x = Math.round((edge - w - Math.max(0, now - t) * PPS) * dpr) / dpr;
+      if (x + w <= x0) break;
+      if (x < x0) { w -= x0 - x; x = x0; } // sliding out at the left edge
       const moving = isMoving[i] === 1;
       const sum = firing[i] + movement[i];
-      const total = Math.min(inner, Math.max(2, px(sum))); // a 0° shot still shows as a stub
+      const h = sum <= 0 ? 0 : Math.max(1, Math.round(Math.sqrt(sum / top) * inner * dpr)) / dpr;
+      const total = Math.min(inner, Math.max(2, h)); // a 0° shot still shows as a stub
       if (!moving) {
         g.fillStyle = STILL;
-        g.fillRect(x, base - total, BAR, total);
+        g.fillRect(x, base - total, w, total);
         continue;
       }
       // spray share of the bar, in proportion to the degrees
       const f = sum > 0 ? Math.min(total, Math.round(total * (firing[i] / sum) * dpr) / dpr) : 0;
       g.fillStyle = MOVING;
-      g.fillRect(x, base - total, BAR, total - f);
+      g.fillRect(x, base - total, w, total - f);
       g.fillStyle = MOVING_SPRAY;
-      g.fillRect(x, base - f, BAR, f);
+      g.fillRect(x, base - f, w, f);
     }
 
     if (numbers) {
-      const last = count ? (head - 1 + SHOTS) % SHOTS : -1;
+      const last = count ? (head - 1 + CAP) % CAP : -1;
       const nx = right + 6;
       g.font = "700 12px Bahnschrift, Segoe UI, sans-serif";
       if (last < 0) label("-", nx, y0 + 16, "#c9ced6", "left");
@@ -434,6 +501,7 @@
     if (m !== "off" && !canvas) build();
     if (canvas) canvas.style.display = m !== "off" ? "" : "none";
     if (m !== shown) { shown = m; if (m !== "off") paint(); }
+    if (live()) queue(); // starts the scroll loop while a round runs
     addSetting();
   }
 
@@ -443,7 +511,7 @@
     if (!anchor || anchor.parentElement.querySelector(".es-shotgraph-setting")) return;
     const row = document.createElement("div");
     row.className = "hall-field es-shotgraph-setting";
-    row.innerHTML = '<span class="hall-field-text"><b>Shooting error graph</b><small>A bar for every shot, newest on the right. Taller bars mean the shot could land further off. Orange: you were standing still. Blue: you were moving. The result screen adds a summary and a map of where you fired.</small></span><div class="es-shotgraph-seg" role="radiogroup" aria-label="Shooting error graph"></div>';
+    row.innerHTML = '<span class="hall-field-text"><b>Shooting error graph</b><small>A bar for every shot. The graph scrolls left as the round goes on: the newest shot is on the right, and a gap means you stopped shooting. Taller bars mean the shot could land further off. Orange: you were standing still. Blue: you were moving. The result screen adds a summary and a map of where you fired.</small></span><div class="es-shotgraph-seg" role="radiogroup" aria-label="Shooting error graph"></div>';
     const seg = row.querySelector(".es-shotgraph-seg");
     for (const [value, text] of [["off", "Off"], ["graph", "Graph"], ["numbers", "Graph + numbers"]]) {
       const b = document.createElement("button");
