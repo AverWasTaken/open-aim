@@ -58,7 +58,11 @@
       const go = card && card.querySelector(".al-wk-split-go, .al-wk-go");
       if (card) card.scrollIntoView({ block: "center" });
       if (go) {
+        // Tests the drill as it was made: the rank picker (rank-picker.js) lets this one start
+        // straight away with the drill's own bots.
+        window.__aimStudioPlay = code;
         go.click();
+        if (window.__aimStudioPlay === code) window.__aimStudioPlay = null;
         return;
       }
       await wait(150);

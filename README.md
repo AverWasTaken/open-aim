@@ -28,7 +28,15 @@ Haven, Lotus, Bind, Corrode, Abyss, Summit and now **Sunset**, or work on your f
 in the training range. Bots peek, flash and shoot back.
 
 **New in 1.3.0:** six Sunset pre-aim drills across A Short, A Tube and B Main.
-Choose **Easy** to learn the angles or **Hard** to face bots that shoot back.
+
+**One card per drill, you pick who you face.** Drills that used to come as an Easy and a
+Hard card are one card now. Press play on a drill whose bots shoot back and pick:
+**No return fire** (the Easy version: same route, bots never shoot), **Default** (the
+drill's own bots, with the rank they play like) or a rank from **Iron** to **Radiant**.
+Enter plays your last pick, which the card also shows. Bot behaviour (Human-like or
+Classic) stays in Settings. Scores are kept per version: No return fire runs are filed
+under the Easy drill (its history, best score and leaderboard), the card shows the ranked
+version's stats.
 
 - **Pre-aim:** walk a route and clear every common angle before anyone shows up.
 - **Angle holding:** hold one spot while bots wide-swing and jiggle-peek.
@@ -156,7 +164,8 @@ enemy outlines. Crosshair changes apply immediately in a drill.
 3. Pick a drill or make your own in Studio.
 
 Requires Windows 10 or 11, any GPU with WebGL 2.
-The lobby's **Updates** button shows what's new when a release is available.
+This copy updates itself: the desktop launcher (`launcher/start.ps1`) pulls the newest code
+from the GitHub fork before it starts the app. There is no Updates button.
 Your settings and training data are kept when you update.
 
 Read the full [1.3.0 changelog](CHANGELOG.md) for all additions and fixes.

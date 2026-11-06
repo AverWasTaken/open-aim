@@ -8,6 +8,7 @@ const path = require("path");
 const backups = require("./backups");
 const studio = require("./studio-store");
 const guard = require("./local-guard");
+const variants = require("./drill-variants");
 
 // Testing only: AIM_PROFILE=<folder> keeps all player data and backups in that folder,
 // so test runs never touch the real save.
@@ -81,11 +82,10 @@ const FAN_AUDIO_JS = fs.readFileSync(path.join(__dirname,"fan-audio.js"),"utf-8"
 const ADVANCED_TRACERS_JS = fs.readFileSync(path.join(__dirname, "advanced-tracers.js"), "utf-8");
 const LOCAL_CUSTOMIZATION_JS = fs.readFileSync(path.join(__dirname, "local-customization.js"), "utf-8");
 const PLAYER_TOOLS_JS = fs.readFileSync(path.join(__dirname, "player-tools.js"), "utf-8");
+const RANK_PICKER_JS = fs.readFileSync(path.join(__dirname, "rank-picker.js"), "utf-8");
 const VALORANT_IMPORT_JS = ["valorant-import.js", "valorant-import-ui.js"]
   .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
 const VALORANT_IMPORT_CSS = fs.readFileSync(path.join(__dirname, "valorant-import.css"), "utf-8");
-const RELEASE_UPDATES_JS = fs.readFileSync(path.join(__dirname, "release-updates-ui.js"), "utf-8");
-const RELEASE_UPDATES_CSS = fs.readFileSync(path.join(__dirname, "release-updates.css"), "utf-8");
 
 // The Studio (studio/ folder, served at /studio/) replaces the site's own scenario editor:
 // /aim/studio redirects there. studio-launch.js lets the Studio start a drill in the lobby.
@@ -111,10 +111,10 @@ const UI_SCRIPTS = [
   ["VIDEO SETTINGS", VIDEO_SETTINGS_JS],
   ["MAP LIGHTING", LIGHTING_SETTINGS_JS],
   ["BOT SETTINGS", BOT_SETTINGS_JS],
+  ["RANK PICKER", RANK_PICKER_JS],
   ["LOBBY BAR", LOBBY_BAR_JS],
   ["STUDIO LAUNCH", STUDIO_LAUNCH_JS],
   ["SHOT GRAPH", SHOT_GRAPH_JS],
-  ["RELEASE UPDATES", RELEASE_UPDATES_JS],
   ["VALORANT IMPORT", VALORANT_IMPORT_JS],
 ];
 // The startup screen goes in on its own, straight away (see createWindow).
@@ -279,6 +279,37 @@ function myDrills() {
   return rec ? [rec, ...studio.all()] : studio.all();
 }
 
+// The whole training list (official + training set + Studio drills) and its merged form.
+// Shooter stats of the official and training-set scenes never change while the app runs, so
+// they are read once; Studio drills are read fresh on every request.
+const VARIANTS_PATH = "/aim/drill-variants.json";
+const fixedBots = new Map();
+function trainingList(mine) {
+  const [, listFile] = resolve(WORKSHOP_LIST);
+  const list = JSON.parse(fs.readFileSync(listFile, "utf-8"));
+  const known = new Set(list.data.map((x) => x.shareCode));
+  const data = [...mine.map((e) => e.item), ...list.data, ...trainingSet.items.filter((x) => !known.has(x.shareCode))];
+  const own = new Map(mine.map((e) => [e.item.shareCode, e]));
+  const botsOf = (item) => {
+    const code = item.shareCode;
+    if (own.has(code)) return variants.shooterStats(variants.docOf(own.get(code).scene));
+    if (!fixedBots.has(code)) {
+      let scene = trainingSet.scenes[code];
+      if (!scene) {
+        const [, file] = resolve(SCENE_PREFIX + code);
+        try {
+          scene = file ? JSON.parse(fs.readFileSync(file, "utf-8")).data : null;
+        } catch {
+          scene = null;
+        }
+      }
+      fixedBots.set(code, variants.shooterStats(variants.docOf(scene)));
+    }
+    return fixedBots.get(code);
+  };
+  return { list, merged: variants.mergeVariants(data, botsOf, new Set(own.keys())) };
+}
+
 // A failing request answers 500 instead of throwing in the main process.
 function handle(req, res) {
   try {
@@ -347,18 +378,22 @@ function handleRequest(req, res) {
     res.end(req.method === "HEAD" ? undefined : body);
     return;
   }
-  // The training list also carries the player's Studio drills (see myDrills).
-  const mine = requested === WORKSHOP_LIST || requested.startsWith(SCENE_PREFIX) ? myDrills() : [];
-  if (requested === WORKSHOP_LIST && (trainingSet.items.length || mine.length)) {
-    const [, listFile] = resolve(requested);
+  // The training list also carries the player's Studio drills (see myDrills). Easy/Hard twins
+  // are merged into one card (drill-variants.js); /aim/drill-variants.json tells the rank
+  // picker (rank-picker.js) which drills have bots and which have a "No return fire" twin.
+  const mine = requested === WORKSHOP_LIST || requested === VARIANTS_PATH || requested.startsWith(SCENE_PREFIX) ? myDrills() : [];
+  if (requested === WORKSHOP_LIST || requested === VARIANTS_PATH) {
     try {
-      const list = JSON.parse(fs.readFileSync(listFile, "utf-8"));
-      const known = new Set(list.data.map((x) => x.shareCode));
-      list.data = [...mine.map((e) => e.item), ...list.data, ...trainingSet.items.filter((x) => !known.has(x.shareCode))];
-      sendJson(req, res, list);
+      const { list, merged } = trainingList(mine);
+      if (requested === VARIANTS_PATH) sendJson(req, res, { variants: merged.variants });
+      else sendJson(req, res, { ...list, data: merged.data });
       return;
     } catch (err) {
       console.warn(`WORKSHOP LIST: serving the plain list (${err && err.message})`);
+      if (requested === VARIANTS_PATH) {
+        sendJson(req, res, { variants: {} });
+        return;
+      }
     }
   }
   if (requested.startsWith(SCENE_PREFIX)) {
@@ -464,7 +499,6 @@ function createWindow(url) {
       win.webContents.insertCSS(THEME_CSS),
       win.webContents.insertCSS(OFFLINE_CSS),
       win.webContents.insertCSS(VALORANT_IMPORT_CSS),
-      win.webContents.insertCSS(RELEASE_UPDATES_CSS),
       win.webContents.mainFrame.executeJavaScript(STARTUP_SCREEN_RUN).catch((err) => console.log(`STARTUP SCREEN: ${err}`)),
     ]).catch(() => {}).finally(show);
     win.webContents.executeJavaScript(UI_SCRIPT_BATCH).catch((err) => console.log(`UI SCRIPTS: ${err}`));
@@ -604,7 +638,6 @@ app.whenReady().then(async () => {
     return;
   }
   mainWindow = createWindow(ORIGIN + START_PATH);
-  require("./release-updates").register(() => mainWindow);
   mainWindow.on("closed", () => app.quit());
 });
 

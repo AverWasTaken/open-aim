@@ -39,6 +39,8 @@
 | `page-watch.js` | One page watcher the UI scripts share; it sleeps while the mouse is locked in a round |
 | `smooth-scroll.js` | Mouse-wheel steps glide (~150 ms) in the lobby and menus instead of jumping; touchpads, zoom and aiming are left alone |
 | `player-tools.js` | Backups and Sens tools panels |
+| `drill-variants.js` | Merges each Easy/Hard drill pair into one training-list card (main.js serves the merged list and `/aim/drill-variants.json`) |
+| `rank-picker.js` | Asks who you face when you press play on a drill with bots (No return fire, Default, Iron to Radiant) and shows the pick on its card; the game hands it every lobby launch (`tools/rankpick_patch.py`) |
 | `studio/` | The Studio: `studio.js` (editor UI), `drill.js` (turns a layout into a playable drill), `map-data.js` (map outlines), `view3d.js` (3D preview), `detailed-map.js` (Detailed view: the game's real map, rewrapped for the Studio's three.js), `vendor/` (three.js, MIT) |
 | `studio-store.js` | Saves your Studio drills so they show up in the lobby |
 | `studio-launch.js` | Starts a Studio drill in the game and brings you back to the Studio after |

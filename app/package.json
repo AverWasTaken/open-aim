@@ -13,8 +13,8 @@
     "build": "electron-builder --win portable nsis",
     "check": "node ../scripts/build-scenarios.mjs --check",
     "test:import": "node --test ../scripts/test-valorant-import.cjs",
-    "test:updates": "node --test ../scripts/test-release-updates.cjs",
-    "test:guards": "node --test ../scripts/test-shell-guards.cjs"
+    "test:guards": "node --test ../scripts/test-shell-guards.cjs",
+    "test:variants": "node --test ../scripts/test-drill-variants.cjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
@@ -32,6 +32,8 @@
       "video-settings.js",
       "lighting-settings.js",
       "bot-settings.js",
+      "rank-picker.js",
+      "drill-variants.js",
       "interface-mode.js",
       "startup-screen.js",
       "page-watch.js",
@@ -41,9 +43,6 @@
       "valorant-import-ui.js",
       "valorant-import-ipc.js",
       "valorant-import.css",
-      "release-updates.js",
-      "release-updates-ui.js",
-      "release-updates.css",
       "backups.js",
       "local-guard.js",
       "offline.css",

@@ -473,6 +473,27 @@ html[data-aim-local]:not(#es) body .al-wk-tag * { color: #fff !important; }
 html[data-aim-local]:not(#es) body .al-wk-fav { border-radius: 0 !important; }
 html[data-aim-local]:not(#es) body .al-wk-type { color: var(--es-red-2) !important; font-weight: 700 !important; text-transform: uppercase; letter-spacing: 0.06em; }
 html[data-aim-local]:not(#es) body .aim-vt-card-difficulty { border-radius: 0 !important; clip-path: var(--es-slant-sm) !important; text-transform: uppercase; font-weight: 700 !important; }
+/* One card per drill: the game's Easy/Medium/Hard chips are hidden everywhere (cards, featured
+   banner). Cards of drills with bots show the rank picked last instead (rank-picker.js). */
+html[data-aim-local]:not(#es) body .al-wk-diff { display: none !important; }
+html[data-aim-local]:not(#es) body .aim-rank-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; margin: 8px 0 0; padding: 0 12px 0 8px;
+  font: 700 12px "Bahnschrift", "Segoe UI", sans-serif; font-stretch: 75%; letter-spacing: 0.06em; text-transform: uppercase;
+  color: #fff; background: color-mix(in srgb, var(--rank-tone, #9aa1ae) 22%, rgba(14, 17, 23, 0.82));
+  border-left: 2px solid var(--rank-tone, #9aa1ae); clip-path: var(--es-slant-sm);
+}
+html[data-aim-local]:not(#es) body .aim-rank-chip :is(img, svg) { width: 19px; height: 19px; object-fit: contain; flex: none; }
+html[data-aim-local]:not(#es) body .aim-rank-chip[data-key="pick"] { padding-left: 10px; color: #c9ced6; }
+html[data-aim-local]:not(#es) body .aim-rank-chip[data-key="none"] { --rank-tone: #6b7280; }
+[data-rank="iron"] { --rank-tone: #a8a8a8; }
+[data-rank="bronze"] { --rank-tone: #c9895a; }
+[data-rank="silver"] { --rank-tone: #d3dbe0; }
+[data-rank="gold"] { --rank-tone: #eac15c; }
+[data-rank="platinum"] { --rank-tone: #55c6cf; }
+[data-rank="diamond"] { --rank-tone: #c597f5; }
+[data-rank="ascendant"] { --rank-tone: #4fd395; }
+[data-rank="immortal"] { --rank-tone: #f0606f; }
+[data-rank="radiant"] { --rank-tone: #fff0b0; }
 html[data-aim-local]:not(#es) body :is(.al-wk-holo, .al-wk-frame) { display: none !important; }
 
 /* primary actions */
@@ -1041,8 +1062,8 @@ html[data-aim-local]:not(#es) body .al-trainer-shell { background: var(--es-bg) 
 .es-tool button.es-tool-primary:hover { background: #ff6b77; }
 /* vi.css (the site's base theme) rounds every button and drops uppercase with !important;
    dialogs keep the square esports shape and the slanted primary button. */
-html[data-aim-local]:not(#es) body :is(.es-tool, .aim-update-panel, .aim-update-toast) :is(button, [role="button"]) { border-radius: 0 !important; text-transform: uppercase !important; }
-html[data-aim-local]:not(#es) body :is(.es-tool button.es-tool-primary, .aim-update-panel .aim-update-primary, .aim-update-toast button:first-of-type) { clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%) !important; }
+html[data-aim-local]:not(#es) body :is(.es-tool) :is(button, [role="button"]) { border-radius: 0 !important; text-transform: uppercase !important; }
+html[data-aim-local]:not(#es) body :is(.es-tool button.es-tool-primary) { clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%) !important; }
 .es-tool-status { min-height: 18px; margin: 8px 0; font-size: 13px; color: #4ade80; }
 .es-tool-status.is-bad { color: #ff6b77; }
 .es-tool-note { margin: 10px 0; font-size: 13px; color: #9aa1ae; }
@@ -1055,6 +1076,27 @@ html[data-aim-local]:not(#es) body :is(.es-tool button.es-tool-primary, .aim-upd
 .es-tool-ask { padding: 12px 14px; margin-bottom: 12px; background: rgba(255, 70, 85, 0.12); border-left: 3px solid #ff4655; animation: es-tool-in 0.2s ease-out both; }
 .es-tool-ask p { margin: 0 0 10px; font-size: 14px; line-height: 1.5; }
 .es-tool-ask div { display: flex; gap: 8px; }
+/* Rank picker (rank-picker.js): opens when you press play on a drill whose bots shoot back. */
+.es-tool.aim-pick { width: min(820px, 100%); }
+.aim-pick-top { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 6px; margin-bottom: 6px; }
+.aim-pick-grid { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 6px; }
+.es-tool .es-tool-body button.aim-pick-tile {
+  height: auto; min-height: 88px; padding: 10px 4px 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  color: #c9ced6; background: #1e232d; border-left: 3px solid transparent; box-shadow: inset 0 -2px 0 transparent; text-align: center;
+}
+.es-tool .aim-pick-top button.aim-pick-tile { min-height: 64px; flex-direction: row; justify-content: flex-start; gap: 12px; padding: 8px 14px; text-align: left; background: #191d26; }
+.es-tool .es-tool-body button.aim-pick-tile:hover { color: #fff; background: #272d39; border-left-color: var(--rank-tone, #ff4655); }
+.es-tool .es-tool-body button.aim-pick-tile.is-active { color: #fff; background: rgba(255, 70, 85, 0.14); border-left-color: #ff4655; box-shadow: inset 0 -2px 0 var(--rank-tone, #ff4655); }
+.es-tool .es-tool-body button.aim-pick-tile:focus-visible { outline: 2px solid #ff4655; outline-offset: 1px; }
+.aim-pick-icon { flex: none; width: 40px; height: 40px; display: grid; place-items: center; color: #9aa1ae; }
+.aim-pick-icon :is(img, svg) { width: 40px; height: 40px; object-fit: contain; pointer-events: none; }
+.aim-pick-icon svg { width: 30px; height: 30px; }
+.aim-pick-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.aim-pick-name { font-size: 13px; line-height: 1.1; }
+.aim-pick-tile small { font: 400 12px "Segoe UI", sans-serif; text-transform: none; letter-spacing: 0; color: #9aa1ae; }
+.aim-pick-note { min-height: 20px; margin: 12px 0 0; font-size: 13px; line-height: 1.5; color: #c9ced6; }
+@media (max-width: 760px) { .aim-pick-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+@media (max-width: 460px) { .aim-pick-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .aim-pick-top { grid-template-columns: 1fr; } }
 .es-sens-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .es-sens-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #9aa1ae; }
 .es-sens-grid :is(input, select) {
