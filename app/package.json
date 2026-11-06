@@ -30,6 +30,7 @@
       "lobby-bar.js",
       "frame-meter.js",
       "video-settings.js",
+      "lighting-settings.js",
       "interface-mode.js",
       "startup-screen.js",
       "page-watch.js",

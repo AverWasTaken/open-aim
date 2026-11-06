@@ -69,6 +69,9 @@ const STARTUP_SCREEN_JS = fs.readFileSync(path.join(__dirname, "startup-screen.j
 const PAGE_WATCH_JS = fs.readFileSync(path.join(__dirname, "page-watch.js"), "utf-8");
 const SMOOTH_SCROLL_JS = fs.readFileSync(path.join(__dirname, "smooth-scroll.js"), "utf-8");
 const VIDEO_SETTINGS_JS = fs.readFileSync(path.join(__dirname, "video-settings.js"), "utf-8");
+// Map lighting setting (Enhanced / Original), read by the patched BiMsX6Xn.js. Optional:
+// a missing file only drops the setting row.
+const LIGHTING_SETTINGS_JS = (() => { try { return fs.readFileSync(path.join(__dirname, "lighting-settings.js"), "utf-8"); } catch { return ""; } })();
 // Interface: Performance / Enhanced (Settings > Video > Smoothness).
 const INTERFACE_MODE_JS = fs.readFileSync(path.join(__dirname, "interface-mode.js"), "utf-8");
 // Backups and sensitivity panels opened from the top bar.
@@ -105,6 +108,7 @@ const UI_SCRIPTS = [
   ["INTERFACE MODE", INTERFACE_MODE_JS],
   ["FRAME METER", FRAME_METER_JS],
   ["VIDEO SETTINGS", VIDEO_SETTINGS_JS],
+  ["MAP LIGHTING", LIGHTING_SETTINGS_JS],
   ["LOBBY BAR", LOBBY_BAR_JS],
   ["STUDIO LAUNCH", STUDIO_LAUNCH_JS],
   ["SHOT GRAPH", SHOT_GRAPH_JS],
