@@ -11,4 +11,5 @@ policy using assets owned by Riot Games. Riot Games does not endorse or sponsor 
 made by `tools/spot_scores.mjs` (see tools/README.md).
 
 `spot-alts.json` is not art either: checked alternative positions per static drill spot, so bots
-stand somewhere a little different every round, made by `tools/spot_alts.mjs` (see tools/README.md).
+stand somewhere a little different every round, and the checked lanes the bots may walk along when
+they see you; made by `tools/spot_alts.mjs` (see tools/README.md).

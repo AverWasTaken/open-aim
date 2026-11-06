@@ -186,3 +186,85 @@ test('both replay world builders pass spotPos from the meta', () => {
     assert.equal(src.split('spotPos:e.meta.spotPos??null').length - 1, 2);
   }
 });
+
+// ---- Pre-aim bots move when they see you (tools/peekmove_patch.py) ----
+
+test('lanes: one per position, well formed, inside 1.5 m', () => {
+  let n = 0;
+  for (const [key, e] of Object.entries(table)) {
+    for (const [id, ls] of Object.entries(e.lanes ?? {})) {
+      const positions = e.alts[id]?.length ?? 1;
+      assert.equal(ls.length, positions, `${key} ${id}: ${ls.length} lanes for ${positions} positions`);
+      for (const l of ls) {
+        if (l === null) continue;
+        assert.ok(l.length === 4 && l.every(Number.isFinite), `${key} ${id}: ${l}`);
+        assert.ok(Math.abs(Math.hypot(l[0], l[1]) - 1) < 1e-3, `${key} ${id}: axis ${l[0]},${l[1]}`);
+        assert.ok(l[2] <= 0 && l[3] >= 0 && l[2] >= -1.5 && l[3] <= 1.5 && l[3] - l[2] >= 0.3, `${key} ${id}: extents ${l[2]}..${l[3]}`);
+        n++;
+      }
+    }
+  }
+  assert.ok(n >= 500, `only ${n} lanes`);
+});
+
+test('round start: bots move only with an explicit rank in Human-like mode, same spots either way', () => {
+  const drill = shippedDrills().find(({ doc }) => {
+    const e = table[aimAltKey(doc)];
+    return e && Object.keys(e.lanes ?? {}).length && doc.actors.some((a) => a.behaviors.some((b) => b.kind === 'shooter'));
+  });
+  if (!drill) return;
+  const g = game();
+  g.aimAltSet({ scenes: table });
+  const doc = drill.doc, e = table[aimAltKey(doc)];
+  const run = (o, seed) => { g.aimAltOpts(o, { ...doc, meta: { ...doc.meta, seed } }); return o; };
+  const def = run({ bots: 'human' }, 9), ranked = run({ bots: 'human', enemyRank: 'gold' }, 9), classic = run({ enemyRank: 'gold' }, 9);
+  assert.equal(def.peekMove, undefined, 'Default rank: static');
+  assert.equal(def.spotLane, undefined);
+  assert.equal(classic.peekMove, undefined, 'Classic: static');
+  assert.equal(classic.spotPos, undefined);
+  assert.deepEqual(ranked.spotPos, def.spotPos, 'the rank does not change the positions');
+  assert.equal(ranked.peekMove, true);
+  const tm = new Map(doc.actors.map((a) => [a.id, a]));
+  for (const [id, l] of Object.entries(ranked.spotLane)) {
+    const s = doc.spawners.find((x) => x.id === id);
+    assert.ok(tm.get(s.actorTemplateId).behaviors.some((b) => b.kind === 'shooter'), `${id} does not shoot`);
+    const i = e.alts[id] ? e.alts[id].findIndex((q) => q.join() === ranked.spotPos[id].join()) : 0;
+    assert.deepEqual(l, e.lanes[id][i], `${id}: lane of another position`);
+  }
+});
+
+const cnrPeek = new Function(slice(cnr, 'function aimPeekList(', 'c.set(h.spawnerId,b);return b}') + ';return aimPeekList;')();
+
+test('sim: aimPeek only for static shooters with a lane, cached per spawner', () => {
+  const shooter = { body: { shape: 'humanoid' }, behaviors: [{ kind: 'respawn' }, { kind: 'shooter' }] };
+  const strafer = { body: { shape: 'humanoid' }, behaviors: [{ kind: 'shooter' }, { kind: 'strafe' }] };
+  const target = { body: { shape: 'humanoid' }, behaviors: [{ kind: 'respawn' }] };
+  const lanes = { a: [1, 0, -1, 1], b: [1, 0, -1, 1], c: [1, 0, -1, 1], d: [1, 0, 0.5, 1] };
+  const cache = new Map();
+  const a = cnrPeek(cache, { spawnerId: 'a' }, shooter, lanes, 'gold');
+  assert.deepEqual(a.map((x) => x.kind), ['respawn', 'shooter', 'aimPeek']);
+  assert.deepEqual(a[2], { kind: 'aimPeek', lane: lanes.a, rank: 'gold' });
+  assert.equal(cnrPeek(cache, { spawnerId: 'a' }, shooter, lanes, 'gold'), a, 'cached');
+  assert.equal(cnrPeek(cache, { spawnerId: 'b' }, strafer, lanes, 'gold'), strafer.behaviors);
+  assert.equal(cnrPeek(cache, { spawnerId: 'c' }, target, lanes, 'gold'), target.behaviors);
+  assert.equal(cnrPeek(cache, { spawnerId: 'd' }, shooter, lanes, 'gold'), shooter.behaviors, 'lane must contain the spot');
+  assert.equal(cnrPeek(cache, { spawnerId: 'e' }, shooter, lanes, 'gold'), shooter.behaviors, 'no lane');
+});
+
+test('aimPeek is wired in: behaviour registry, world builder, both replay builders', () => {
+  for (const dir of JS) {
+    const bi = read(dir, 'BiMsX6Xn.js');
+    assert.ok(bi.includes('aimPeek:{init(){},update(n,e,t,i){aimPeekUpdate(n,e,t,i)}}'));
+    assert.equal(bi.split('function aimPeekUpdate(').length - 1, 1);
+    // no game random numbers in the new behaviour
+    const body = slice(bi, 'function aimPeekUpdate(', 's.phase==="go"&&step()}');
+    assert.ok(!/\be\.rng\b/.test(body), 'aimPeekUpdate must not draw e.rng');
+    // a new leg only starts while the bot sees the player this tick (not during the shooter's sight grace)
+    assert.ok(body.includes('t.elapsed<s.until||r.lastSeenTick!==t.tick)return;'));
+    const c = read(dir, 'CnrSARj_.js');
+    assert.ok(c.includes('aimPK=g.peekMove===!0&&aimBM&&aimBR&&g.spotLane'));
+    assert.ok(c.includes('z=IE.has(h.spawnerId)?aB(Z):aimPK?aimPeekList(aimPK,h,Z,g.spotLane,aimBR):Z.behaviors,'));
+    const v = read(dir, 'C_VPDXvn.js');
+    assert.equal(v.split('peekMove:e.meta.peekMove??null,spotLane:e.meta.spotLane??null').length - 1, 2);
+  }
+});
