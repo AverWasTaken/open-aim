@@ -9,6 +9,8 @@
   const SHORT = { favorites: "Favorites", "open-studio": "Creator", "open-studio-guide": "Manual" };
   const GAUGE = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 18a9 9 0 1 1 16 0"/><path d="M12 14l4-5"/></svg>';
 
+  // Spike-ish diamond with a fuse, for Round mode.
+  const ROUND_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3 20 12 12 21 4 12Z"/><path d="M12 8v5M12 16v.5"/></svg>';
   const SENS_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/></svg>';
   const BACKUP_ICON ='<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16v12H4z"/><path d="M3 4h18v3H3zM10 11h4"/></svg>';
 
@@ -119,6 +121,18 @@
       b.addEventListener("click", () => window.__aimTools?.[open]());
       bar.appendChild(b);
     }
+
+    // Round mode (round-panel.js).
+    const round = document.createElement("button");
+    round.type = "button";
+    round.className = "es-bar-btn";
+    round.title = "Round (beta): one VALORANT-style round vs 5 bots on Ascent — barriers, plant the spike";
+    round.innerHTML = ROUND_ICON;
+    const roundLabel = document.createElement("span");
+    roundLabel.textContent = "Round (beta)";
+    round.appendChild(roundLabel);
+    round.addEventListener("click", () => window.__aimRoundPanel?.open());
+    bar.appendChild(round);
 
     if (quick) {
       const name = quick.querySelector("em")?.textContent.trim() || "";
