@@ -19,6 +19,31 @@ try {
   Set-Location $app
   Log "launch from $root"
 
+  # Get the newest code from the GitHub fork (origin). Skipped when offline,
+  # on another branch, or when there are uncommitted edits. Never blocks the start.
+  try {
+    $git = (Get-Command git -ErrorAction SilentlyContinue).Source
+    if ($git) {
+      $branch = & $git -C $root rev-parse --abbrev-ref HEAD
+      $dirty = & $git -C $root status --porcelain --untracked-files=no
+      if ($branch -eq 'personal-improvements' -and -not $dirty) {
+        $env:GIT_TERMINAL_PROMPT = '0'
+        $out = Join-Path $env:TEMP 'aimtrainer-git-pull.txt'
+        $p = Start-Process -FilePath $git -NoNewWindow -PassThru `
+          -ArgumentList '-C', ('"' + $root + '"'), 'pull', '--ff-only', 'origin', 'personal-improvements' `
+          -RedirectStandardOutput $out -RedirectStandardError "$out.err"
+        if ($p.WaitForExit(20000)) {
+          Log "git pull exit $($p.ExitCode): $((Get-Content $out, "$out.err" -ErrorAction SilentlyContinue) -join ' | ')"
+        } else {
+          $p.Kill()
+          Log 'git pull timed out, starting anyway'
+        }
+      } else {
+        Log "git pull skipped (branch $branch, local edits: $([bool]$dirty))"
+      }
+    }
+  } catch { Log "git pull skipped: $_" }
+
   # Reinstall dependencies only when package-lock.json changed (or they are missing).
   $stamp = Join-Path $app 'node_modules\.launcher-lock-hash'
   $hash = (Get-FileHash (Join-Path $app 'package-lock.json')).Hash
