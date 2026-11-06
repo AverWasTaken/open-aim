@@ -20,7 +20,8 @@
 
 export const ROUND_DEFAULTS = {
   barrierSec: 20, roundSec: 100, plantSec: 4, spikeSec: 45, defuseSec: 7, defuseCheckpointSec: 3.5,
-  endHoldSec: 3, defuseRadius: 2, pickupRadius: 1.5, holdMaxSpeed: 3.2, barrierPad: 0.4,
+  endHoldSec: 3, defuseRadius: 1.6, defuseFacingDeg: 60, pickupRadius: 1.5, holdMaxSpeed: 3.2, barrierPad: 0.4,
+  blastRadius: 35,
 };
 
 const num = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -38,7 +39,7 @@ function shuffle(list, r) { const a = list.slice(); for (let i = a.length - 1; i
 // cfg.setups = { groups: { A: [spawnerId…], mid: […], B: […] }, splits: [[2,1,2], …], count: 5 }
 export function roundPrepare(doc, seed) {
   const cfg = doc?.rules?.round;
-  if (!cfg || typeof cfg !== 'object') return doc;
+  if (!cfg || typeof cfg !== 'object' || cfg.prepared) return doc; // prepared docs pass through
   const r = rng(Number.isFinite(seed) ? seed : 1);
   const own = cfg.spawns?.[cfg.side === 'defense' ? 'defense' : 'attack'];
   let playerSpawn = doc.playerSpawn;
@@ -64,7 +65,7 @@ export function roundPrepare(doc, seed) {
     const all = new Set(names.flatMap((g) => groups[g] ?? []));
     spawners = doc.spawners.filter((s) => !all.has(s.id) || keep.has(s.id));
   }
-  return { ...doc, playerSpawn, spawners };
+  return { ...doc, playerSpawn, spawners, rules: { ...doc.rules, round: { ...cfg, prepared: true } } };
 }
 
 export function roundCreate(cfg, tickSec) {
@@ -123,14 +124,27 @@ export function roundBlocksMove(cfg, state, x0, z0, x1, z1, y) {
 
 // The player can't move at all (dead after the plant: the camera stays where they fell).
 export function roundFrozen(state) { return !!state && !state.playerAlive; }
-// No player shots: barrier phase, round over, dead, or a plant/defuse hold in progress.
-export function roundNoFire(state) { return !!state && (state.phase === 'barrier' || state.phase === 'ended' || !state.playerAlive || state.holding !== null); }
+// No player shots: barrier phase, round over, dead, or a plant/defuse hold in progress. With the
+// held keys and the player's position (feet) the hold that starts on this tick counts too.
+export function roundNoFire(state, hold, cfg, pos) {
+  if (!state) return false;
+  if (state.phase === 'barrier' || state.phase === 'ended' || !state.playerAlive || state.holding !== null) return true;
+  if (hold?.plant && cfg && pos && state.phase === 'live' && state.spike.carrier === 'player' && roundZoneAt(cfg, pos.x, pos.y, pos.z)) return true;
+  return !!(hold?.use && state.near);
+}
+// Detonation tick: true when the player stands inside the blast (the sim then sets health to 0).
+export function roundBlast(cfg, state, pos) {
+  const sp = state?.spike?.planted;
+  if (!sp || state.reason !== 'detonated' || state.endTick !== state.tick || !pos) return false;
+  return Math.hypot(pos.x - sp.x, pos.y - sp.y, pos.z - sp.z) <= num(cfg?.blastRadius, ROUND_DEFAULTS.blastRadius);
+}
 // Bots don't hurt the player: barrier phase, round over, or the player is already dead.
 export function roundBotsHold(state) { return !!state && (state.phase === 'barrier' || state.phase === 'ended' || !state.playerAlive); }
 // The use key doesn't pick weapons up while it could mean "defuse" (or nothing happens anyway).
 export function roundBlocksUse(state) { return !!state && (state.phase !== 'live' || state.holding !== null || state.near); }
 
-// One sim tick. io = { tick, tickSec, player:{x,y,z,speed,grounded,health}, kills, hold:{plant,use} }.
+// One sim tick. io = { tick, tickSec, player:{x,y,z,yaw,speed,grounded,health,knife}, kills, hold:{plant,use} }.
+// knife: the melee weapon is out (switching to it cancels a plant / defuse).
 // Returns events for this tick ({kind:'roundPhase'|'roundPlant'|'roundDefuse'|'roundEnd', …}).
 export function roundStep(cfg, state, io) {
   const ev = [];
@@ -165,10 +179,20 @@ export function roundStep(cfg, state, io) {
     }
   }
 
-  const steady = state.playerAlive && p.grounded !== false && (p.speed ?? 0) <= num(cfg?.holdMaxSpeed, ROUND_DEFAULTS.holdMaxSpeed);
+  const steady = state.playerAlive && p.grounded !== false && !p.knife && (p.speed ?? 0) <= num(cfg?.holdMaxSpeed, ROUND_DEFAULTS.holdMaxSpeed);
   state.zone = state.playerAlive ? roundZoneAt(cfg, p.x, p.y, p.z) : null;
   const sp = state.spike.planted;
-  state.near = !!sp && state.playerAlive && Math.hypot(p.x - sp.x, p.z - sp.z) <= num(cfg?.defuseRadius, ROUND_DEFAULTS.defuseRadius) && Math.abs(p.y - sp.y) < 2;
+  state.near = false;
+  if (sp && state.playerAlive && Math.abs(p.y - sp.y) < 2) {
+    // Within reach and facing it (the game's forward is (-sin yaw, -cos yaw)); right on top of it
+    // any direction counts.
+    const dx = sp.x - p.x, dz = sp.z - p.z, d = Math.hypot(dx, dz);
+    if (d <= num(cfg?.defuseRadius, ROUND_DEFAULTS.defuseRadius)) {
+      const yaw = Number.isFinite(p.yaw) ? p.yaw : null;
+      const cos = yaw === null || d < 0.6 ? 1 : (-Math.sin(yaw) * dx - Math.cos(yaw) * dz) / d;
+      state.near = cos >= Math.cos((num(cfg?.defuseFacingDeg, ROUND_DEFAULTS.defuseFacingDeg) * Math.PI) / 180);
+    }
+  }
   state.holding = null;
 
   // Plant: hold the plant key, carrying the spike, standing still enough in a plant zone.

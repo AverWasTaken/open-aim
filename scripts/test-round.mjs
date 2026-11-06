@@ -144,6 +144,9 @@ test('roundPrepare: seeded, re-rolls per seed, keeps the split, spawns the playe
   // No round: the scene is untouched (same object).
   const plain = { rules: { duration: 60 }, spawners: [] };
   assert.equal(core.roundPrepare(plain, 5), plain);
+  // A prepared scene passes through (the play page prepares it, the sim sees it again).
+  assert.equal(a.rules.round.prepared, true);
+  assert.equal(core.roundPrepare(a, 5), a);
 });
 
 // ---------------------------------------------------------------- controller
@@ -179,6 +182,10 @@ test('plant: 4 s held in a zone; release, running, jumping or leaving the zone r
   r.player.grounded = false; r.step({ hold: { plant: true } }); r.player.grounded = true;
   assert.equal(r.st.plant, 0, 'jumping cancels');
   r.run(sec(1), { hold: { plant: true }, speed: 2.5 }); // walking still plants
+  assert.ok(r.st.plant > 0);
+  r.player.knife = true; r.step({ hold: { plant: true } }); r.player.knife = false;
+  assert.equal(r.st.plant, 0, 'switching to the knife cancels');
+  r.run(sec(1), { hold: { plant: true } });
   assert.ok(r.st.plant > 0);
   const out = { ...r.player }; r.player.x = 0; r.player.z = 0;
   r.step({ hold: { plant: true } });
@@ -317,6 +324,45 @@ test('a defuse finishing on the detonation tick loses', () => {
   assert.equal(ev[0].reason, 'detonated');
 });
 
+test('no shot on the tick the plant key goes down in a zone; none outside a zone or without the spike', () => {
+  const r = makeRound({ barrierSec: 1 });
+  r.run(sec(1));
+  assert.equal(core.roundNoFire(r.st, { plant: true }, r.cfg, { x: 0, y: 2, z: 0 }), false, 'outside a zone the key does nothing');
+  r.toSite();
+  assert.equal(core.roundNoFire(r.st, { plant: false }, r.cfg, r.player), false);
+  assert.equal(core.roundNoFire(r.st, { plant: true }, r.cfg, r.player), true);
+  r.st.spike.carrier = null;
+  assert.equal(core.roundNoFire(r.st, { plant: true }, r.cfg, r.player), false, 'no spike, no plant');
+});
+
+test('defuse needs you within reach and facing the spike', () => {
+  const cfg = { ...JSON.parse(roundScene(MODS, 'round-ascent-attack-vandal-10').doc).rules.round, side: 'defense', barrierSec: 1 };
+  const st = core.roundCreate(cfg, TS);
+  const s = cfg.sites[0];
+  const sp = { x: s.center.x, y: s.center.y, z: s.center.z };
+  let tick = 0;
+  const at = (dx, dz, yaw) => { core.roundStep(cfg, st, { tick: ++tick, tickSec: TS, player: { x: sp.x + dx, y: sp.y, z: sp.z + dz, yaw, speed: 0, grounded: true, health: 100 }, kills: 0, hold: { use: true } }); return st.near; };
+  for (let i = 0; i < sec(1); i++) at(0, 0, 0);
+  st.phase = 'planted'; st.plantTick = tick; st.spike.planted = { ...sp, site: s.id };
+  // The game's forward is (-sin yaw, -cos yaw): yaw 0 looks down -z.
+  assert.equal(at(0, 1.2, 0), true, 'facing it from 1.2 m');
+  assert.equal(at(0, 1.2, Math.PI), false, 'back turned');
+  assert.equal(at(0, 2.5, 0), false, 'too far');
+  assert.equal(at(0.2, 0.2, Math.PI), true, 'standing on it');
+});
+
+test('blast: only on the detonation tick, only inside the radius', () => {
+  const r = makeRound({ barrierSec: 1 });
+  r.run(sec(1)); r.toSite(); r.run(sec(4), { hold: { plant: true } });
+  r.run(sec(45) - 1);
+  assert.equal(core.roundBlast(r.cfg, r.st, r.player), false);
+  r.step();
+  assert.equal(core.roundBlast(r.cfg, r.st, r.player), true);
+  assert.equal(core.roundBlast(r.cfg, r.st, { x: r.player.x + 40, y: r.player.y, z: r.player.z }), false);
+  r.step();
+  assert.equal(core.roundBlast(r.cfg, r.st, r.player), false, 'once');
+});
+
 test('pause during a plant: no ticks, then the key is up -> the plant starts over', () => {
   const r = makeRound({ barrierSec: 1 });
   r.run(sec(1)); r.toSite();
@@ -407,7 +453,7 @@ test('sim hooks are present and every one is guarded by the round state', () => 
   const calls = [...CNR.matchAll(/aimRound(Step|View|BlocksMove|Frozen|NoFire|BotsHold|BlocksUse)\(/g)];
   assert.ok(calls.length >= 7);
   for (const m of calls) {
-    const before = CNR.slice(Math.max(0, m.index - 160), m.index);
+    const before = CNR.slice(Math.max(0, m.index - 480), m.index);
     assert.ok(/aimRd!==null(&&|\?|\)\{|&&\()/.test(before) || /aimRd!==null&&\(aimRoundFrozen\(aimRd\)\|\|$/.test(before), `unguarded ${m[0]} near …${before.slice(-80)}`);
   }
   assert.ok(CNR.includes('saveState(){return aimRdSave(vP('));
@@ -431,6 +477,8 @@ test('play page hooks: no replay, held keys, end via the round, visuals, results
     'function Sb(e,t){if(t.round)return __aimRoundVerdict(t.round);',
     '__aimRoundStart(F,r.scene),',
     'function Hr(){__aimRoundStop(),',
+    "import {roundPrepare as __aimRoundPrepare} from '/aim-rounds/round-core.mjs';",
+    'function To(F,Z=null){F=F?.rules?.round?__aimRoundPrepare(F,F.meta.seed):F;',
   ]) assert.ok(OKA.includes(s), s);
   // main.js still finds its two frame-loop strings.
   const main = read('app', 'main.js');

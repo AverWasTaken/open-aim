@@ -15,19 +15,24 @@ by scripts/test-round.mjs), the 3D bits in app/mods/aim-rounds/round-visual.mjs.
 1. Sim (CnrSARj_.js, nf):
    - imports round-core.mjs; before the sim reads the scene, roundPrepare(scene, seed) picks the
      player's spawn point and the 5 enemy setup spawners from the run seed (a new seed per run, so
-     every restart re-rolls);
+     every restart re-rolls; the play page already does this in To(), prepared scenes pass through);
    - round state aimRd (plain object) next to the sim state; saveState() stores a copy as
      aimRound, restoreState() puts it back (the play page's opening step does save/step/restore);
    - setRoundHold({plant,use}): held keys from the play page, read by the next step;
    - player movement: after the move, if the round says so (barrier crossed during the barrier
      phase, or the player is dead after the plant), x/z go back to where they were and the
-     horizontal speed is zeroed (y is untouched, so falling still works);
-   - player shots are blocked while roundNoFire (barrier phase, round over, dead, holding);
+     horizontal speed is zeroed; a dead player also can't go up (no jumping; falling still works);
+   - player shots are blocked while roundNoFire (barrier phase, round over, dead, holding, or the
+     plant / defuse key held where it would start a hold on this tick);
    - bot shots at the player are dropped while roundBotsHold (barrier phase, round over, dead);
    - requestUse() (weapon pickup) is refused while roundBlocksUse;
    - at the end of each step roundStep(...) runs with the player, this tick's kill count and the
-     held keys; snapshot().round = roundView(...) (null without a round).
+     held keys, the yaw (defuse facing) and whether the knife is out (cancels a hold); on the
+     detonation tick a player inside the blast radius drops to 0 health;
+     snapshot().round = roundView(...) (null without a round).
 2. Play page (OkAdunfX.js):
+   - To() runs roundPrepare on the scene first (so the target count, 5, and everything else on the
+     page see the same bots as the sim);
    - imports round-visual.mjs and BoxGeometry/CylinderGeometry; To() starts the visuals
      (barrier walls, spike) on the game scene, Hr() removes them; each frame updates them;
    - no replay recording for round runs (Je = null; Uu/Ou handle null);
@@ -66,7 +71,7 @@ CNR = [
      b'import {roundPrepare as aimRoundPrepare,roundCreate as aimRoundCreate,roundStep as aimRoundStep,'
      b'roundView as aimRoundView,roundClone as aimRoundClone,roundBlocksMove as aimRoundBlocksMove,'
      b'roundFrozen as aimRoundFrozen,roundNoFire as aimRoundNoFire,roundBotsHold as aimRoundBotsHold,'
-     b'roundBlocksUse as aimRoundBlocksUse} from "/aim-rounds/round-core.mjs";\n'),
+     b'roundBlocksUse as aimRoundBlocksUse,roundBlast as aimRoundBlast} from "/aim-rounds/round-core.mjs";\n'),
     # Scene prep + round state.
     (b"function nf(A,g){A=aimSpotApply(A,g);const D=g.seed??A.meta.seed,",
      b"function nf(A,g){A=aimSpotApply(A,g);A=A.rules?.round?aimRoundPrepare(A,g.seed??A.meta.seed):A;"
@@ -75,13 +80,15 @@ CNR = [
      b"const D=g.seed??A.meta.seed,"),
     # Player movement: revert x/z when a barrier is crossed (or dead after the plant).
     (b"let sA=null;if(!FA){",
-     b"const aimX0=n.position.x,aimZ0=n.position.z;let sA=null;if(!FA){"),
+     b"const aimX0=n.position.x,aimY0=n.position.y,aimZ0=n.position.z;let sA=null;if(!FA){"),
     (b"zoomRatio:h}:null)}if(q!==null&&(IP(n,q,U,sA)",
      b"zoomRatio:h}:null)}aimRd!==null&&(aimRoundFrozen(aimRd)||aimRoundBlocksMove(aimRdCfg,aimRd,aimX0,aimZ0,n.position.x,n.position.z,n.position.y))"
-     b"&&(n.position={...n.position,x:aimX0,z:aimZ0},n.velocity={...n.velocity,x:0,y:0});if(q!==null&&(IP(n,q,U,sA)"),
+     b"&&(n.position={...n.position,x:aimX0,z:aimZ0},n.velocity={...n.velocity,x:0,y:0});"
+     b"aimRd!==null&&aimRoundFrozen(aimRd)&&n.position.y>aimY0&&(n.position={...n.position,y:aimY0},n.verticalVelocity=Math.min(0,n.verticalVelocity??0));"
+     b"if(q!==null&&(IP(n,q,U,sA)"),
     # Player fire.
     (b"Pg=q!==null&&FP(n,U)||v||zA",
-     b"Pg=aimRd!==null&&aimRoundNoFire(aimRd)||q!==null&&FP(n,U)||v||zA"),
+     b"Pg=aimRd!==null&&aimRoundNoFire(aimRd,aimRdHold,aimRdCfg,n.position)||q!==null&&FP(n,U)||v||zA"),
     # Bot shots at the player.
     (b"if(G.pendingShotTick=-1,I&&!G.alive){delete G.pendingShotHits;continue}",
      b"if(G.pendingShotTick=-1,I&&!G.alive||aimRd!==null&&aimRoundBotsHold(aimRd)){delete G.pendingShotHits;continue}"),
@@ -98,7 +105,8 @@ CNR = [
     (b"aimStudioRecord(A,U,AA,n,c);return G}",
      b"if(aimRd!==null){let aimK=0;for(const Z of G)Z.kind===\"kill\"&&(aimK+=1);"
      b"aimRoundStep(aimRdCfg,aimRd,{tick:U,tickSec:AA,player:{x:n.position.x,y:n.position.y,z:n.position.z,"
-     b"speed:Math.hypot(n.velocity.x,n.velocity.y),grounded:n.grounded,health:n.health??JB},kills:aimK,hold:aimRdHold})}"
+     b"yaw:n.yaw,speed:Math.hypot(n.velocity.x,n.velocity.y),grounded:n.grounded,health:n.health??JB,knife:n.knife===1},kills:aimK,hold:aimRdHold});"
+     b"aimRoundBlast(aimRdCfg,aimRd,n.position)&&(n.health=0)}"
      b"aimStudioRecord(A,U,AA,n,c);return G}"),
     # Snapshot.
     (b"snapshot(){return{tick:U,",
@@ -125,6 +133,12 @@ OKA = [
      b"import {createRoundVisual as __aimRoundVisual} from '/aim-rounds/round-visual.mjs';\n"
      b"import {warmGridTargetAudio as __aimWarmGridTarget,"),
     (b"bd as mt", b"bd as mt,d2 as __aimBoxGeo,d1 as __aimCylGeo"),
+    (b"import {createRoundVisual as __aimRoundVisual}",
+     b"import {roundPrepare as __aimRoundPrepare} from '/aim-rounds/round-core.mjs';\nimport {createRoundVisual as __aimRoundVisual}"),
+    # The round's own setup pick (5 of the setup spots, player spawn) before the page reads the
+    # scene, so its target count and views match the sim (the sim skips prepared scenes).
+    (b"function To(F,Z=null){if(r.applyEnvironment(F.environment)",
+     b"function To(F,Z=null){F=F?.rules?.round?__aimRoundPrepare(F,F.meta.seed):F;if(r.applyEnvironment(F.environment)"),
     (b"function Hr(){Br(),Ur(),", b"function Hr(){__aimRoundStop(),Br(),Ur(),"),
     (b"s.onSceneBuilt?.(F),Hr(),Ke=d0(F),r.mount(Ke),",
      b"s.onSceneBuilt?.(F),Hr(),Ke=d0(F),r.mount(Ke),__aimRoundStart(F,r.scene),"),

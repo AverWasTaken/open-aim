@@ -17,7 +17,7 @@
     "test:variants": "node --test ../scripts/test-drill-variants.cjs",
     "test:spots": "node --test ../scripts/test-spot-bias.cjs",
     "test:vary": "node --test ../scripts/test-spot-vary.cjs",
-    "test:round": "node --test ../scripts/test-round.mjs"
+    "test:round": "node --test ../scripts/test-round.mjs ../scripts/test-round-sim.mjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
