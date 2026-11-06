@@ -125,6 +125,12 @@ export function newBot(move, at) {
 
 // Fills in settings added after a drill was saved, so older drills open with every option.
 export function normalize(drill) {
+  // A drill file that lost its item list (or round/start) still opens with defaults, so it can be
+  // fixed or deleted instead of blanking the Studio.
+  const base = newDrill();
+  drill.items = Array.isArray(drill.items) ? drill.items.filter((it) => it && typeof it === "object") : [];
+  for (const k of ["round", "start"]) if (!drill[k] || typeof drill[k] !== "object") drill[k] = base[k];
+  if (typeof drill.place !== "string") drill.place = base.place;
   // Older dark presets used Plain to hide a heavy tile pattern. Replace their
   // bright helper overlay once; newly chosen Plain remains genuinely plain.
   if ((drill.compiled || 0) < 6 && drill.arenaTheme !== 'original' && drill.floorSurface === 'plain') drill.floorSurface = 'tile';

@@ -20,8 +20,11 @@ function writeAtomic(file, text) {
 function read(file) {
   try {
     const entry = JSON.parse(fs.readFileSync(file, "utf-8"));
-    return entry && entry.drill && entry.item && entry.scene ? entry : null;
-  } catch {
+    if (entry && entry.drill && typeof entry.drill === "object" && entry.item && entry.scene) return entry;
+    console.warn(`STUDIO: skipping ${path.basename(file)} (not a complete drill file)`);
+    return null;
+  } catch (err) {
+    if (err && err.code !== "ENOENT") console.warn(`STUDIO: skipping ${path.basename(file)} (unreadable: ${err.message})`);
     return null;
   }
 }

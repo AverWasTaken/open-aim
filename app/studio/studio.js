@@ -203,13 +203,34 @@ function redo() {
 }
 
 // ---------- library ----------
-async function refreshDrills() {
+// A damaged drill file (no item list, no round, not an object) is listed with defaults filled in
+// so it can be fixed or deleted; one that can't even be read that way is left out.
+// Returns the drills that needed defaults.
+async function loadDrillList() {
   try { S.drills = api ? await api.list() : []; } catch { S.drills = []; }
+  const damaged = new Set();
+  S.drills = S.drills.filter((entry) => {
+    try {
+      const d = entry.drill;
+      if (!Array.isArray(d.items) || !d.round || typeof d.round !== "object" || !d.start || typeof d.start !== "object") damaged.add(entry);
+      entry.drill = normalize(d);
+      return true;
+    } catch (err) {
+      console.warn("Skipping unreadable drill", entry && entry.name, err);
+      return false;
+    }
+  });
+  return damaged;
+}
+
+async function refreshDrills() {
+  const damaged = await loadDrillList();
   // Drills saved by an older Studio are re-saved once so the game gets the current scene
   // (for example full-auto firing). Heights stored on the items are used; no map needed.
+  // Damaged drills are not: their saved game scene may still hold what the drill lost.
   let changed = false;
   for (const entry of S.drills) {
-    if (entry.drill.compiled === COMPILER) continue;
+    if (entry.drill.compiled === COMPILER || damaged.has(entry)) continue;
     const drill = normalize(JSON.parse(JSON.stringify(entry.drill)));
     drill.compiled = COMPILER;
     try {
@@ -221,7 +242,7 @@ async function refreshDrills() {
       console.warn("Couldn't update drill", entry.name, err);
     }
   }
-  if (changed) try { S.drills = await api.list(); } catch {}
+  if (changed) await loadDrillList();
 }
 
 function summary(d) {
@@ -231,7 +252,8 @@ function summary(d) {
   const parts = [];
   if (bots) parts.push(`${bots} bot${bots > 1 ? "s" : ""}`);
   if (zones) parts.push(`${zones} target zone${zones > 1 ? "s" : ""}`);
-  parts.push(`${d.round.time} s`, goal);
+  if (Number.isFinite(d.round.time)) parts.push(`${d.round.time} s`);
+  if (goal) parts.push(goal);
   return parts.join(" · ");
 }
 
@@ -2274,7 +2296,9 @@ function maybeCoach() {
   if (wanted) {
     history.replaceState(null, "", location.pathname);
     const drill = await api.get(wanted).catch(() => null);
-    if (drill) return openDrill(drill);
+    if (drill && typeof drill === "object") {
+      try { return await openDrill(drill); } catch (err) { console.warn("Couldn't open drill", wanted, err); return showLibrary({ fromEditor: true }); }
+    }
   }
   let draft;
   try { draft = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || 'null'); } catch {}
