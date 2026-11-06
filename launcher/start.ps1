@@ -50,8 +50,15 @@ try {
   $hash = (Get-FileHash (Join-Path $app 'package-lock.json')).Hash
   $saved = if (Test-Path $stamp) { (Get-Content $stamp -Raw).Trim() } else { '' }
   if (-not (Test-Path $electron) -or $saved -ne $hash) {
+    # npm ci installs exactly what package-lock.json lists and never rewrites it,
+    # so the folder stays clean and the git pull above keeps working.
     Log "installing dependencies"
-    $code = Run 'npm.cmd' install --no-audit --no-fund
+    $code = Run 'npm.cmd' ci --no-audit --no-fund
+    if ($code -ne 0) {
+      Log "npm ci failed (exit $code), trying npm install"
+      $code = Run 'npm.cmd' install --no-audit --no-fund
+      if ($git) { $null = Run $git -C $root checkout -- app/package-lock.json }
+    }
     if ($code -ne 0) { throw "npm install failed (exit $code)" }
     if (-not (Test-Path $electron)) {
       $code = Run 'node' (Join-Path $app 'node_modules\electron\install.js')

@@ -6,13 +6,19 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/unkwsr/open-aim/releases/latest/download/AimTrainer-Setup.exe"><b>Download for Windows</b></a>
+  <a href="https://github.com/AverWasTaken/open-aim/releases/latest/download/AimTrainer-Setup.exe"><b>Download for Windows</b></a>
+  &nbsp;·&nbsp;
+  <a href="#get-it">How to install</a>
   &nbsp;·&nbsp;
   <a href="#build-your-own-drills">Make a drill</a>
   &nbsp;·&nbsp;
   <a href="CHANGELOG.md">What's new in 1.3.0</a>
   &nbsp;·&nbsp;
   <a href="#run-it-from-source">Run from source</a>
+</p>
+
+<p align="center">
+  <sub>A personal copy of <a href="https://github.com/unkwsr/open-aim">open-aim by unkwsr</a>, with a few extra features.</sub>
 </p>
 
 <p align="center">
@@ -159,14 +165,47 @@ enemy outlines. Crosshair changes apply immediately in a drill.
 
 ## Get it
 
-1. Download and run **[AimTrainer-Setup.exe](https://github.com/unkwsr/open-aim/releases/latest/download/AimTrainer-Setup.exe)**.
-2. Import your VALORANT settings, or enter your sensitivity through **Sens tools**.
-3. Pick a drill or make your own in Studio.
+You need Windows 10 or 11 and a graphics card with WebGL 2
+(almost every PC from the last 10 years has one).
 
-Requires Windows 10 or 11, any GPU with WebGL 2.
-This copy updates itself: the desktop launcher (`launcher/start.ps1`) pulls the newest code
-from the GitHub fork before it starts the app. There is no Updates button.
-Your settings and training data are kept when you update.
+### The easy way
+
+1. Click here to download the game: **[AimTrainer-Setup.exe](https://github.com/AverWasTaken/open-aim/releases/latest/download/AimTrainer-Setup.exe)**
+2. When the download is done, open the file.
+3. If a blue box says **"Windows protected your PC"**, click **More info**, then click **Run anyway**.
+   (Windows shows this because the game is not signed by a big company.)
+4. Click **Next** until it is done, then click **Finish**.
+5. Open **AimTrainer** from your desktop or the Start menu.
+6. The first time, bring over your VALORANT settings, or type your sensitivity in **Sens tools**.
+7. Pick a drill and play.
+
+**To update:** download the file again from the same link and run it.
+Your settings and scores are kept.
+
+### The always-newest way
+
+This way takes a bit more setup, but the game gets the newest version
+by itself every time you open it.
+
+1. Install **Git**: go to [git-scm.com/download/win](https://git-scm.com/download/win),
+   download it, open it, and click **Next** on every screen.
+2. Install **Node.js**: go to [nodejs.org](https://nodejs.org), download the **LTS**
+   version, open it, and click **Next** on every screen.
+3. Open a **new** PowerShell window: press the Windows key, type `powershell`, press Enter.
+4. Copy these three lines, paste them into the window (right-click pastes), and press Enter:
+
+   ```powershell
+   git clone -c core.longpaths=true https://github.com/AverWasTaken/open-aim.git
+   cd open-aim
+   .\launcher\Install.cmd
+   ```
+
+5. Wait. It downloads about 265 MB, so the first start can take a few minutes.
+   The game opens by itself when it is ready.
+6. From now on, open the game with the **AimTrainer** icon on your desktop.
+
+The game lives in a folder called `open-aim` in your user folder. Don't delete or move it.
+If you move it, run `launcher\Install.cmd` in the new place to fix the desktop icon.
 
 Read the full [1.3.0 changelog](CHANGELOG.md) for all additions and fixes.
 
@@ -178,7 +217,7 @@ You need [Node.js](https://nodejs.org) 20+ and the game files in `site/`
 (see [docs/game-files.md](docs/game-files.md)).
 
 ```bash
-git clone https://github.com/unkwsr/open-aim.git
+git clone -c core.longpaths=true https://github.com/AverWasTaken/open-aim.git
 cd open-aim/app
 npm install
 npm start
