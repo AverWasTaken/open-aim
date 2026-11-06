@@ -128,6 +128,31 @@ attack and **inspect (Y)** animations. Choose yours in **Settings**.
 
 <br>
 
+## Round mode (beta)
+
+Play **one VALORANT-style round** against 5 bots. Open it with **Round (beta)** in the lobby's
+top bar, pick the map (Ascent for now), the enemy rank, your weapon and how long the barriers stay
+up (10, 20 or 30 seconds), then press **Start**.
+
+- You attack. At the start, barriers keep you in the attacker side of the map (you see them as
+  coloured walls); the defenders stand in their setup spots near both sites and mid (5 bots, a
+  different setup every round). Nobody can shoot until the barriers drop.
+- Then you have 1:40 to plant. Walk into site A or B and **hold 4** for 4 seconds (stand still or
+  walk; running, jumping or letting go starts it over). You can't shoot while planting.
+- After the plant the spike goes off in 45 seconds (it beeps faster near the end).
+- **You win** when the spike goes off or every defender is dead. **You lose** when you die before
+  the plant or the time runs out before the plant. If you die after the plant, the round goes on
+  and the spike decides it.
+- A banner shows the result, then the normal result screen. Round runs are not saved to your drill
+  history and leave no replay.
+- The rank tiles are the same Enemy rank setting the drills use (Default = the round's own bots).
+
+Known limits of the beta: the bots don't move yet (they hold their spot and shoot), there is no
+defense side yet, you can walk through bots, and the barriers were placed from the map data, not
+checked in game on every corner. How the map data is made: [tools/README.md](tools/README.md#round-mode-data).
+
+<br>
+
 ## Every shot counts
 
 Track score, time and hit rate while you play. The rebuilt **shooting-error graph**

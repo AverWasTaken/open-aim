@@ -20,6 +20,8 @@ Run them from the repository root with Python 3.
 | `spotvary_patch.py` | Spot variation: in Human-like bot mode the static bots of the shipped pre-aim drills stand on one of their checked alternative positions (`spot_alts.mjs`), a new one each round (from the round seed; saved in the replay meta as `spotPos`). Edits the mods `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details in the script's docstring. |
 | `spot_alts.mjs` | Writes `app/mods/aim-ranks/spot-alts.json`: up to 5 checked alternative positions per static spot of every shipped pre-aim drill, and a sideways movement lane per position (ground, ledges, walls, sight lines and spacing tested with the game's own collision and sight test). `--check` re-tests the stored file. Runs against a test copy of the app (rerun steps below). |
 | `peekmove_patch.py` | Pre-aim bots react and move: with Human-like bots and an explicit enemy rank, the static shooting bots of the shipped pre-aim drills walk ADAD along their checked lane once they see you, by rank (`aimPeekRanks` next to `aimBotRanks`; saved in the replay meta as `peekMove` and `spotLane`). Edits the mods `BiMsX6Xn.js`, `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details and the rank table in the script's docstring. |
+| `round_patch.py` | Round mode: the round controller in the sim (barrier phase, spike plant / defuse, outcomes, save/restore), the play page side (held keys, no replay, round end, result text, barrier and spike visuals) and `window.__aimLaunchScene` for the lobby panel. Edits the mods `CnrSARj_.js`, `OkAdunfX.js`, `ChJ6FlD4.js` and `Hwnlm6zD.js` (both copies). Only acts on scenes with `rules.round`. Details in the script's docstring. |
+| `round_author.mjs` | Writes `app/mods/aim-rounds/<map>.json` (Round mode map data: spawns, barriers, plant zones, defender setups) from the map files in `site/aim-maps/`, node only. `--plot <file.svg>` draws it (also a `.png`), `--check` fails when the stored file is out of date. See [Round mode data](#round-mode-data). |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
@@ -47,6 +49,7 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 9. `spotbias_patch.py` (needs `aimcenter_patch.py`; refuses to run twice: it looks for `aimSpotWeights`)
 10. `spotvary_patch.py` (needs `spotbias_patch.py`; refuses to run twice: it looks for `aimSpotApply`)
 11. `peekmove_patch.py` (needs `spotvary_patch.py`; refuses to run twice: it looks for `aimPeekUpdate`)
+12. `round_patch.py` (after `peekmove_patch.py`; refuses to run twice: it looks for `/aim-rounds/round-core.mjs`). It keeps each copy's own line ends.
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
@@ -95,3 +98,42 @@ node tools/spot_alts.mjs --cdp 9351 --check
 the authored spot (cyan). The same file holds the lanes the moving bots use (`tools/peekmove_patch.py`). `--only
 <code>,<code>` redoes some drills and keeps the rest. A rebuild never changes old replays: they keep
 the positions and lanes they were recorded with (`spotPos`, `spotLane` in the replay meta).
+
+## Round mode data
+
+`app/mods/aim-rounds/<map>.json` holds what a round needs on one map. `app/round-scene.js` turns it
+into a scene (served by `main.js` as `round-<map>-<side>-<weapon>-<barrierSec>`), the sim runs it
+with `app/mods/aim-rounds/round-core.mjs` (tests: `npm run test:round` in `app/`).
+
+```jsonc
+{
+  "schema": 1, "map": "ascent", "name": "Ascent",
+  "spawns": { "attack": [{ "x": 0, "y": 2, "z": 0, "yaw": 1.57 }, ...5], "defense": [...5] },
+  // yaw: the game's forward is (-sin yaw, -cos yaw)
+  "barriers": [{ "id": "atk-midtop", "team": "attack", "name": "Mid Top",
+                 "a": { "x": 0, "z": 0 }, "b": { "x": 0, "z": 0 }, "y": [3, 8.5], "width": 7 }],
+  // a team can't cross its own segments while the barriers are up; y = height range of the wall
+  "sites": [{ "id": "A", "zone": [[x, z], ...], "y": [4.7, 7.6], "center": { "x": 0, "y": 5, "z": 0 } }],
+  // plant zone polygon (x, z) and the feet height range inside it
+  "setups": { "defense": { "A": [{ "name": "...", "x": 0, "y": 5, "z": 0 }], "mid": [...], "B": [...] },
+              "splits": [[2, 1, 2], ...] },
+  // defender spots by group; a round keeps 5 bots, split [A, mid, B] picked from the run seed
+  "authoring": { ... }   // transform residuals, raw marks, seal check results
+}
+```
+
+To rebuild Ascent (`--image` is the barrier reference picture the user supplied; it is only used to
+check sides and to draw under the plot, and is not part of the repo):
+
+```bash
+node tools/round_author.mjs --image ascent-barriers.png --plot /tmp/ascent-round.svg
+node tools/round_author.mjs --check
+```
+
+How the barriers are placed (details in the script header): the picture's labels are fitted to the
+game's callouts (similarity transform, about 2 m rms), each barrier mark is moved to world space and
+snapped to the narrowest closed choke within 3 m (rays against the pawn + greybox collision at three
+heights), and a flood fill over the navmesh checks that each team's barriers close off every neutral
+callout. A new map needs its own entry in `MAPS` at the top of the script (callout names, label and
+mark pixels from a reference picture, setup spots) and then the same two commands.
+
