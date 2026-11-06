@@ -213,7 +213,10 @@
   }
 
   // Studio "Play" (studio-launch.js) tests the drill as it was made: no picker, no rank.
-  let waiting = false;
+  // A play pressed before the drill list arrived waits for it, but any click or key in the
+  // meantime (the player moved on) or a read slower than 3 s drops that launch.
+  let waiting = null;
+  const dropWaiting = () => { waiting = null; };
   function gate(item, go) {
     if (open || waiting || !item) return;
     const code = item.shareCode;
@@ -224,11 +227,19 @@
       return;
     }
     if (!variants) {
-      // Pressed play before the drill list was read: wait for it (a tile click later is the
-      // user action that starts the drill; without a picker it starts when the read is done).
-      waiting = true;
+      const w = (waiting = { at: Date.now() });
+      setTimeout(() => {
+        addEventListener("pointerdown", dropWaiting, { capture: true, once: true });
+        addEventListener("keydown", dropWaiting, { capture: true, once: true });
+      }, 0);
       load().finally(() => {
-        waiting = false;
+        removeEventListener("pointerdown", dropWaiting, true);
+        removeEventListener("keydown", dropWaiting, true);
+        if (waiting !== w || Date.now() - w.at > 3000) {
+          if (waiting === w) waiting = null;
+          return;
+        }
+        waiting = null;
         try {
           decide(item, go);
         } catch (err) {
