@@ -78,6 +78,31 @@ function drill(n, count) {
 }
 const same = (a, b) => a.size === b.size && [...a].every((x) => b.has(x));
 
+test('any edit the planner could see changes the key', () => {
+  const doc = shippedDrills()[0].doc;
+  const base = aimSpotKey(doc);
+  const edits = [
+    (d) => { d.playerSpawn.yaw += 0.1; },
+    (d) => { d.spawners[0].position.x += 0.5; },
+    (d) => { d.spawners[0].groundSnap = !d.spawners[0].groundSnap; },
+    (d) => { d.spawners[0].rotationY = 1; },
+    (d) => { d.blocks.push({ id: 'x', shape: 'box', position: { x: 0, y: 0, z: 0 }, size: { x: 1, y: 1, z: 1 } }); },
+    (d) => { d.actors[0].behaviors = [...(d.actors[0].behaviors || []), { kind: 'strafe', speed: [5.4, 5.4] }]; },
+    (d) => { d.rules.spawnerPick.count -= 1; },
+  ];
+  if (doc.blocks.length) edits.push((d) => { d.blocks[0].bulletCollidable = !d.blocks[0].bulletCollidable; });
+  for (const edit of edits) {
+    const d = JSON.parse(JSON.stringify(doc));
+    edit(d);
+    assert.notEqual(aimSpotKey(d), base, String(edit));
+  }
+  // Key order and the drill's meta (name, id) don't matter.
+  const r = JSON.parse(JSON.stringify(doc));
+  r.meta = { ...r.meta, name: 'renamed' };
+  r.spawners = r.spawners.map((x) => Object.fromEntries(Object.entries(x).reverse()));
+  assert.equal(aimSpotKey(r), base);
+});
+
 test('the patched pick without a bias is the original pick', () => {
   for (const [n, count] of [[18, 10], [21, 18], [25, 12], [4, 0]]) {
     const doc = drill(n, count);
