@@ -391,7 +391,7 @@ function handleRequest(req, res) {
     } catch (err) {
       console.warn(`WORKSHOP LIST: serving the plain list (${err && err.message})`);
       if (requested === VARIANTS_PATH) {
-        sendJson(req, res, { variants: {} });
+        sendJson(req, res, { variants: {}, error: true });
         return;
       }
     }

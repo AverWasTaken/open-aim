@@ -15,7 +15,7 @@
   const NONE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4M5 19 19 5"/></svg>';
 
   const get = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
-  const put = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} };
+  const put = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); return true; } catch { return false; } };
   const ranks = () => window.__aimBots?.RANKS || [];
   const rankName = (id) => ranks().find((r) => r[0] === id)?.[1] || "";
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -33,7 +33,8 @@
       .then((j) => {
         if (j && j.variants && typeof j.variants === "object") {
           variants = j.variants;
-          migrateFavorites();
+          // error: main.js could not read the list; the drills just start without a picker.
+          if (!j.error) migrateFavorites();
           schedule();
         }
       })
@@ -87,7 +88,7 @@
           const group = code && variants[code];
           if (group && group.code !== code && !next.includes("ws-" + group.code)) next.push("ws-" + group.code);
         }
-        if (next.length !== list.length) put(FAV_KEY, JSON.stringify(next));
+        if (next.length !== list.length && !put(FAV_KEY, JSON.stringify(next))) return;
       }
       put(FAV_DONE_KEY, "1");
     } catch {}
@@ -181,8 +182,17 @@
       if (!open) return;
       e.stopPropagation();
       if (e.key === "Escape") { e.preventDefault(); close(); return; }
+      const x = shade.querySelector(".es-tool-x");
+      if (e.key === "Tab") {
+        // Focus stays in the picker: the selected tile and Close.
+        e.preventDefault();
+        if (document.activeElement === x) (tiles.find((t) => t.classList.contains("is-active")) || tiles[0]).focus();
+        else x.focus();
+        return;
+      }
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
+        if (document.activeElement === x) { close(); return; }
         const a = tiles.find((t) => t.classList.contains("is-active")) || tiles[0];
         choose(a.dataset.pick);
         return;
@@ -192,7 +202,7 @@
         e.preventDefault();
         const i = tiles.findIndex((t) => t.classList.contains("is-active"));
         tiles[(i + step + tiles.length) % tiles.length].focus();
-      } else if (e.key !== "Tab") e.preventDefault();
+      } else e.preventDefault();
     };
     addEventListener("keydown", onKey, true);
     document.body.appendChild(shade);
@@ -203,8 +213,9 @@
   }
 
   // Studio "Play" (studio-launch.js) tests the drill as it was made: no picker, no rank.
+  let waiting = false;
   function gate(item, go) {
-    if (open || !item) return;
+    if (open || waiting || !item) return;
     const code = item.shareCode;
     if (window.__aimStudioPlay && window.__aimStudioPlay === code) {
       window.__aimStudioPlay = null;
@@ -212,8 +223,27 @@
       go(item);
       return;
     }
-    const group = variants?.[code];
+    if (!variants) {
+      // Pressed play before the drill list was read: wait for it (a tile click later is the
+      // user action that starts the drill; without a picker it starts when the read is done).
+      waiting = true;
+      load().finally(() => {
+        waiting = false;
+        try {
+          decide(item, go);
+        } catch (err) {
+          console.error("RANK PICKER:", err);
+          close();
+          go(item);
+        }
+      });
+      return;
+    }
     load();
+    decide(item, go);
+  }
+  function decide(item, go) {
+    const group = variants?.[item.shareCode];
     if (!group) {
       // No bots that shoot back (or a drill made since the last read): the drill's own setup.
       setRank(null);
