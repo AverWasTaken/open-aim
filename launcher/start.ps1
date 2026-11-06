@@ -32,6 +32,7 @@ try {
         $p = Start-Process -FilePath $git -NoNewWindow -PassThru `
           -ArgumentList '-C', ('"' + $root + '"'), 'pull', '--ff-only', 'origin', 'personal-improvements' `
           -RedirectStandardOutput $out -RedirectStandardError "$out.err"
+        $null = $p.Handle  # needed so ExitCode is filled in
         if ($p.WaitForExit(20000)) {
           Log "git pull exit $($p.ExitCode): $((Get-Content $out, "$out.err" -ErrorAction SilentlyContinue) -join ' | ')"
         } else {
