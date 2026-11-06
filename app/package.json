@@ -31,6 +31,7 @@
       "frame-meter.js",
       "video-settings.js",
       "lighting-settings.js",
+      "bot-settings.js",
       "interface-mode.js",
       "startup-screen.js",
       "page-watch.js",
