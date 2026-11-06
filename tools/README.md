@@ -14,6 +14,7 @@ Run them from the repository root with Python 3.
 | `hitreg_patch.py` | Exact fire rate (and, in its second stage, the Perfect first shot option): edits the mods `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies) in place. Details in the script's docstring. |
 | `loadsafe_patch.py` | Map loading: a collision worker that never answers (60 s), crashes or can't load no longer hangs the load (main-thread build instead), plus `[aim-load]` console lines with stage timings, trainer download timing and retry warnings. Edits the mods `BiMsX6Xn.js` and `ChJ6FlD4.js` (both copies). |
 | `rankpick_patch.py` | Rank picker on play: makes `wl` (the one lobby launch function) in the mods `ChJ6FlD4.js` (both copies) hand the drill to `window.__aimPlayGate` (`app/rank-picker.js`) first. Details in the script's docstring. |
+| `aimcenter_patch.py` | Puts the aim point exactly under the drawn crosshair (a sub-pixel camera shift when the game view has an odd size, e.g. a maximized 2560x1439 window; render only, no sim change) and makes the simple replay resimulator `Zn` in the mods `C_VPDXvn.js` pass the same recoil/movement/shotTiming/zoomSensitivity options as the replay player. Edits the mods `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details in the script's docstring. |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
@@ -37,6 +38,7 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
    missing.
 6. `loadsafe_patch.py`
 7. `rankpick_patch.py` (refuses to run twice: it looks for `__aimPlayGate`)
+8. `aimcenter_patch.py` (refuses to run twice: it looks for `__aimCrossAlign`)
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate

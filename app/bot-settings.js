@@ -35,7 +35,7 @@
    [['human','Human-like'],['classic','Classic']],mode,v=>put(MODE_KEY,v==='classic'?'classic':null));
   const shootHead=document.createElement('h3');shootHead.className='hall-dialog-section';
   shootHead.innerHTML=' Shooting <small class="hall-dialog-section-note">Applies from the next round</small>';
-  const firstRow=choice('perfectFirstShot','Perfect first shot','First shot while standing still goes exactly where you aim (VALORANT has a small random spread).',
+  const firstRow=choice('perfectFirstShot','Perfect first shot','Your first shot while standing still goes exactly where you aim. VALORANT adds a small random spread (Vandal 0.25\u00b0) that makes far headshots partly luck.',
    [['off','Off'],['on','On']],firstShot,v=>put(FIRST_KEY,v==='on'?'1':null));
   anchor.after(head,modeRow,shootHead,firstRow);
   function render(){
