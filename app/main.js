@@ -121,6 +121,10 @@ const UI_SCRIPT_BATCH = UI_SCRIPTS.map(([name, source]) =>
 const SHOT_LOOP_FILE = "/next/js/OkAdunfX.js";
 const SHOT_LOOP_FROM = 'xe.kind==="shot"&&(Kt.push(xe.tick*ve)';
 const SHOT_LOOP_TO = 'xe.kind==="shot"&&(window.__aimShot?.(xe),Kt.push(xe.tick*ve)';
+// The same frame loop also hands the round's state to the graph once per frame, so the
+// end-of-round summary can trace where the player walked (state.player.position, state.tick).
+const ROUTE_LOOP_FROM = "const ce=hs(de);for(const xe of Cn)";
+const ROUTE_LOOP_TO = "const ce=hs(de);window.__aimTick?.(ce);for(const xe of Cn)";
 
 // The site's English translator garbles some Vietnamese strings. Serve a thin
 // wrapper in its place that applies translations.js first; the original module
@@ -366,7 +370,8 @@ function handleRequest(req, res) {
     if (file) {
       const source = fs.readFileSync(file, "utf-8");
       if (!source.includes(SHOT_LOOP_FROM)) console.log("SHOT GRAPH: frame loop changed, graph gets no shots");
-      const body = Buffer.from(source.replace(SHOT_LOOP_FROM, SHOT_LOOP_TO), "utf-8");
+      if (!source.includes(ROUTE_LOOP_FROM)) console.log("SHOT GRAPH: frame loop changed, summary gets no route");
+      const body = Buffer.from(source.replace(ROUTE_LOOP_FROM, ROUTE_LOOP_TO).replace(SHOT_LOOP_FROM, SHOT_LOOP_TO), "utf-8");
       res.writeHead(200, { "Content-Type": "text/javascript", "Content-Length": body.length, "Cache-Control": "no-cache" });
       res.end(req.method === "HEAD" ? undefined : body);
       return;

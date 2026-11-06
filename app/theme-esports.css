@@ -353,6 +353,38 @@ body.al-training-active .aim-frame-meter { display:block; }
 .es-shotgraph-seg button + button { border-left: none; }
 .es-shotgraph-seg button:hover { color: #fff; background: #1e232d; }
 .es-shotgraph-seg button.is-on { background: #ff4655; border-color: #ff4655; color: #fff; }
+.es-shotgraph-seg button:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
+/* end-of-round summary inside the result card, above its buttons.
+   Orange = shots fired standing still, blue = shots fired while moving (same as the graph). */
+.es-shotgraph-sum {
+  --still: #ff9d42; --moving: #4cb2ff;
+  display: flex; gap: 22px; align-items: flex-start;
+  margin: 0; padding: 18px 20px;
+  border-top: 1px solid #272d39;
+  color: #d6d9df; font: 13px/1.4 "Bahnschrift", "Segoe UI", sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.es-shotgraph-sum-map { flex: none; display: block; border: 1px solid #272d39; background: #0d1015; }
+.es-shotgraph-sum-text { flex: 1; min-width: 0; }
+.es-shotgraph-sum h3 { margin: 0 0 4px; color: #fff; font: 700 17px/1.2 "Bahnschrift", "Segoe UI", sans-serif; font-stretch: 75%; letter-spacing: .02em; }
+.es-shotgraph-sum-lead { margin: 0 0 8px; color: #b9bfca; }
+.es-shotgraph-sum-lead b { font-weight: 700; }
+.es-shotgraph-sum .is-still { color: var(--still); }
+.es-shotgraph-sum .is-moving { color: var(--moving); }
+.es-shotgraph-sum-split { display: flex; height: 6px; max-width: 440px; margin: 0 0 12px; background: #272d39; }
+.es-shotgraph-sum-split i { display: block; flex-basis: 0; min-width: 0; }
+.es-shotgraph-sum-split i.is-still { background: var(--still); }
+.es-shotgraph-sum-split i.is-moving { background: var(--moving); }
+.es-shotgraph-sum table { border-collapse: collapse; width: 100%; max-width: 440px; }
+.es-shotgraph-sum th, .es-shotgraph-sum td { padding: 4px 0; text-align: left; font-weight: 400; border-bottom: 1px solid #1f242e; }
+.es-shotgraph-sum tbody th { color: #8b93a1; width: 40%; }
+.es-shotgraph-sum thead th { font-weight: 700; font-size: 12px; padding-top: 0; }
+.es-shotgraph-sum td { color: #fff; font-weight: 600; width: 30%; }
+.es-shotgraph-sum td small { margin-left: 4px; color: #8b93a1; font-size: 11px; font-weight: 400; }
+.es-shotgraph-sum-note { margin: 10px 0 0; color: #8b93a1; font-size: 12px; }
+@media (max-width: 760px) {
+  .es-shotgraph-sum { flex-direction: column; }
+}
 /* narrower windows: icons only (names stay in the tooltip) */
 @media (max-width: 1700px) {
   html[data-aim-local]:not(#es) body .es-bar-btn span { display: none; }
