@@ -46,17 +46,19 @@ export const SMOKE_AGENTS =[["brimstone", "Brimstone"], ["omen", "Omen"], ["astr
 
 // How well a bot shoots back. reaction: seconds from seeing you to the first shot;
 // error: aim error in degrees; heads: whether it aims at your head (hard) or body/legs.
+// stop: % chance it stops before shooting with Human-like bots (Settings > Bots); the game's
+// copy of this table is in tools/bot_patch.py, keep them in step.
 export const RANKS = [
   ["off", "Doesn't shoot", null],
-  ["iron", "Iron", { reaction: [0.9, 1.1], error: 9, heads: false }],
-  ["bronze", "Bronze", { reaction: [0.75, 0.9], error: 7, heads: false }],
-  ["silver", "Silver", { reaction: [0.6, 0.75], error: 5.5, heads: false }],
-  ["gold", "Gold", { reaction: [0.5, 0.62], error: 4.5, heads: false }],
-  ["platinum", "Platinum", { reaction: [0.42, 0.52], error: 3.5, heads: true }],
-  ["diamond", "Diamond", { reaction: [0.34, 0.44], error: 2.8, heads: true }],
-  ["ascendant", "Ascendant", { reaction: [0.28, 0.36], error: 2.2, heads: true }],
-  ["immortal", "Immortal", { reaction: [0.22, 0.3], error: 1.6, heads: true }],
-  ["radiant", "Radiant", { reaction: [0.17, 0.23], error: 1.1, heads: true }],
+  ["iron", "Iron", { reaction: [0.9, 1.1], error: 9, heads: false, stop: 10 }],
+  ["bronze", "Bronze", { reaction: [0.75, 0.9], error: 7, heads: false, stop: 20 }],
+  ["silver", "Silver", { reaction: [0.6, 0.75], error: 5.5, heads: false, stop: 30 }],
+  ["gold", "Gold", { reaction: [0.5, 0.62], error: 4.5, heads: false, stop: 45 }],
+  ["platinum", "Platinum", { reaction: [0.42, 0.52], error: 3.5, heads: true, stop: 55 }],
+  ["diamond", "Diamond", { reaction: [0.34, 0.44], error: 2.8, heads: true, stop: 65 }],
+  ["ascendant", "Ascendant", { reaction: [0.28, 0.36], error: 2.2, heads: true, stop: 75 }],
+  ["immortal", "Immortal", { reaction: [0.22, 0.3], error: 1.6, heads: true, stop: 85 }],
+  ["radiant", "Radiant", { reaction: [0.17, 0.23], error: 1.1, heads: true, stop: 90 }],
 ];
 
 // What a bot does. Each one is a card in the "Add" tray.

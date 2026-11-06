@@ -1855,7 +1855,7 @@ function botPanel(b) {
 
   out.push(h("div", { class: "group" },
     field("Shoots back", rankGrid(b.shoots, (v) => edit(mod((it) => { it.shoots = v; if (v !== "off" && !it.weapon) it.weapon = "vandal"; }))),
-      b.shoots === "off" ? "Pick a rank and it shoots back like a player of that rank." : `Reacts in about ${RANKS.find((r) => r[0] === b.shoots)[2].reaction[0].toFixed(2)} s${RANKS.find((r) => r[0] === b.shoots)[2].heads ? " and goes for your head" : ""}.${d.round.die ? "" : " Turn on \"Bots can kill me\" in drill settings for real danger."}`)));
+      b.shoots === "off" ? "Pick a rank and it shoots back like a player of that rank." : `Reacts in about ${RANKS.find((r) => r[0] === b.shoots)[2].reaction[0].toFixed(2)} s${RANKS.find((r) => r[0] === b.shoots)[2].heads ? " and goes for your head" : ""}; stops to shoot ${RANKS.find((r) => r[0] === b.shoots)[2].stop}% of the time with Human-like bots.${d.round.die ? "" : " Turn on \"Bots can kill me\" in drill settings for real danger."}`)));
 
   out.push(h("div", { class: "group" },
     field("After a kill", clear ? h("p", { class: "help" }, "Stays dead (the goal is Clear them all).") :
@@ -2127,7 +2127,8 @@ function routeList(b) {
 }
 
 function rankGrid(value, pick) {
-  return h("div", { class: "ranks" }, RANKS.map(([id, label]) => h("button", { class: (id === "off" ? "off " : "") + (id === value ? "on" : ""), onclick: () => pick(id), title: label }, id === "off" ? "Doesn't shoot" : label)));
+  return h("div", { class: "ranks" }, RANKS.map(([id, label]) => h("button", { class: (id === "off" ? "off " : "") + (id === value ? "on" : ""), onclick: () => pick(id), title: label },
+    id === "off" ? null : h("img", { src: `/aim-ranks/${id}.png`, alt: "", draggable: "false" }), id === "off" ? "Doesn't shoot" : label)));
 }
 function lookGrid(value, pick) {
   return h("div", { class: "looks" }, LOOKS.map(([id, label]) => h("button", { class: id === value ? "on" : "", onclick: () => pick(id) }, label)));
