@@ -56,8 +56,11 @@ try {
     $code = Run 'npm.cmd' ci --no-audit --no-fund
     if ($code -ne 0) {
       Log "npm ci failed (exit $code), trying npm install"
+      # npm install may rewrite package-lock.json; put the original bytes back.
+      $lockFile = Join-Path $app 'package-lock.json'
+      $lockBytes = [IO.File]::ReadAllBytes($lockFile)
       $code = Run 'npm.cmd' install --no-audit --no-fund
-      if ($git) { $null = Run $git -C $root checkout -- app/package-lock.json }
+      [IO.File]::WriteAllBytes($lockFile, $lockBytes)
     }
     if ($code -ne 0) { throw "npm install failed (exit $code)" }
     if (-not (Test-Path $electron)) {
