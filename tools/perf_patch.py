@@ -14,6 +14,9 @@ rebuild (objects with a pivot always rebuild); moving objects, bones and cameras
 still update every frame.
 
     python -I tools/perf_patch.py
+
+Note: the mods bundle has since gained hand edits and tools/lighting_patch.py changes that
+this script does not make. Running it regenerates the bundle from site/ and drops them.
 """
 import os
 

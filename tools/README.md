@@ -8,6 +8,7 @@ Run them from the repository root with Python 3.
 | --- | --- |
 | `make_icon.py` | Draws the app icon into `app/build/` |
 | `perf_patch.py` | Writes the performance-patched game script into `app/mods/` |
+| `lighting_patch.py` | Adds the Map lighting option (Enhanced / Original) to the patched game script in `app/mods/` |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
 ```bash
