@@ -61,6 +61,23 @@ function list() {
     .sort((a, b) => b.created - a.created);
 }
 
+// The folder of the backup `id`, or null. Only an existing backup's folder name is accepted
+// (the names list() gives, like "2026-11-05_10-00-00 manual"), so a crafted id such as
+// "../.." can never point outside the backups folder.
+function backupDir(id, base = root()) {
+  if (typeof id !== "string" || !id) return null;
+  let names;
+  try {
+    names = fs.readdirSync(base, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+  } catch {
+    return null;
+  }
+  if (!names.includes(id)) return null;
+  const dir = path.resolve(base, id);
+  if (path.dirname(dir) !== path.resolve(base) || !fs.existsSync(path.join(dir, "Local Storage"))) return null;
+  return dir;
+}
+
 function pruneLaunchBackups() {
   for (const old of list().filter((b) => b.reason === "launch").slice(KEEP_LAUNCH)) {
     fs.rmSync(path.join(root(), old.id), { recursive: true, force: true });
@@ -108,8 +125,8 @@ function onStartup() {
     if (fs.existsSync(pendingFile)) {
       const { id } = JSON.parse(fs.readFileSync(pendingFile, "utf-8"));
       fs.rmSync(pendingFile, { force: true });
-      const from = path.join(root(), id);
-      if (fs.existsSync(path.join(from, "Local Storage"))) {
+      const from = backupDir(id);
+      if (from) {
         copyInto(userData(), "before restore");
         swapIn(from);
       }
@@ -122,7 +139,7 @@ function onStartup() {
 }
 
 function scheduleRestore(id) {
-  if (!fs.existsSync(path.join(root(), id, "Local Storage"))) throw new Error("That backup is missing its data.");
+  if (!backupDir(id)) throw new Error("That backup is missing its data.");
   fs.writeFileSync(path.join(root(), PENDING), JSON.stringify({ id }));
   // Quit normally (not app.exit) so Chromium finishes writing the current data first.
   setTimeout(() => { app.relaunch(); app.quit(); }, 300);
@@ -137,21 +154,29 @@ async function backUpLive(reason) {
 }
 
 // IPC handlers for the Backups panel (window.__aimDesktop.backups in preload.js).
-function register(ipcMain, getWindow) {
-  ipcMain.handle("aim:backups:list", () => list());
-  ipcMain.handle("aim:backups:create", () => backUpLive("manual"));
-  ipcMain.handle("aim:backups:restore", (_e, id) => scheduleRestore(String(id)));
-  ipcMain.handle("aim:backups:open", () => { fs.mkdirSync(root(), { recursive: true }); shell.openPath(root()); });
-  ipcMain.handle("aim:backups:export", async (_e, id) => {
+// allowed(event): whether the call comes from a game page; anything else is refused first.
+function register(ipcMain, getWindow, allowed) {
+  const handle = (channel, fn) => ipcMain.handle(channel, (event, ...args) => {
+    if (!allowed || !allowed(event)) throw new Error("Backups are only available in the trainer.");
+    return fn(...args);
+  });
+  handle("aim:backups:list", () => list());
+  handle("aim:backups:create", () => backUpLive("manual"));
+  handle("aim:backups:restore", (id) => scheduleRestore(String(id)));
+  handle("aim:backups:open", () => { fs.mkdirSync(root(), { recursive: true }); shell.openPath(root()); });
+  handle("aim:backups:export", async (id) => {
+    // No id: back up the live data first, then export that.
+    const chosen = id ? backupDir(String(id)) : null;
+    if (id && !chosen) throw new Error("That backup is missing its data.");
     const res = await dialog.showOpenDialog(getWindow(), { title: "Choose where to save the backup", properties: ["openDirectory", "createDirectory"] });
     if (res.canceled || !res.filePaths[0]) return null;
-    const source = id ? path.join(root(), String(id)) : path.join(root(), await backUpLive("export"));
+    const source = chosen || path.join(root(), await backUpLive("export"));
     const dest = path.join(res.filePaths[0], `AimTrainer backup ${stamp()}`);
     fs.cpSync(source, dest, { recursive: true });
     shell.showItemInFolder(path.join(dest, "backup.json"));
     return dest;
   });
-  ipcMain.handle("aim:backups:import", async () => {
+  handle("aim:backups:import", async () => {
     const res = await dialog.showOpenDialog(getWindow(), { title: "Choose an AimTrainer backup folder", properties: ["openDirectory"] });
     if (res.canceled || !res.filePaths[0]) return null;
     const from = res.filePaths[0];
@@ -162,4 +187,4 @@ function register(ipcMain, getWindow) {
   });
 }
 
-module.exports = { onStartup, register };
+module.exports = { onStartup, register, backupDir };

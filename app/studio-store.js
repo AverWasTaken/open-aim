@@ -11,6 +11,12 @@ const TYPES = new Set(["aim", "hold", "flash", "moment", "basic"]);
 const dir = () => path.join(app.getPath("userData"), "studio-drills");
 const fileOf = (code) => path.join(dir(), `${String(code).replace(/[^0-9a-f]/gi, "")}.json`);
 
+// Write next to the file, then rename over it, so a crash never leaves half a file.
+function writeAtomic(file, text) {
+  fs.writeFileSync(file + ".tmp", text);
+  fs.renameSync(file + ".tmp", file);
+}
+
 function read(file) {
   try {
     const entry = JSON.parse(fs.readFileSync(file, "utf-8"));
@@ -61,10 +67,7 @@ function save({ drill, doc, type, keepTime }) {
   };
   const saved = { ...drill, code };
   fs.mkdirSync(dir(), { recursive: true });
-  // Write next to the file, then rename over it, so a crash never leaves half a drill.
-  const tmp = fileOf(code) + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify({ drill: saved, item, scene }));
-  fs.renameSync(tmp, fileOf(code));
+  writeAtomic(fileOf(code), JSON.stringify({ drill: saved, item, scene }));
   return { code, drill: saved };
 }
 
@@ -89,7 +92,8 @@ function record({ doc }) {
     sceneKey: item.sceneKey, schemaVersion: 2, shareCode: RECORD_CODE, updateTime: time, doc: text,
   };
   fs.mkdirSync(path.dirname(recordFile()), { recursive: true });
-  fs.writeFileSync(recordFile(), JSON.stringify({ item, scene }));
+  // The training list reads this file on every request, so never half-written.
+  writeAtomic(recordFile(), JSON.stringify({ item, scene }));
   return { code: RECORD_CODE };
 }
 
@@ -138,8 +142,7 @@ function runRename({ id, name }) {
   const file = runFile(id);
   const run = JSON.parse(fs.readFileSync(file, "utf-8"));
   run.name = runName(name);
-  fs.writeFileSync(file + ".tmp", JSON.stringify(run));
-  fs.renameSync(file + ".tmp", file);
+  writeAtomic(file, JSON.stringify(run));
   return run;
 }
 
@@ -162,17 +165,22 @@ function remove(code) {
   if (fs.existsSync(file)) fs.rmSync(file);
 }
 
-function register(ipcMain) {
-  ipcMain.handle("aim:studio:list", () => list());
-  ipcMain.handle("aim:studio:get", (_e, code) => get(code));
-  ipcMain.handle("aim:studio:save", (_e, payload) => save(payload || {}));
-  ipcMain.handle("aim:studio:remove", (_e, code) => remove(code));
-  ipcMain.handle("aim:studio:record", (_e, payload) => record(payload || {}));
-  ipcMain.handle("aim:studio:clearRecording", () => clearRecording());
-  ipcMain.handle("aim:studio:runs", () => runList());
-  ipcMain.handle("aim:studio:saveRun", (_e, payload) => runSave(payload || {}));
-  ipcMain.handle("aim:studio:renameRun", (_e, payload) => runRename(payload || {}));
-  ipcMain.handle("aim:studio:removeRun", (_e, id) => runRemove(id));
+// allowed(event): whether the call comes from a game page; anything else is refused first.
+function register(ipcMain, allowed) {
+  const handle = (channel, fn) => ipcMain.handle(channel, (event, ...args) => {
+    if (!allowed || !allowed(event)) throw new Error("Studio drills are only available in the trainer.");
+    return fn(...args);
+  });
+  handle("aim:studio:list", () => list());
+  handle("aim:studio:get", (code) => get(code));
+  handle("aim:studio:save", (payload) => save(payload || {}));
+  handle("aim:studio:remove", (code) => remove(code));
+  handle("aim:studio:record", (payload) => record(payload || {}));
+  handle("aim:studio:clearRecording", () => clearRecording());
+  handle("aim:studio:runs", () => runList());
+  handle("aim:studio:saveRun", (payload) => runSave(payload || {}));
+  handle("aim:studio:renameRun", (payload) => runRename(payload || {}));
+  handle("aim:studio:removeRun", (id) => runRemove(id));
 }
 
 module.exports = { all, recording, register };

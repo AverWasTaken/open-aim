@@ -13,7 +13,8 @@
     "build": "electron-builder --win portable nsis",
     "check": "node ../scripts/build-scenarios.mjs --check",
     "test:import": "node --test ../scripts/test-valorant-import.cjs",
-    "test:updates": "node --test ../scripts/test-release-updates.cjs"
+    "test:updates": "node --test ../scripts/test-release-updates.cjs",
+    "test:guards": "node --test ../scripts/test-shell-guards.cjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
@@ -42,6 +43,7 @@
       "release-updates-ui.js",
       "release-updates.css",
       "backups.js",
+      "local-guard.js",
       "offline.css",
       "studio-store.js",
       "studio-launch.js",

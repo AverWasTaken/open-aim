@@ -1,5 +1,5 @@
 // Desktop wrapper for the offline open-aim game.
-// Serves the site folder on 127.0.0.1:8000 exactly like aim_offline.py and
+// Serves the site folder (with mods/ on top) on 127.0.0.1:8000 and
 // opens http://localhost:8000/aim in a window.
 const { app, BrowserWindow, Menu, dialog, ipcMain, screen, session, shell } = require("electron");
 const fs = require("fs");
@@ -7,6 +7,7 @@ const http = require("http");
 const path = require("path");
 const backups = require("./backups");
 const studio = require("./studio-store");
+const guard = require("./local-guard");
 
 // Testing only: AIM_PROFILE=<folder> keeps all player data and backups in that folder,
 // so test runs never touch the real save.
@@ -27,11 +28,10 @@ const ROOT = app.isPackaged ? process.resourcesPath : path.join(__dirname, "..")
 const OUT = path.join(ROOT, "site");
 const META_FILE = path.join(ROOT, "site_meta.json");
 // Files in mods/ replace the site file at the same URL path (e.g. a weapon skin
-// in mods/aim-viewmodel/). Packaged: resources/mods. Dev: desktop/mods.
+// in mods/aim-viewmodel/). Packaged: resources/mods. Dev: app/mods.
 const MODS = app.isPackaged ? path.join(process.resourcesPath, "mods") : path.join(__dirname, "mods");
 
-// Same extra types aim_offline.py registers, plus the common ones Python's
-// mimetypes module knows.
+// The game's own types (wasm, ktx2, glb, ...), plus the common web ones.
 const MIME = {
   ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm",
   ".ktx2": "image/ktx2", ".glb": "model/gltf-binary", ".gltf": "model/gltf+json",
@@ -157,7 +157,9 @@ const SCENE_PREFIX = "/prod-api/api/v1/public/val/aimlab/scenes/";
 let trainingSet = { items: [], scenes: {} };
 try {
   trainingSet = JSON.parse(fs.readFileSync(path.join(__dirname, "training-set.json"), "utf-8"));
-} catch {}
+} catch (err) {
+  console.warn(`TRAINING SET: not loaded (${err && err.message})`);
+}
 
 const REMOVED_SCRIPTS = new Set([
   "/_assets/r20261021-1/js/performance-access.js",
@@ -187,6 +189,13 @@ try {
 } catch {}
 const VSYNC = shellSettings.vsync === true;
 
+// Write next to the file, then rename over it, so a crash never leaves half a file.
+function saveShellSettings(next) {
+  const tmp = SHELL_FILE + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
+  fs.renameSync(tmp, SHELL_FILE);
+}
+
 // Performance: no vsync, discrete GPU, no throttling. Measured on a 240 Hz
 // display: vsync off renders at the full refresh rate (240 FPS), while adding
 // "disable-frame-rate-limit" drops this Chromium back to a fixed 60 FPS.
@@ -208,11 +217,12 @@ app.commandLine.appendSwitch("force-prefers-no-reduced-motion");
 let meta = {};
 let mainWindow = null;
 
+// urlPath is already decoded (handle() decodes once). null: the path would leave OUT.
 function diskPath(urlPath) {
-  let p = decode(urlPath);
+  let p = urlPath;
   if (p.endsWith("/")) p += "index.html";
-  const parts = p.split("/").filter((x) => x !== "" && x !== "." && x !== "..");
-  return parts.length ? path.join(OUT, ...parts) : path.join(OUT, "index.html");
+  const file = guard.safeJoin(OUT, p);
+  return file === path.resolve(OUT) ? path.join(OUT, "index.html") : file;
 }
 
 function decode(s) {
@@ -239,9 +249,10 @@ function isDir(p) {
   }
 }
 
-function resolve(reqUrl) {
-  const urlPath = decode(new URL(reqUrl, ORIGIN).pathname);
+// urlPath is already decoded; it is never decoded again (no "%252e" tricks).
+function resolve(urlPath) {
   const p = diskPath(urlPath);
+  if (p === null) return [urlPath, null];
   if (isDir(p)) {
     for (const name of [SELF_NAME, "index.html"]) {
       if (isFile(path.join(p, name))) return [urlPath, path.join(p, name)];
@@ -251,7 +262,31 @@ function resolve(reqUrl) {
   return [urlPath, isFile(p) ? p : null];
 }
 
+// The player's Studio drills (studio-store.js), newest first, and while you record a
+// copycat's run, the recording scene. Read from disk only for the requests that use them.
+function myDrills() {
+  const rec = studio.recording();
+  return rec ? [rec, ...studio.all()] : studio.all();
+}
+
+// A failing request answers 500 instead of throwing in the main process.
 function handle(req, res) {
+  try {
+    handleRequest(req, res);
+  } catch (err) {
+    console.error(`SERVER: ${req.url}`, err);
+    if (!res.headersSent) res.writeHead(500).end();
+    else res.destroy();
+  }
+}
+
+function handleRequest(req, res) {
+  // Only the game's own pages: a web page reaching 127.0.0.1 through its own domain
+  // (DNS rebinding) sends that domain as the Host.
+  if (!guard.isLocalHost(req.headers.host, PORT)) {
+    res.writeHead(403).end();
+    return;
+  }
   if (req.method !== "GET" && req.method !== "HEAD") {
     // Online features (scores, accounts) don't exist offline.
     res.writeHead(404).end();
@@ -291,9 +326,9 @@ function handle(req, res) {
     return;
   }
   if (requested.startsWith(STUDIO_PATH)) {
-    const parts = requested.slice(STUDIO_PATH.length).split("/").filter((x) => x !== "" && x !== "." && x !== "..");
-    const file = path.join(STUDIO_DIR, ...(parts.length ? parts : ["index.html"]));
-    if (!isFile(file)) {
+    let file = guard.safeJoin(STUDIO_DIR, requested.slice(STUDIO_PATH.length));
+    if (file === path.resolve(STUDIO_DIR)) file = path.join(STUDIO_DIR, "index.html");
+    if (!file || !isFile(file)) {
       res.writeHead(404).end();
       return;
     }
@@ -302,10 +337,8 @@ function handle(req, res) {
     res.end(req.method === "HEAD" ? undefined : body);
     return;
   }
-  // The training list also carries the player's Studio drills (studio-store.js), newest first,
-  // and while you record a copycat's run, the recording scene.
-  const rec = studio.recording();
-  const mine = rec ? [rec, ...studio.all()] : studio.all();
+  // The training list also carries the player's Studio drills (see myDrills).
+  const mine = requested === WORKSHOP_LIST || requested.startsWith(SCENE_PREFIX) ? myDrills() : [];
   if (requested === WORKSHOP_LIST && (trainingSet.items.length || mine.length)) {
     const [, listFile] = resolve(requested);
     try {
@@ -314,7 +347,9 @@ function handle(req, res) {
       list.data = [...mine.map((e) => e.item), ...list.data, ...trainingSet.items.filter((x) => !known.has(x.shareCode))];
       sendJson(req, res, list);
       return;
-    } catch {}
+    } catch (err) {
+      console.warn(`WORKSHOP LIST: serving the plain list (${err && err.message})`);
+    }
   }
   if (requested.startsWith(SCENE_PREFIX)) {
     const code = requested.slice(SCENE_PREFIX.length);
@@ -326,8 +361,8 @@ function handle(req, res) {
     }
   }
   if (requested.endsWith(SHOT_LOOP_FILE)) {
-    const override = path.join(MODS, ...requested.split("/").filter(Boolean));
-    const file = isFile(override) ? override : resolve(requested)[1];
+    const override = guard.safeJoin(MODS, requested);
+    const file = override && isFile(override) ? override : resolve(requested)[1];
     if (file) {
       const source = fs.readFileSync(file, "utf-8");
       if (!source.includes(SHOT_LOOP_FROM)) console.log("SHOT GRAPH: frame loop changed, graph gets no shots");
@@ -343,8 +378,7 @@ function handle(req, res) {
     res.end(req.method === "HEAD" ? undefined : body);
     return;
   }
-  const parts = requested.split("/").filter((x) => x !== "" && x !== "." && x !== "..");
-  const mod = parts.length ? path.join(MODS, ...parts) : null;
+  const mod = guard.safeJoin(MODS, requested);
   if (mod && isFile(mod)) {
     const body = fs.readFileSync(mod);
     res.writeHead(200, {
@@ -355,7 +389,7 @@ function handle(req, res) {
     res.end(req.method === "HEAD" ? undefined : body);
     return;
   }
-  const [urlPath, file] = resolve(requested === ORIGINAL_TRANSLATOR ? TRANSLATOR : req.url);
+  const [urlPath, file] = resolve(requested === ORIGINAL_TRANSLATOR ? TRANSLATOR : requested);
   if (file === null) {
     if (urlPath === "/" || urlPath === "/index.html") {
       res.writeHead(302, { Location: START_PATH }).end();
@@ -386,14 +420,9 @@ function startServer() {
   });
 }
 
-function isLocal(url) {
-  try {
-    const u = new URL(url);
-    return (u.hostname === "localhost" || u.hostname === HOST) && Number(u.port) === PORT;
-  } catch {
-    return false;
-  }
-}
+const isLocal = (url) => guard.isLocalUrl(url, PORT);
+// IPC from the game's own pages only (backups, Studio drills).
+const fromGame = (event) => guard.fromLocalPage(event, PORT);
 
 function createWindow(url) {
   const win = new BrowserWindow({
@@ -437,7 +466,7 @@ function createWindow(url) {
       win.setFullScreen(on);
       shellSettings.fullscreen = on;
       try {
-        fs.writeFileSync(SHELL_FILE, JSON.stringify(shellSettings, null, 2));
+        saveShellSettings(shellSettings);
       } catch (err) {
         console.log(`SHELL SETTINGS: ${err}`);
       }
@@ -495,7 +524,7 @@ ipcMain.on("aim:shell:info", (event) => {
 ipcMain.on("aim:shell:vsync", (_event, on) => {
   shellSettings.vsync = on === true;
   try {
-    fs.writeFileSync(SHELL_FILE, JSON.stringify(shellSettings, null, 2));
+    saveShellSettings(shellSettings);
   } catch (err) {
     console.log(`SHELL SETTINGS: ${err}`);
   }
@@ -517,13 +546,19 @@ app.on("second-instance", () => {
 });
 
 // Player data backups (backups.js): restore a scheduled backup, then back up, before the window opens.
-backups.register(ipcMain, () => mainWindow);
+backups.register(ipcMain, () => mainWindow, fromGame);
+// The import's VSync change: a failed write is passed on, so the import rolls back.
 require("./valorant-import-ipc").register(() => mainWindow, on => {
   const next = { ...shellSettings, vsync: on };
-  fs.writeFileSync(SHELL_FILE, JSON.stringify(next, null, 2));
+  try {
+    saveShellSettings(next);
+  } catch (err) {
+    console.warn(`SHELL SETTINGS: ${err}`);
+    throw err;
+  }
   shellSettings.vsync = on;
 });
-studio.register(ipcMain);
+studio.register(ipcMain, fromGame);
 
 app.whenReady().then(async () => {
   backups.onStartup();
@@ -551,7 +586,7 @@ app.whenReady().then(async () => {
     await startServer();
   } catch (err) {
     const msg = err && err.code === "EADDRINUSE"
-      ? `Port ${PORT} is already in use by another program.\n\nClose it (for example a running aim_offline.py) and start AimTrainer again.`
+      ? `Port ${PORT} is already in use by another program.\n\nClose it (for example another AimTrainer copy) and start AimTrainer again.`
       : `Could not start the local game server on port ${PORT}:\n${err && err.message}`;
     dialog.showErrorBox("AimTrainer", msg);
     app.quit();
