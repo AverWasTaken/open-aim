@@ -43,6 +43,17 @@
     return loading;
   }
   load();
+  // Drills whose spots are picked by rank (app/mods/aim-ranks/spot-scores.json, tools/spot_scores.mjs):
+  // their picker says so under the rank tiles.
+  let spotCodes = null;
+  fetch("/aim-ranks/spot-scores.json", { cache: "no-cache" })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((j) => {
+      const set = new Set();
+      for (const e of Object.values(j?.scenes || {})) for (const c of e?.codes || []) set.add(c);
+      spotCodes = set;
+    })
+    .catch(() => {});
   // Studio drills change while the app runs; read again when the window comes back.
   addEventListener("focus", () => load());
 
@@ -123,11 +134,12 @@
     shade.innerHTML = `<section class="es-tool aim-pick" role="dialog" aria-modal="true" aria-label="Pick enemy rank">
       <header class="es-tool-head"><div><h2></h2><p>Pick who you face. Enter plays your last pick, Esc cancels.</p></div>
       <button type="button" class="es-tool-x" aria-label="Close">✕</button></header>
-      <div class="es-tool-body" role="radiogroup" aria-label="Enemy rank"><div class="aim-pick-top"></div><div class="aim-pick-grid"></div><p class="aim-pick-note" role="status"></p></div></section>`;
+      <div class="es-tool-body" role="radiogroup" aria-label="Enemy rank"><div class="aim-pick-top"></div><div class="aim-pick-grid"></div><p class="aim-pick-hint" hidden>Low ranks stand on common spots, high ranks use off-angles.</p><p class="aim-pick-note" role="status"></p></div></section>`;
     shade.querySelector("h2").textContent = group.title || item.name || "Drill";
     const top = shade.querySelector(".aim-pick-top");
     const grid = shade.querySelector(".aim-pick-grid");
     const note = shade.querySelector(".aim-pick-note");
+    if (spotCodes && (spotCodes.has(group.code) || spotCodes.has(item.shareCode))) shade.querySelector(".aim-pick-hint").hidden = false;
     const notes = {};
     if (group.easy) {
       top.append(tile("none", "No return fire", "Bots don't shoot", NONE_ICON));

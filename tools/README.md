@@ -15,6 +15,8 @@ Run them from the repository root with Python 3.
 | `loadsafe_patch.py` | Map loading: a collision worker that never answers (60 s), crashes or can't load no longer hangs the load (main-thread build instead), plus `[aim-load]` console lines with stage timings, trainer download timing and retry warnings. Edits the mods `BiMsX6Xn.js` and `ChJ6FlD4.js` (both copies). |
 | `rankpick_patch.py` | Rank picker on play: makes `wl` (the one lobby launch function) in the mods `ChJ6FlD4.js` (both copies) hand the drill to `window.__aimPlayGate` (`app/rank-picker.js`) first. Details in the script's docstring. |
 | `aimcenter_patch.py` | Puts the aim point exactly under the drawn crosshair (a sub-pixel camera shift when the game view has an odd size, e.g. a maximized 2560x1439 window; render only, no sim change) and makes the simple replay resimulator `Zn` in the mods `C_VPDXvn.js` pass the same recoil/movement/shotTiming/zoomSensitivity options as the replay player. Edits the mods `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details in the script's docstring. |
+| `spotbias_patch.py` | Rank-biased spot choice: with an explicit enemy rank, drills with a random spot pool (`rules.spawnerPick`) pick common spots more often for low ranks and off-angles for high ranks (scores from `spot_scores.mjs`, saved in the replay meta as `spotScores`). Edits the mods `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details in the script's docstring. |
+| `spot_scores.mjs` | Writes `app/mods/aim-ranks/spot-scores.json`: an off-angle score per spot of every shipped drill with a random spot pool, from the game's own bot-order planner. Runs against a test copy of the app (rerun steps below). |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
@@ -39,6 +41,7 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 6. `loadsafe_patch.py`
 7. `rankpick_patch.py` (refuses to run twice: it looks for `__aimPlayGate`)
 8. `aimcenter_patch.py` (refuses to run twice: it looks for `__aimCrossAlign`)
+9. `spotbias_patch.py` (needs `aimcenter_patch.py`; refuses to run twice: it looks for `aimSpotWeights`)
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
@@ -53,3 +56,21 @@ either order. `app/main.js` also patches `OkAdunfX.js` while serving it (`SHOT_L
 
 To start the bot patch over: `git checkout` the three mods files, delete both mods
 `C_VPDXvn.js` copies, then run `python -I tools/bot_patch.py`.
+
+## Spot scores (rank-biased spots)
+
+`app/mods/aim-ranks/spot-scores.json` must be rebuilt when a shipped drill's spots change (a new
+drill with `rules.spawnerPick`, moved spawners, a different pool). `npm run test:spots` (in `app/`)
+fails when a shipped drill has no entry. To rebuild:
+
+```bash
+# 1. a test copy of the app with a debug port (empty profile folder, free ports)
+AIM_PROFILE=/tmp/aim-test AIM_PORT=8141 app/node_modules/.bin/electron app --remote-debugging-port=9351
+# 2. in another terminal
+node tools/spot_scores.mjs --cdp 9351 --plots /tmp/spot-plots
+```
+
+`--plots` writes a top-down picture per drill (minimap, planned route, spots coloured from blue =
+common to red = off-angle) to check the scores by eye. `--only <code>,<code>` rescores some drills
+and keeps the rest of the file. Replays keep the scores they were recorded with (replay meta), so
+a rebuild never changes old replays.

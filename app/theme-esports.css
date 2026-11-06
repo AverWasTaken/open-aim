@@ -1094,6 +1094,7 @@ html[data-aim-local]:not(#es) body :is(.es-tool button.es-tool-primary) { clip-p
 .aim-pick-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .aim-pick-name { font-size: 13px; line-height: 1.1; }
 .aim-pick-tile small { font: 400 12px "Segoe UI", sans-serif; text-transform: none; letter-spacing: 0; color: #9aa1ae; }
+.aim-pick-hint { margin: 10px 0 0; font-size: 12px; line-height: 1.4; color: #9aa3ad; }
 .aim-pick-note { min-height: 20px; margin: 12px 0 0; font-size: 13px; line-height: 1.5; color: #c9ced6; }
 @media (max-width: 760px) { .aim-pick-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
 @media (max-width: 460px) { .aim-pick-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .aim-pick-top { grid-template-columns: 1fr; } }

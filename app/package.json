@@ -14,7 +14,8 @@
     "check": "node ../scripts/build-scenarios.mjs --check",
     "test:import": "node --test ../scripts/test-valorant-import.cjs",
     "test:guards": "node --test ../scripts/test-shell-guards.cjs",
-    "test:variants": "node --test ../scripts/test-drill-variants.cjs"
+    "test:variants": "node --test ../scripts/test-drill-variants.cjs",
+    "test:spots": "node --test ../scripts/test-spot-bias.cjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",

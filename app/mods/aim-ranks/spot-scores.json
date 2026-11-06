@@ -1,0 +1,741 @@
+{
+ "version": 1,
+ "about": "Off-angle score p (0 common spot .. 1 off-angle) per spot, by aimSpotKey; made by tools/spot_scores.mjs",
+ "scenes": {
+  "8ba11977b909ef18": {
+   "codes": [
+    "0663496eae588ad2",
+    "34bc05fc77508a79",
+    "313818c034e0fb52"
+   ],
+   "name": "困难-Bind — A attack through Showers",
+   "map": "duality",
+   "scores": {
+    "spawner-1": 0.333,
+    "spawner-2": 0.944,
+    "spawner-3": 0.833,
+    "spawner-4": 0.167,
+    "spawner-5": 0.056,
+    "spawner-6": 0,
+    "spawner-7": 0.222,
+    "spawner-8": 0.389,
+    "spawner-9": 0.444,
+    "spawner-10": 0.889,
+    "spawner-11": 0.556,
+    "spawner-12": 0.722,
+    "spawner-13": 0.611,
+    "spawner-14": 0.778,
+    "spawner-15": 0.278,
+    "spawner-16": 1,
+    "spawner-17": 0.5,
+    "spawner-18": 0.111,
+    "spawner-19": 0.667
+   }
+  },
+  "de81b274bc3c1bef": {
+   "codes": [
+    "0bde7807c506db39",
+    "03bd24fedb5bcd4c"
+   ],
+   "name": "简单 - Sunset B Main: pre-aim",
+   "map": "juliett",
+   "scores": {
+    "spawner-1": 0.941,
+    "spawner-2": 0.588,
+    "spawner-3": 0.529,
+    "spawner-4": 0.706,
+    "spawner-5": 0.118,
+    "spawner-6": 0.647,
+    "spawner-7": 0.059,
+    "spawner-8": 0.824,
+    "spawner-9": 0.353,
+    "spawner-10": 0.176,
+    "spawner-11": 0.294,
+    "spawner-12": 0,
+    "spawner-13": 0.471,
+    "spawner-14": 0.235,
+    "spawner-15": 0.765,
+    "spawner-16": 0.882,
+    "spawner-17": 1,
+    "spawner-18": 0.412
+   }
+  },
+  "c624d6f8ca15fcf5": {
+   "codes": [
+    "0d98806d4c5493c2",
+    "5268ac892259ed6f"
+   ],
+   "name": "困难-DDY's pre-aim: Haven Garage push (random)",
+   "map": "triad",
+   "scores": {
+    "spawner-1": 0.042,
+    "spawner-2": 0.208,
+    "spawner-3": 0.792,
+    "spawner-4": 0.583,
+    "spawner-5": 0.458,
+    "spawner-6": 0.625,
+    "spawner-7": 0.333,
+    "spawner-8": 0,
+    "spawner-9": 0.083,
+    "spawner-10": 0.125,
+    "spawner-11": 0.542,
+    "spawner-12": 0.75,
+    "spawner-13": 0.708,
+    "spawner-14": 0.958,
+    "spawner-15": 0.667,
+    "spawner-16": 0.875,
+    "spawner-17": 0.375,
+    "spawner-18": 0.417,
+    "spawner-19": 0.917,
+    "spawner-20": 0.167,
+    "spawner-21": 0.25,
+    "spawner-22": 0.292,
+    "spawner-23": 0.833,
+    "spawner-24": 0.5,
+    "spawner-25": 1
+   }
+  },
+  "9a44589d79633f50": {
+   "codes": [
+    "0e62efa6521a28b5",
+    "74984ecaccc098f7"
+   ],
+   "name": "简单-Corrode — Pre-aim a B main attack",
+   "map": "rook",
+   "scores": {
+    "spawner-1": 0.882,
+    "spawner-2": 1,
+    "spawner-3": 0.235,
+    "spawner-4": 0.824,
+    "spawner-5": 0.765,
+    "spawner-6": 0.647,
+    "spawner-8": 0.706,
+    "spawner-9": 0.059,
+    "spawner-7": 0.471,
+    "spawner-10": 0.176,
+    "spawner-11": 0.941,
+    "spawner-12": 0.588,
+    "spawner-13": 0.118,
+    "spawner-14": 0.353,
+    "spawner-15": 0,
+    "spawner-16": 0.412,
+    "spawner-17": 0.294,
+    "spawner-18": 0.529
+   }
+  },
+  "ecad263580ba0888": {
+   "codes": [
+    "1260bffea8d85b5d",
+    "aa03a3989083b77f",
+    "61abe15ed0660f15"
+   ],
+   "name": "简单-Split B retake through Heaven",
+   "map": "bonsai",
+   "scores": {
+    "spawner-1": 0.75,
+    "spawner-2": 0.125,
+    "spawner-3": 0.688,
+    "spawner-4": 0.188,
+    "spawner-5": 0.875,
+    "spawner-6": 0.375,
+    "spawner-7": 0.5,
+    "spawner-8": 0,
+    "spawner-9": 0.938,
+    "spawner-10": 0.813,
+    "spawner-11": 0.625,
+    "spawner-12": 1,
+    "spawner-14": 0.313,
+    "spawner-15": 0.063,
+    "spawner-13": 0.563,
+    "spawner-16": 0.25,
+    "spawner-17": 0.438
+   }
+  },
+  "81ed4e9584765358": {
+   "codes": [
+    "1802435f5c7bd36c"
+   ],
+   "name": "简单-Split A retake",
+   "map": "bonsai",
+   "scores": {
+    "spawner-1": 1,
+    "spawner-2": 0.765,
+    "spawner-3": 0,
+    "spawner-4": 0.235,
+    "spawner-5": 0.588,
+    "spawner-6": 0.941,
+    "spawner-7": 0.824,
+    "spawner-8": 0.647,
+    "spawner-9": 0.706,
+    "spawner-10": 0.412,
+    "spawner-11": 0.471,
+    "spawner-12": 0.353,
+    "spawner-13": 0.294,
+    "spawner-14": 0.118,
+    "spawner-15": 0.882,
+    "spawner-16": 0.529,
+    "spawner-17": 0.176,
+    "spawner-18": 0.059
+   }
+  },
+  "33af3429d547d924": {
+   "codes": [
+    "19c5ea522465b282",
+    "54d79166b4f48373"
+   ],
+   "name": "困难-Ascent B retake from CT",
+   "map": "ascent",
+   "scores": {
+    "spawner-1": 0.353,
+    "spawner-2": 0.941,
+    "spawner-3": 0.235,
+    "spawner-4": 0.882,
+    "spawner-5": 0.294,
+    "spawner-6": 0.176,
+    "spawner-7": 0.118,
+    "spawner-8": 0.412,
+    "spawner-9": 0.059,
+    "spawner-10": 0.588,
+    "spawner-11": 0.824,
+    "spawner-12": 0.471,
+    "spawner-13": 0.706,
+    "spawner-14": 1,
+    "spawner-15": 0.529,
+    "spawner-16": 0.765,
+    "spawner-17": 0,
+    "spawner-18": 0.647
+   }
+  },
+  "ef62e793b5f90132": {
+   "codes": [
+    "1a8c351fd8b269c7",
+    "f9b26b6cc3b9ac7b"
+   ],
+   "name": "简单-Corrode — B attack from Mid",
+   "map": "rook",
+   "scores": {
+    "spawner-1": 0.5,
+    "spawner-2": 0.35,
+    "spawner-3": 0.05,
+    "spawner-4": 0.85,
+    "spawner-5": 1,
+    "spawner-6": 0.15,
+    "spawner-7": 0.3,
+    "spawner-8": 0.2,
+    "spawner-9": 0,
+    "spawner-10": 0.4,
+    "spawner-11": 0.8,
+    "spawner-12": 0.7,
+    "spawner-13": 0.75,
+    "spawner-14": 0.6,
+    "spawner-15": 0.9,
+    "spawner-16": 0.45,
+    "spawner-17": 0.65,
+    "spawner-18": 0.55,
+    "spawner-19": 0.95,
+    "spawner-20": 0.1,
+    "spawner-21": 0.25
+   }
+  },
+  "ccf633830f2f2624": {
+   "codes": [
+    "2bca4991b2ec434d",
+    "334c7b11c93f400f"
+   ],
+   "name": "简单-Split A retake",
+   "map": "bonsai",
+   "scores": {
+    "spawner-1": 0.824,
+    "spawner-2": 1,
+    "spawner-3": 0.647,
+    "spawner-4": 0.941,
+    "spawner-5": 0.294,
+    "spawner-6": 0.412,
+    "spawner-7": 0.118,
+    "spawner-8": 0.059,
+    "spawner-9": 0.588,
+    "spawner-10": 0.353,
+    "spawner-11": 0.706,
+    "spawner-12": 0.529,
+    "spawner-13": 0,
+    "spawner-14": 0.471,
+    "spawner-15": 0.235,
+    "spawner-16": 0.882,
+    "spawner-17": 0.765,
+    "spawner-18": 0.176
+   }
+  },
+  "cdeb3ce04c05de97": {
+   "codes": [
+    "426e2f8fa5e244b7",
+    "8439ab50a708a5b8"
+   ],
+   "name": "简单-Split B retake from CT",
+   "map": "bonsai",
+   "scores": {
+    "spawner-1": 0.643,
+    "spawner-2": 1,
+    "spawner-3": 0,
+    "spawner-4": 0.214,
+    "spawner-5": 0.286,
+    "spawner-6": 0.429,
+    "spawner-7": 0.071,
+    "spawner-8": 0.143,
+    "spawner-9": 0.857,
+    "spawner-10": 0.786,
+    "spawner-11": 0.571,
+    "spawner-12": 0.714,
+    "spawner-13": 0.357,
+    "spawner-14": 0.5,
+    "spawner-15": 0.929
+   }
+  },
+  "2979b7b7c82974ce": {
+   "codes": [
+    "4348f0827546ee70"
+   ],
+   "name": "Target switching (VALORANT small targets)",
+   "map": "ascent",
+   "scores": {
+    "spawner-3": 0.353,
+    "spawner-4": 0.176,
+    "spawner-5": 0.588,
+    "spawner-6": 0.529,
+    "spawner-7": 0.824,
+    "spawner-8": 0.294,
+    "spawner-9": 0,
+    "spawner-10": 0.235,
+    "spawner-11": 0.118,
+    "spawner-12": 0.471,
+    "spawner-13": 0.882,
+    "spawner-14": 0.706,
+    "spawner-15": 0.647,
+    "spawner-17": 0.941,
+    "spawner-18": 1,
+    "spawner-19": 0.059,
+    "spawner-21": 0.765,
+    "spawner-22": 0.412
+   }
+  },
+  "fd7319f3af3fe77e": {
+   "codes": [
+    "4813a4333b9e69c9",
+    "9a8227e19409af93",
+    "e1d0240e16dc6cb9"
+   ],
+   "name": "简单-Corrode — Pre-aim an A split through mid",
+   "map": "rook",
+   "scores": {
+    "spawner-1": 0.273,
+    "spawner-2": 0.5,
+    "spawner-3": 0.045,
+    "spawner-4": 0.682,
+    "spawner-5": 0.227,
+    "spawner-6": 0.955,
+    "spawner-7": 0.818,
+    "spawner-8": 0,
+    "spawner-9": 1,
+    "spawner-10": 0.636,
+    "spawner-11": 0.727,
+    "spawner-12": 0.909,
+    "spawner-13": 0.455,
+    "spawner-14": 0.182,
+    "spawner-15": 0.136,
+    "spawner-16": 0.591,
+    "spawner-17": 0.545,
+    "spawner-18": 0.409,
+    "spawner-19": 0.773,
+    "spawner-20": 0.318,
+    "spawner-21": 0.364,
+    "spawner-22": 0.864,
+    "spawner-23": 0.091
+   }
+  },
+  "207816f61366d929": {
+   "codes": [
+    "49c858ec2fa5ae29"
+   ],
+   "name": "简单-Ascent B retake from CT",
+   "map": "ascent",
+   "scores": {
+    "spawner-1": 0.471,
+    "spawner-2": 1,
+    "spawner-3": 0.176,
+    "spawner-4": 0.706,
+    "spawner-5": 0.235,
+    "spawner-6": 0.059,
+    "spawner-7": 0,
+    "spawner-8": 0.529,
+    "spawner-9": 0.118,
+    "spawner-10": 0.412,
+    "spawner-11": 0.882,
+    "spawner-12": 0.765,
+    "spawner-13": 0.588,
+    "spawner-14": 0.941,
+    "spawner-15": 0.647,
+    "spawner-16": 0.824,
+    "spawner-17": 0.294,
+    "spawner-18": 0.353
+   }
+  },
+  "6ff63c6135094bba": {
+   "codes": [
+    "4bbed18893e7142f",
+    "382004b0566223b7"
+   ],
+   "name": "简单 - Sunset A Tube: pre-aim",
+   "map": "juliett",
+   "scores": {
+    "spawner-2": 0.588,
+    "spawner-3": 0.353,
+    "spawner-4": 0.706,
+    "spawner-5": 0.765,
+    "spawner-6": 0.471,
+    "spawner-9": 0.294,
+    "spawner-11": 0.235,
+    "spawner-12": 0.941,
+    "spawner-13": 0.824,
+    "spawner-14": 0.412,
+    "spawner-15": 0.059,
+    "spawner-16": 0,
+    "spawner-17": 0.647,
+    "spawner-1": 1,
+    "spawner-7": 0.118,
+    "spawner-8": 0.882,
+    "spawner-10": 0.529,
+    "spawner-18": 0.176
+   }
+  },
+  "8a0031068b6fbbb9": {
+   "codes": [
+    "54145a349a983de4",
+    "c935a7a37b985842"
+   ],
+   "name": "简单-Ascent B retake from Mid",
+   "map": "ascent",
+   "scores": {
+    "spawner-1": 0.263,
+    "spawner-2": 0.632,
+    "spawner-3": 0.053,
+    "spawner-4": 0.947,
+    "spawner-5": 0.895,
+    "spawner-6": 0.211,
+    "spawner-7": 0.579,
+    "spawner-9": 0.474,
+    "spawner-10": 0.316,
+    "spawner-11": 1,
+    "spawner-12": 0.158,
+    "spawner-13": 0.5,
+    "spawner-14": 0.684,
+    "spawner-15": 0,
+    "spawner-16": 0.368,
+    "spawner-17": 0.105,
+    "spawner-18": 0.526,
+    "spawner-19": 0.789,
+    "spawner-20": 0.842,
+    "spawner-21": 0.737,
+    "spawner-8": 0.421
+   }
+  },
+  "acf87a18b9053899": {
+   "codes": [
+    "5e7181a5a97d2a8e",
+    "c0002648f8a2d1e4"
+   ],
+   "name": "困难-Abyss Mid pre-aim",
+   "map": "infinity",
+   "scores": {
+    "spawner-1": 0.429,
+    "spawner-2": 0.357,
+    "spawner-3": 0,
+    "spawner-4": 0.571,
+    "spawner-5": 0.214,
+    "spawner-6": 0.786,
+    "spawner-7": 0.143,
+    "spawner-8": 0.643,
+    "spawner-9": 0.286,
+    "spawner-10": 0.929,
+    "spawner-12": 0.714,
+    "spawner-13": 0.857,
+    "spawner-14": 1,
+    "spawner-15": 0.5,
+    "spawner-11": 0.071
+   }
+  },
+  "ee820e129fced0c1": {
+   "codes": [
+    "6d3afca83f6af549"
+   ],
+   "name": "Lotus B attack: peekers",
+   "map": "jam",
+   "scores": {
+    "spawner-1": 0.133,
+    "spawner-2": 0.067,
+    "spawner-3": 1,
+    "spawner-4": 0.333,
+    "spawner-5": 0.2,
+    "spawner-6": 0.267,
+    "spawner-7": 0.533,
+    "spawner-8": 0.667,
+    "spawner-9": 0.8,
+    "spawner-10": 0.933,
+    "spawner-11": 0.733,
+    "spawner-12": 0.867,
+    "spawner-13": 0.6,
+    "spawner-14": 0.467,
+    "spawner-15": 0.4,
+    "spawner-16": 0
+   }
+  },
+  "9894a29b24cd7b9c": {
+   "codes": [
+    "7cdde140321c07dd"
+   ],
+   "name": "困难-Corrode — Pre-aim an A main attack",
+   "map": "rook",
+   "scores": {
+    "spawner-2": 0.588,
+    "spawner-3": 0.294,
+    "spawner-1": 0.882,
+    "spawner-4": 0.235,
+    "spawner-5": 0.118,
+    "spawner-6": 0.706,
+    "spawner-7": 0.353,
+    "spawner-8": 0.471,
+    "spawner-9": 0.529,
+    "spawner-10": 0.941,
+    "spawner-11": 0,
+    "spawner-12": 0.176,
+    "spawner-13": 0.647,
+    "spawner-14": 0.765,
+    "spawner-15": 0.412,
+    "spawner-16": 1,
+    "spawner-17": 0.824,
+    "spawner-18": 0.059
+   }
+  },
+  "e0fec9ab15a0b6a2": {
+   "codes": [
+    "80444d4551b0ebcc"
+   ],
+   "name": "困难-Split A retake",
+   "map": "bonsai",
+   "scores": {
+    "spawner-1": 1,
+    "spawner-2": 0.765,
+    "spawner-3": 0,
+    "spawner-4": 0.235,
+    "spawner-5": 0.588,
+    "spawner-6": 0.941,
+    "spawner-7": 0.824,
+    "spawner-8": 0.647,
+    "spawner-9": 0.706,
+    "spawner-10": 0.412,
+    "spawner-11": 0.471,
+    "spawner-12": 0.353,
+    "spawner-13": 0.294,
+    "spawner-14": 0.118,
+    "spawner-15": 0.882,
+    "spawner-16": 0.529,
+    "spawner-17": 0.176,
+    "spawner-18": 0.059
+   }
+  },
+  "af609ac428d2c2bf": {
+   "codes": [
+    "901ae2e9901e0828"
+   ],
+   "name": "简单-Corrode — Pre-aim an A main attack",
+   "map": "rook",
+   "scores": {
+    "spawner-2": 0.588,
+    "spawner-3": 0.294,
+    "spawner-1": 0.882,
+    "spawner-4": 0.235,
+    "spawner-5": 0.118,
+    "spawner-6": 0.706,
+    "spawner-7": 0.353,
+    "spawner-8": 0.471,
+    "spawner-9": 0.529,
+    "spawner-10": 0.941,
+    "spawner-11": 0,
+    "spawner-12": 0.176,
+    "spawner-13": 0.647,
+    "spawner-14": 0.765,
+    "spawner-15": 0.412,
+    "spawner-16": 1,
+    "spawner-17": 0.824,
+    "spawner-18": 0.059
+   }
+  },
+  "fff3070d51cb75f0": {
+   "codes": [
+    "935efd2987c64ad4"
+   ],
+   "name": "困难-DDY's pre-aim: Haven A Long attack (random)",
+   "map": "triad",
+   "scores": {
+    "spawner-1": 0.056,
+    "spawner-2": 0.611,
+    "spawner-3": 0.444,
+    "spawner-4": 0.722,
+    "spawner-5": 0.667,
+    "spawner-6": 0.833,
+    "spawner-7": 0.222,
+    "spawner-8": 0.944,
+    "spawner-9": 0.111,
+    "spawner-10": 0.5,
+    "spawner-11": 0.889,
+    "spawner-12": 0.333,
+    "spawner-13": 0.389,
+    "spawner-14": 0.278,
+    "spawner-15": 1,
+    "spawner-16": 0.556,
+    "spawner-17": 0.778,
+    "spawner-18": 0.167,
+    "spawner-19": 0
+   }
+  },
+  "8e95a1eb55be82ac": {
+   "codes": [
+    "9da50a5d6e9f75a6",
+    "a5f55fd4b78ff0f1"
+   ],
+   "name": "简单-Bind — A attack through A Short",
+   "map": "duality",
+   "scores": {
+    "spawner-1": 0.313,
+    "spawner-2": 0.938,
+    "spawner-3": 1,
+    "spawner-4": 0.625,
+    "spawner-5": 0.688,
+    "spawner-6": 0.563,
+    "spawner-7": 0.375,
+    "spawner-8": 0.188,
+    "spawner-9": 0.5,
+    "spawner-10": 0.125,
+    "spawner-11": 0.813,
+    "spawner-12": 0.063,
+    "spawner-13": 0.75,
+    "spawner-14": 0.438,
+    "spawner-15": 0,
+    "spawner-16": 0.875,
+    "spawner-17": 0.25
+   }
+  },
+  "60b6e1648b1fca51": {
+   "codes": [
+    "b6d26bc36aab936c",
+    "377921a685c761aa"
+   ],
+   "name": "简单 - Sunset A Short: pre-aim",
+   "map": "juliett",
+   "scores": {
+    "spawner-1": 1,
+    "spawner-2": 0.625,
+    "spawner-3": 0.375,
+    "spawner-4": 0.688,
+    "spawner-5": 0.25,
+    "spawner-6": 0.75,
+    "spawner-7": 0.5,
+    "spawner-8": 0.125,
+    "spawner-9": 0.063,
+    "spawner-10": 0.563,
+    "spawner-11": 0.188,
+    "spawner-12": 0.875,
+    "spawner-13": 0.938,
+    "spawner-14": 0.313,
+    "spawner-15": 0.813,
+    "spawner-16": 0,
+    "spawner-17": 0.438
+   }
+  },
+  "d514bff578d8e858": {
+   "codes": [
+    "ba9af09e219369fd"
+   ],
+   "name": "困难-Summit A attack",
+   "map": "plummet",
+   "scores": {
+    "spawner-1": 0.647,
+    "spawner-2": 0.471,
+    "spawner-3": 0.765,
+    "spawner-5": 0.588,
+    "spawner-6": 0.529,
+    "spawner-7": 0.235,
+    "spawner-8": 0.059,
+    "spawner-9": 0.706,
+    "spawner-11": 0.412,
+    "spawner-12": 0.941,
+    "spawner-13": 0,
+    "spawner-14": 0.353,
+    "spawner-16": 0.824,
+    "spawner-17": 0.294,
+    "spawner-18": 0.176,
+    "spawner-19": 0.118,
+    "spawner-20": 0.882,
+    "spawner-21": 1
+   }
+  },
+  "078657363b84472d": {
+   "codes": [
+    "e759f847c60c90e5"
+   ],
+   "name": "困难-Lotus A Main attack",
+   "map": "jam",
+   "scores": {
+    "spawner-1": 0.684,
+    "spawner-2": 0.842,
+    "spawner-3": 0.421,
+    "spawner-4": 0.316,
+    "spawner-5": 0.105,
+    "spawner-6": 0.895,
+    "spawner-7": 0.474,
+    "spawner-8": 0.211,
+    "spawner-9": 0,
+    "spawner-10": 0.579,
+    "spawner-11": 0.158,
+    "spawner-12": 0.053,
+    "spawner-13": 0.789,
+    "spawner-14": 0.737,
+    "spawner-15": 0.947,
+    "spawner-16": 0.526,
+    "spawner-17": 0.632,
+    "spawner-18": 1,
+    "spawner-19": 0.368,
+    "spawner-20": 0.263
+   }
+  },
+  "bb093d7f97af2d44": {
+   "codes": [
+    "ff81533277dc43c8"
+   ],
+   "name": "困难-Summit Mid pre-aim",
+   "map": "plummet",
+   "scores": {
+    "spawner-1": 0.19,
+    "spawner-2": 0.619,
+    "spawner-3": 0.952,
+    "spawner-4": 0.286,
+    "spawner-5": 0.238,
+    "spawner-7": 0.81,
+    "spawner-8": 0.048,
+    "spawner-9": 0.571,
+    "spawner-10": 0,
+    "spawner-11": 0.524,
+    "spawner-12": 0.667,
+    "spawner-13": 0.762,
+    "spawner-14": 0.333,
+    "spawner-15": 0.143,
+    "spawner-16": 1,
+    "spawner-17": 0.857,
+    "spawner-18": 0.429,
+    "spawner-19": 0.381,
+    "spawner-20": 0.095,
+    "spawner-21": 0.476,
+    "spawner-22": 0.905,
+    "spawner-23": 0.714
+   }
+  }
+ }
+}
