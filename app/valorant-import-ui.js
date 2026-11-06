@@ -5,7 +5,9 @@
   const HIDE = "aim-valorant-import-hide-startup-v1", SHOWN = "aim-valorant-import-shown", UNDO = "aim-valorant-import-undo-v1";
   const escape = value => String(value).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   let shade = null;
-  let startupDone = localStorage.getItem(HIDE) === "1" || !!sessionStorage.getItem(SHOWN);
+  // After a successful import the startup prompt stays away (it is still in Settings);
+  // reopening it every launch made the import look like it hadn't been saved.
+  let startupDone = localStorage.getItem(HIDE) === "1" || !!localStorage.getItem(UNDO) || !!sessionStorage.getItem(SHOWN);
   function open() {
     if (shade) { shade.querySelector("button").focus(); return; }
     const previousFocus = document.activeElement;
@@ -136,6 +138,7 @@
         localStorage.setItem(UNDO, JSON.stringify({ values: before, vsync: oldVsync }));
         for (const [key, value] of Object.entries(pending)) localStorage.setItem(key, typeof value === "string" ? value : JSON.stringify(value));
         if (typeof vsync === "boolean") await api.setVsync(vsync);
+        localStorage.setItem(HIDE, "1");
         location.reload();
       } catch (e) {
         restore(before); if (previousUndo === null) localStorage.removeItem(UNDO); else localStorage.setItem(UNDO, previousUndo);
