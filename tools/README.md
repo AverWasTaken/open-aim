@@ -17,6 +17,8 @@ Run them from the repository root with Python 3.
 | `aimcenter_patch.py` | Puts the aim point exactly under the drawn crosshair (a sub-pixel camera shift when the game view has an odd size, e.g. a maximized 2560x1439 window; render only, no sim change) and makes the simple replay resimulator `Zn` in the mods `C_VPDXvn.js` pass the same recoil/movement/shotTiming/zoomSensitivity options as the replay player. Edits the mods `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details in the script's docstring. |
 | `spotbias_patch.py` | Rank-biased spot choice: with an explicit enemy rank, drills with a random spot pool (`rules.spawnerPick`) pick common spots more often for low ranks and off-angles for high ranks (scores from `spot_scores.mjs`, saved in the replay meta as `spotScores`). Edits the mods `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details in the script's docstring. |
 | `spot_scores.mjs` | Writes `app/mods/aim-ranks/spot-scores.json`: an off-angle score per spot of every shipped drill with a random spot pool, from the game's own bot-order planner. Runs against a test copy of the app (rerun steps below). |
+| `spotvary_patch.py` | Spot variation: in Human-like bot mode the static bots of the shipped pre-aim drills stand on one of their checked alternative positions (`spot_alts.mjs`), a new one each round (from the round seed; saved in the replay meta as `spotPos`). Edits the mods `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details in the script's docstring. |
+| `spot_alts.mjs` | Writes `app/mods/aim-ranks/spot-alts.json`: up to 5 checked alternative positions per static spot of every shipped pre-aim drill (ground, ledges, walls, sight lines and spacing tested with the game's own collision and sight test). `--check` re-tests the stored file. Runs against a test copy of the app (rerun steps below). |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
@@ -42,6 +44,7 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 7. `rankpick_patch.py` (refuses to run twice: it looks for `__aimPlayGate`)
 8. `aimcenter_patch.py` (refuses to run twice: it looks for `__aimCrossAlign`)
 9. `spotbias_patch.py` (needs `aimcenter_patch.py`; refuses to run twice: it looks for `aimSpotWeights`)
+10. `spotvary_patch.py` (needs `spotbias_patch.py`; refuses to run twice: it looks for `aimSpotApply`)
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
@@ -74,3 +77,18 @@ node tools/spot_scores.mjs --cdp 9351 --plots /tmp/spot-plots
 common to red = off-angle) to check the scores by eye. `--only <code>,<code>` rescores some drills
 and keeps the rest of the file. Replays keep the scores they were recorded with (replay meta), so
 a rebuild never changes old replays.
+
+## Spot alternatives (bot positions vary every round)
+
+`app/mods/aim-ranks/spot-alts.json` must be rebuilt when a shipped pre-aim drill's spots, blocks or
+bots change. `npm run test:vary` (in `app/`) fails when a shipped drill has no entry. To rebuild and
+check (same test copy of the app as above):
+
+```bash
+node tools/spot_alts.mjs --cdp 9351 --plots /tmp/alt-plots
+node tools/spot_alts.mjs --cdp 9351 --check
+```
+
+`--plots` draws each drill's authored spots (white) and their alternatives (orange). `--only
+<code>,<code>` redoes some drills and keeps the rest. A rebuild never changes old replays: they keep
+the positions they were recorded with (`spotPos` in the replay meta).
