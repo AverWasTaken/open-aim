@@ -28,7 +28,9 @@ by scripts/test-round.mjs), the 3D bits in app/mods/aim-rounds/round-visual.mjs.
    - requestUse() (weapon pickup) is refused while roundBlocksUse;
    - at the end of each step roundStep(...) runs with the player, this tick's kill count and the
      held keys, the yaw (defuse facing) and whether the knife is out (cancels a hold); on the
-     detonation tick a player inside the blast radius drops to 0 health;
+     detonation tick the player and every bot inside the blast radius (35 m) die (bots through the
+     sim's own kill steps: alive false, slow state cleared, weapon drop, a "kill" event marked
+     aimBlast, which the play page doesn't count as the player's kill);
      snapshot().round = roundView(...) (null without a round).
 2. Play page (OkAdunfX.js):
    - To() runs roundPrepare on the scene first (so the target count, 5, and everything else on the
@@ -106,7 +108,9 @@ CNR = [
      b"if(aimRd!==null){let aimK=0;for(const Z of G)Z.kind===\"kill\"&&(aimK+=1);"
      b"aimRoundStep(aimRdCfg,aimRd,{tick:U,tickSec:AA,player:{x:n.position.x,y:n.position.y,z:n.position.z,"
      b"yaw:n.yaw,speed:Math.hypot(n.velocity.x,n.velocity.y),grounded:n.grounded,health:n.health??JB,knife:n.knife===1},kills:aimK,hold:aimRdHold});"
-     b"aimRoundBlast(aimRdCfg,aimRd,n.position)&&(n.health=0)}"
+     b"if(aimRd.reason===\"detonated\"&&aimRd.endTick===U){aimRoundBlast(aimRdCfg,aimRd,n.position)&&(n.health=0,aimRd.playerAlive=!1);"
+     b"for(const Z of iA)Z.alive&&aimRoundBlast(aimRdCfg,aimRd,Z.position)&&(Z.alive=!1,Z.health=0,fB(Z),"
+     b"G.push({tick:U,kind:\"kill\",actorId:Z.id,killTicks:U-Z.bornTick,aimBlast:!0}),PE&&oE(Z),aimRd.enemiesDead+=1)}}"
      b"aimStudioRecord(A,U,AA,n,c);return G}"),
     # Snapshot.
     (b"snapshot(){return{tick:U,",
@@ -145,8 +149,10 @@ OKA = [
     (b"Je=h0(F,de,{", b"Je=F.rules.round?null:h0(F,de,{"),
     (b"previousPhysicsSnapshot=hs(de);const Ze=de.step(je);",
      b"previousPhysicsSnapshot=hs(de);window.__aimRoundOn&&de.setRoundHold?.({plant:se.aimHeldCode(\"Digit4\"),use:se.aimHeld(\"use\")});const Ze=de.step(je);"),
-    (b"gt?.observe(Ze),hn=null;const Ae=hs(de);",
-     b"gt?.observe(Ze),hn=null;const Ae=hs(de);Ae.round&&(window.__aimRound=Ae.round,window.__aimRoundHolding=Ae.round.holding!==null);"),
+    # Bots killed by the spike blast (kill events marked aimBlast) aren't the player's kills.
+    (b"for(const he of Ze)he.kind===\"kill\"&&(ge+=1);gt?.observe(Ze),hn=null;const Ae=hs(de);",
+     b"for(const he of Ze)he.kind===\"kill\"&&!he.aimBlast&&(ge+=1);gt?.observe(Ze.some(he=>he.aimBlast)?Ze.filter(he=>!he.aimBlast):Ze),hn=null;const Ae=hs(de);"
+     b"Ae.round&&(window.__aimRound=Ae.round,window.__aimRoundHolding=Ae.round.holding!==null);"),
     (b"return{get zoomLevel(){",
      b"return{aimHeld($){return re($)},aimHeldCode($){return o.has($)},get zoomLevel(){"),
     (b"const __aimEquipBlocksADS=()=>O!==null&&U(de.tick);",

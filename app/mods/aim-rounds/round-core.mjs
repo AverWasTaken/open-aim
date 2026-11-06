@@ -132,7 +132,7 @@ export function roundNoFire(state, hold, cfg, pos) {
   if (hold?.plant && cfg && pos && state.phase === 'live' && state.spike.carrier === 'player' && roundZoneAt(cfg, pos.x, pos.y, pos.z)) return true;
   return !!(hold?.use && state.near);
 }
-// Detonation tick: true when the player stands inside the blast (the sim then sets health to 0).
+// Detonation tick: true when `pos` (the player or a bot) is inside the blast; the sim then kills it.
 export function roundBlast(cfg, state, pos) {
   const sp = state?.spike?.planted;
   if (!sp || state.reason !== 'detonated' || state.endTick !== state.tick || !pos) return false;
@@ -154,6 +154,8 @@ export function roundStep(cfg, state, io) {
   if (state.phase === 'ended') {
     if (!state.done && t - state.endTick >= T(cfg, 'endHoldSec', ts)) state.done = true;
     state.holding = null;
+    // Dying after the end (the blast) still freezes the player for the end banner.
+    if ((io.player?.health ?? 1) <= 0) state.playerAlive = false;
     return ev;
   }
   const p = io.player, hold = io.hold ?? {};

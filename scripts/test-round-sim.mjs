@@ -174,17 +174,27 @@ test('death after the plant: the round goes on, the player can\'t move or jump, 
   assert.equal(s.snapshot().round.done, true);
 });
 
-test('detonation: a player inside the blast drops to 0 health; a restart is a fresh round', { skip }, () => {
-  const doc = flatDoc();
+test('detonation: the player and bots inside the blast die, the player stays put; a restart is a fresh round', { skip }, () => {
+  // Bots 20 m away (inside the 35 m blast) that never see the player in time: they spawn late.
+  const doc = flatDoc({ dist: 20, spawnDelay: [40, 40.1] });
   const s = createSim(doc);
   play(s, TPS + 1);
   s.setRoundHold({ plant: true });
   play(s, TPS * 4);
   s.setRoundHold({ plant: false });
-  play(s, TPS * 45);
+  const ev = play(s, TPS * 45);
   const snap = s.snapshot();
   assert.equal(snap.round.reason, 'detonated');
   assert.equal(snap.player.health, 0);
+  assert.equal(snap.round.playerAlive, false);
+  assert.equal(snap.round.enemiesAlive, 0);
+  assert.ok(snap.actors.every((a) => !a.alive), 'bots in the blast die');
+  assert.equal(ev.filter((e) => e.kind === 'kill' && e.aimBlast).length, 5);
+  const p0 = snap.player.position;
+  let maxY = p0.y;
+  play(s, TPS, (i) => ({ ...IDLE, forward: 1, jump: i % 20 === 0 }), (q) => { maxY = Math.max(maxY, q.snapshot().player.position.y); });
+  const p1 = s.snapshot().player.position;
+  assert.ok(Math.hypot(p1.x - p0.x, p1.z - p0.z) < 1e-6 && maxY <= p0.y + 1e-6, 'blasted player moved');
   const again = createSim(doc, 6);
   play(again, 2);
   const r = again.snapshot().round;

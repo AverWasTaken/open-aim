@@ -477,6 +477,7 @@ test('play page hooks: no replay, held keys, end via the round, visuals, results
     'function Sb(e,t){if(t.round)return __aimRoundVerdict(t.round);',
     '__aimRoundStart(F,r.scene),',
     'function Hr(){__aimRoundStop(),',
+    'for(const he of Ze)he.kind==="kill"&&!he.aimBlast&&(ge+=1);',
     "import {roundPrepare as __aimRoundPrepare} from '/aim-rounds/round-core.mjs';",
     'function To(F,Z=null){F=F?.rules?.round?__aimRoundPrepare(F,F.meta.seed):F;',
   ]) assert.ok(OKA.includes(s), s);
