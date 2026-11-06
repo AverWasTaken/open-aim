@@ -27,7 +27,11 @@
   const STILL = "#ff9d42", MOVING = "#4cb2ff", MOVING_SPRAY = "#2b74c2";
   const CLEAN = 0.01; // degrees of movement error that still counts as standing still
   const mode = () => { try { return localStorage.getItem(KEY) || "graph"; } catch { return "graph"; } };
-  const setMode = (m) => { try { localStorage.setItem(KEY, m); } catch {} sync(); };
+  const setMode = (m) => {
+    try { localStorage.setItem(KEY, m); } catch {}
+    sync();
+    if (round && round.summary) renderSummary(round); // Off hides an open summary, Graph brings it back
+  };
 
   // ---------- round tracking ----------
   // A round starts when the phase becomes "running" from anything but running/paused
@@ -274,7 +278,14 @@
       // the empty strip in the left column, between the score block and the stars
       // (offsets are in the stage's own 1600x900 units, before its scale)
       const clock = spot.stage.querySelector(".al-mr-clock"), stars = spot.stage.querySelector(".al-mr-stars");
-      const top = clock ? clock.offsetTop + clock.offsetHeight + 18 : 0;
+      // the clock's finish-time labels hang below it (absolutely placed), so measure every
+      // child's bottom edge and turn screen pixels back into stage units
+      let bottom = clock ? clock.offsetTop + clock.offsetHeight : 0;
+      if (clock) {
+        const stageTop = spot.stage.getBoundingClientRect().top, k = spot.stage.getBoundingClientRect().height / (spot.stage.offsetHeight || 1) || 1;
+        for (const el of clock.querySelectorAll("*")) bottom = Math.max(bottom, (el.getBoundingClientRect().bottom - stageTop) / k);
+      }
+      const top = Math.ceil(bottom) + 18;
       const room = clock && stars ? stars.offsetTop - top - 14 : 0;
       if (room < 96) { if (panel) panel.remove(); return; }
       mapSize = Math.min(room, 150);
@@ -294,6 +305,8 @@
     const cell = (t, text) => (t.n ? text : "-");
     const walked = r.walked >= 0.5 ? `You walked ${r.walked < 10 ? r.walked.toFixed(1) : Math.round(r.walked)} m.` : "You stayed in place.";
     const shotsRow = `<tr><th>Shots</th><td>${still.n} <small>${pct(still.n, total)}%</small></td><td>${moving.n} <small>${pct(moving.n, total)}%</small></td></tr>`;
+    // compact (scenario) layout: one line per kind instead of the table
+    const line = (name, cls, t) => `<p class="es-shotgraph-sum-line"><b class="${cls}">${name}</b> ${t.n ? `${deg(t.err / t.n)} average error, ${t.hit} ${t.hit === 1 ? "hit" : "hits"} (${pct(t.hit, t.n)}%)` : "no shots"}</p>`;
     const headRow = `<tr><th>Headshots</th><td>${cell(still, still.head)}</td><td>${cell(moving, moving.head)}</td></tr>`;
     panel.innerHTML = `
       <canvas class="es-shotgraph-sum-map" width="1" height="1" role="img"></canvas>
@@ -301,15 +314,15 @@
         <h3>Shooting error</h3>
         <p class="es-shotgraph-sum-lead">${total} ${total === 1 ? "shot" : "shots"}: <b class="is-still">${still.n} still</b>, <b class="is-moving">${moving.n} while moving</b>.${compact ? ` ${walked}` : ""}</p>
         <div class="es-shotgraph-sum-split" aria-hidden="true"><i class="is-still" style="flex-grow:${still.n}"></i><i class="is-moving" style="flex-grow:${moving.n}"></i></div>
-        <table>
+        ${compact ? `${line("Still", "is-still", still)}${line("Moving", "is-moving", moving)}` : `<table>
           <thead><tr><th></th><th class="is-still">Still</th><th class="is-moving">Moving</th></tr></thead>
           <tbody>
-            ${compact ? "" : shotsRow}
+            ${shotsRow}
             <tr><th>Average error</th><td>${cell(still, deg(still.err / still.n))}</td><td>${cell(moving, deg(moving.err / moving.n))}</td></tr>
             <tr><th>Hits</th><td>${cell(still, `${still.hit} <small>${pct(still.hit, still.n)}%</small>`)}</td><td>${cell(moving, `${moving.hit} <small>${pct(moving.hit, moving.n)}%</small>`)}</td></tr>
-            ${compact ? "" : headRow}
+            ${headRow}
           </tbody>
-        </table>
+        </table>`}
         ${compact ? "" : `<p class="es-shotgraph-sum-note">${walked} The map shows your path and a dot where each shot was fired.</p>`}
       </div>`;
     const map = panel.querySelector("canvas");
