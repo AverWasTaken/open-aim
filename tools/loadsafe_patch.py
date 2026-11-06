@@ -13,12 +13,13 @@ BiMsX6Xn.js, kF (builds a map's collision in the module worker /assets/C-Ox_Jol.
     The fallback therefore re-extracts them from the map's pre-merge geometry (oF, through a
     callback from the caller cU), so the fallback map has full collision.
   * console.info "[aim-load] ..." lines with timings at each map-load stage: files fetched (collision
-    json, model, ropes, surfaces), terrain hash (MF), worker ready, collision built (worker or main
-    thread), collision ready.
+    json, model, ropes, surfaces), terrain hash (MF), worker ready, build sent to the
+    worker, collision built (worker or main thread), collision ready.
 
 ChJ6FlD4.js (HallView, lazy import of the trainer chunk Hwnlm6zD.js): the game already retries
 that import (once with a cache-busting URL, then twice more 0.8 s and 1.6 s apart, 30 s timeout).
-This only adds console warnings when an attempt fails, so a stuck "Downloading trainer" shows why.
+This only adds console lines: download started / ready with its time, and a warning for each
+failed attempt, so a stuck "Downloading trainer" shows which stage it is in.
 """
 import os
 import sys
@@ -42,7 +43,7 @@ BIMSX = [
      b'aimTo=setTimeout(()=>a(new Error("no answer in "+aimWorkerTimeout/1e3+" s")),aimWorkerTimeout),'
      b'r.onmessageerror=()=>a(new Error("unreadable message from the worker")),'),
     (b"c=[e.buffer];t&&t.buffer!==e.buffer&&c.push(t.buffer),r.postMessage(o,c)})}finally{r.terminate()}}",
-     b"c=[e.buffer];t&&t.buffer!==e.buffer&&c.push(t.buffer),r.postMessage(o,c)})"
+     b'c=[e.buffer];t&&t.buffer!==e.buffer&&c.push(t.buffer),r.postMessage(o,c),aimLoadLog("collision build sent to the worker",aimT0)})'
      b'.then(aimV=>(aimLoadLog("collision built in the worker",aimT0),aimV))}'
      b"catch(aimE){if(!aimRb)throw aimE;clearTimeout(aimTo),r.terminate();"
      b'console.warn("[aim-load] collision worker failed ("+(aimE?.message??aimE)+"); building on the main thread");'
@@ -59,6 +60,8 @@ BIMSX = [
 ]
 
 CHJ = [
+    (b'r=Q7(()=>ul(()=>import("./Hwnlm6zD.js"),', b'r=Q7(()=>aimTrainerTimed(()=>ul(()=>import("./Hwnlm6zD.js"),'),
+    (b"return window.__cancelAssetRecovery__?.(),z}));function u(){", b"return window.__cancelAssetRecovery__?.(),z})));function u(){"),
     (b".catch(async R=>{const z=await Zc(R);return window.__cancelAssetRecovery__?.(),z})",
      b'.catch(async R=>{console.warn("[aim-load] trainer download failed, retrying with a fresh URL:",R?.message??R);'
      b"const z=await Zc(R);return window.__cancelAssetRecovery__?.(),z})"),
@@ -67,7 +70,15 @@ CHJ = [
 ]
 
 
-def patch(name, patches, marker):
+CHJ_TAIL = (
+    b"\n/* [aim-load] (tools/loadsafe_patch.py): trainer download timing */"
+    b'function aimTrainerTimed(f){const t0=performance.now(),ms=()=>Math.round(performance.now()-t0)+" ms";'
+    b'console.info("[aim-load] trainer download started");'
+    b'return f().then(v=>(console.info("[aim-load] trainer ready ("+ms()+")"),v),e=>{console.warn("[aim-load] trainer download failed after "+ms());throw e})}\n'
+)
+
+
+def patch(name, patches, marker, tail=b""):
     """Return (paths, patched bytes) for both copies of `name`; writes nothing."""
     paths = [os.path.join(MODS, d, name) for d in DIRS]
     raw = open(paths[0], "rb").read()
@@ -83,13 +94,15 @@ def patch(name, patches, marker):
         if data.count(old) != 1:
             raise SystemExit(f"{name}: expected exactly one match for {old[:60]!r}, found {data.count(old)}")
         data = data.replace(old, new)
+    if tail:
+        data = data.rstrip(b"\n") + tail
     if crlf:
         data = data.replace(b"\n", b"\r\n")
     return paths, data
 
 
 # Check every file before writing any, so a failed match leaves nothing half-patched.
-jobs = [patch("BiMsX6Xn.js", BIMSX, b"aimLoadLog"), patch("ChJ6FlD4.js", CHJ, b"[aim-load]")]
+jobs = [patch("BiMsX6Xn.js", BIMSX, b"aimLoadLog"), patch("ChJ6FlD4.js", CHJ, b"[aim-load]", CHJ_TAIL)]
 for paths, data in jobs:
     for p in paths:
         with open(p, "wb") as f:

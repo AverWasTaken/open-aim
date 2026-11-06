@@ -212,7 +212,8 @@ async function loadDrillList() {
   S.drills = S.drills.filter((entry) => {
     try {
       const d = entry.drill;
-      if (!Array.isArray(d.items) || !d.round || typeof d.round !== "object" || !d.start || typeof d.start !== "object") damaged.add(entry);
+      if (!Array.isArray(d.items) || d.items.some((it) => !it || typeof it !== "object") || !d.round || typeof d.round !== "object" ||
+        !d.start || typeof d.start !== "object" || typeof d.place !== "string") damaged.add(entry);
       entry.drill = normalize(d);
       return true;
     } catch (err) {

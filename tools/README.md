@@ -12,7 +12,7 @@ Run them from the repository root with Python 3.
 | (hand edit) | Left-handed viewmodel fix in `Object3D.updateWorldMatrix` of the mods `BiMsX6Xn.js` (both copies): a parents-only update keeps `matrixWorldNeedsUpdate` set and a dirty parent forces the child, so a `getWorldPosition()` call can't swallow `hand.scale.x = -1` (upstream issues #4/#5). Re-apply by hand if the bundle is regenerated. |
 | `bot_patch.py` | Human-like bots and the Enemy rank setting: edits the mods `BiMsX6Xn.js`, `CnrSARj_.js` and `OkAdunfX.js` (both copies) in place and makes the mods `C_VPDXvn.js` (replay playback) from `site/`. Details in the script's docstring. |
 | `hitreg_patch.py` | Exact fire rate (and, in its second stage, the Perfect first shot option): edits the mods `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies) in place. Details in the script's docstring. |
-| `loadsafe_patch.py` | Map loading: a collision worker that never answers (60 s), crashes or can't load no longer hangs the load (main-thread build instead), plus `[aim-load]` console lines with stage timings and trainer-download retry warnings. Edits the mods `BiMsX6Xn.js` and `ChJ6FlD4.js` (both copies). |
+| `loadsafe_patch.py` | Map loading: a collision worker that never answers (60 s), crashes or can't load no longer hangs the load (main-thread build instead), plus `[aim-load]` console lines with stage timings, trainer download timing and retry warnings. Edits the mods `BiMsX6Xn.js` and `ChJ6FlD4.js` (both copies). |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
@@ -37,9 +37,11 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 6. `loadsafe_patch.py`
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
-replay meta and fires at the configured rate (Vandal 9.75/s, Phantom 11, Spectre 13.33, Odin 12).
-Older runs fired at the tick-rounded rate (9.85, 10.67, 12.8, 11.64) and keep it in playback, so
-scores from before and after aren't directly comparable for Phantom, Spectre and Odin sprays.
+replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
+(hip: Vandal 9.75/s, Phantom 11, Spectre 13.33, Odin 12). Older runs fired at the tick-rounded rate
+(hip: 9.85, 10.67, 12.8, 11.64) and keep it in playback, so scores from before and after aren't
+directly comparable for Phantom, Spectre and Odin sprays. Tap fire, bursts and bot fire timing are
+unchanged.
 
 `lighting_patch.py` and `bot_patch.py` don't touch the same code, so they give the same bytes in
 either order. `app/main.js` also patches `OkAdunfX.js` while serving it (`SHOT_LOOP`,
