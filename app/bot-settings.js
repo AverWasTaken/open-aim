@@ -2,9 +2,11 @@
 // Saved in localStorage: "aim-bot-mode" ("classic"; absent = Human-like) and "aim-enemy-rank"
 // ("iron".."radiant"; absent = each drill's own bots). The game reads both when a round starts
 // (tools/bot_patch.py) and saves them in the round's replay, so changes apply from the next round.
+// Also "Perfect first shot" under its own Shooting heading: "aim-perfect-first-shot" = "1" (absent = Off),
+// read and saved the same way (tools/hitreg_patch.py).
 (()=>{
  if(window.__aimBotControls)return;window.__aimBotControls=true;
- const MODE_KEY='aim-bot-mode',RANK_KEY='aim-enemy-rank';
+ const MODE_KEY='aim-bot-mode',RANK_KEY='aim-enemy-rank',FIRST_KEY='aim-perfect-first-shot';
  // Mirrors RANKS in app/studio/drill.js and the stop chances in tools/bot_patch.py.
  const RANKS=[
   ['iron','Iron',[0.9,1.1],9,false,10],['bronze','Bronze',[0.75,0.9],7,false,20],['silver','Silver',[0.6,0.75],5.5,false,30],
@@ -42,7 +44,7 @@
  function choice(id,title,text,options,read,write){
   const row=document.createElement('div');row.className='hall-field hall-choice';row.dataset.setting=id;row.dataset.focus=id;
   row.innerHTML='<span class="hall-field-text"><span class="hall-field-head"><b></b><em class="hall-field-local" title="Saved on this PC only">This PC only</em></span><small></small></span><div class="hall-choice-options" role="radiogroup"></div>';
-  row.querySelector('b').textContent=title;row.querySelector('small').textContent=text;
+  row.querySelector('b').textContent=title;row.querySelector('small').textContent=text;row.querySelector('small').title=text;
   const box=row.querySelector('[role=radiogroup]');box.setAttribute('aria-label',title);
   for(const [v,label] of options){const b=document.createElement('button');b.type='button';b.role='radio';b.dataset.value=v;b.textContent=label;b.onclick=()=>write(v);box.append(b)}
   row.render=()=>{for(const b of box.children){const on=b.dataset.value===read();b.classList.toggle('is-active',on);b.setAttribute('aria-checked',String(on))}};
@@ -65,13 +67,18 @@
    b.append(label);b.onclick=()=>put(RANK_KEY,v||null);grid.append(b);
   }
   rankRow.render=()=>{const cur=rank();for(const b of grid.children){const on=b.dataset.value===cur;b.classList.toggle('is-active',on);b.setAttribute('aria-checked',String(on))}note.textContent=describe()};
-  anchor.after(head,modeRow,rankRow);
+  const shootHead=document.createElement('h3');shootHead.className='hall-dialog-section';
+  shootHead.innerHTML=' Shooting <small class="hall-dialog-section-note">Applies from the next round</small>';
+  const firstRow=choice('perfectFirstShot','Perfect first shot','First shot while standing still goes exactly where you aim (VALORANT has a small random spread).',
+   [['off','Off'],['on','On']],firstShot,v=>put(FIRST_KEY,v==='on'?'1':null));
+  anchor.after(head,modeRow,rankRow,shootHead,firstRow);
   function render(){
    if(!rankRow.isConnected){removeEventListener('aim-bot-settings-change',render);removeEventListener('storage',render);return}
-   modeRow.render();rankRow.render();
+   modeRow.render();rankRow.render();firstRow.render();
   }
   addEventListener('aim-bot-settings-change',render);addEventListener('storage',render);render();
  }
- window.__aimBotSettings={mode,rank,ranks:RANKS};
+ const firstShot=()=>get(FIRST_KEY)==='1'?'on':'off';
+ window.__aimBotSettings={mode,rank,firstShot,ranks:RANKS};
  let queued=false;window.__aimWatchPage(()=>{if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;add()})},{childList:true,subtree:true});add();
 })();

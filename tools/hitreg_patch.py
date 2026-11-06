@@ -101,7 +101,7 @@ STAGE2 = {
     ],
 }
 
-STAGES = [(b"aimXF", "exact fire rate", STAGE1)]
+STAGES = [(b"aimXF", "exact fire rate", STAGE1), (b"aimPF1", "perfect first shot", STAGE2)]
 
 
 def load(name):
