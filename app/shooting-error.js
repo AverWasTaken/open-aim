@@ -33,11 +33,13 @@
   // A round starts when the phase becomes "running" from anything but running/paused
   // (that covers the first start, Restart and Play again) and ends at "result".
   // Shots that land in the same frame as the result still count (late window below).
-  const LATE_MS = 1500, MAX_SHOTS = 20000, MAX_ROUTE = 20000;
+  // Totals count every shot; only the map's dots and path points are capped.
+  const LATE_MS = 1500, MAX_DOTS = 20000, MAX_ROUTE = 20000;
+  const tally = () => ({ n: 0, err: 0, hit: 0, head: 0 });
   let round = null;
 
   function newRound(mapId) {
-    round = { mapId: mapId || null, shots: [], route: [], walked: 0, last: null, endedAt: 0, summary: null };
+    round = { mapId: mapId || null, stats: { still: tally(), moving: tally() }, shots: [], route: [], walked: 0, last: null, endedAt: 0, summary: null };
     clearGraph();
   }
   const recording = () => round && (!round.endedAt || performance.now() - round.endedAt < LATE_MS);
@@ -61,7 +63,11 @@
       const dx = p.x - last.x, dz = p.z - last.z;
       if (dx === 0 && dz === 0) return;
       const step = Math.hypot(dx, dz);
-      if (step > 3) { round.route.push(null); round.last = { x: p.x, z: p.z }; round.route.push(round.last); return; }
+      if (step > 3) {
+        round.last = { x: p.x, z: p.z };
+        if (round.route.length < MAX_ROUTE - 1) round.route.push(null, round.last);
+        return;
+      }
       round.walked += step;
       const tail = round.route[round.route.length - 1];
       if (tail && Math.hypot(p.x - tail.x, p.z - tail.z) < 0.15) { round.last = { x: p.x, z: p.z }; return; }
@@ -74,7 +80,7 @@
   const SHOTS = 36, BAR = 4, GAP = 2;
   const SCALES = [0.5, 1, 2, 3, 5, 8, 12, 20, 30, 45]; // fixed steps: a height means the same from shot to shot
   const AXIS = 34, PLOT_W = SHOTS * (BAR + GAP) + 2, PLOT_H = 50, TOP = 18, NUMS = 46, H = TOP + PLOT_H + 1;
-  const firing = new Float32Array(SHOTS), movement = new Float32Array(SHOTS);
+  const firing = new Float32Array(SHOTS), movement = new Float32Array(SHOTS), isMoving = new Uint8Array(SHOTS);
   let count = 0, head = 0; // ring buffer: head is the next slot to write
   let canvas = null, g = null, queued = false, shown = "";
 
@@ -83,19 +89,25 @@
   window.__aimShot = (e) => {
     if (!e || typeof e.spreadDeg !== "number") return;
     const total = Math.max(0, e.spreadDeg);
-    const move = typeof e.moveDeg === "number" ? Math.max(0, Math.min(total, e.moveDeg)) : null;
-    const f = move !== null ? total - move : Math.min(total, typeof e.firingDeg === "number" ? Math.max(0, e.firingDeg) : total);
+    const rawMove = typeof e.moveDeg === "number" ? Math.max(0, e.moveDeg) : null;
+    // Still or moving comes straight from the game's movement error, not from the bar split:
+    // a perfect-accuracy drill reports 0 total error even while you move.
+    const moving = rawMove !== null ? rawMove > CLEAN : typeof e.firingDeg === "number" && total - e.firingDeg > CLEAN;
+    const f = rawMove !== null ? total - Math.min(total, rawMove) : Math.min(total, typeof e.firingDeg === "number" ? Math.max(0, e.firingDeg) : total);
     firing[head] = f;
     movement[head] = total - f;
+    isMoving[head] = moving ? 1 : 0;
     head = (head + 1) % SHOTS;
     if (count < SHOTS) count++;
     queue();
-    if (recording() && round.shots.length < MAX_SHOTS) {
+    if (recording()) {
+      const t = round.stats[moving ? "moving" : "still"];
+      t.n++;
+      t.err += total;
+      if (e.hitActorId !== null && e.hitActorId !== undefined) t.hit++;
+      if (e.hitPart === "head") t.head++;
       const o = e.origin || {};
-      round.shots.push({
-        x: o.x, z: o.z, total, move: total - f, moving: total - f > CLEAN,
-        hit: e.hitActorId !== null && e.hitActorId !== undefined, head: e.hitPart === "head",
-      });
+      if (round.shots.length < MAX_DOTS && Number.isFinite(o.x) && Number.isFinite(o.z)) round.shots.push({ x: o.x, z: o.z, moving });
       if (round.summary) renderSummary(round); // a shot from the round's last frame
     }
   };
@@ -171,15 +183,16 @@
     for (let n = 0; n < count; n++) {
       const i = (head - count + n + SHOTS) % SHOTS;
       const x = right - 1 - (count - n) * (BAR + GAP) + GAP;
-      const moving = movement[i] > CLEAN;
-      const total = Math.min(inner, px(firing[i] + movement[i]));
+      const moving = isMoving[i] === 1;
+      const sum = firing[i] + movement[i];
+      const total = Math.min(inner, Math.max(2, px(sum))); // a 0° shot still shows as a stub
       if (!moving) {
         g.fillStyle = STILL;
         g.fillRect(x, base - total, BAR, total);
         continue;
       }
       // spray share of the bar, in proportion to the degrees
-      const f = Math.min(total, Math.round(total * (firing[i] / (firing[i] + movement[i])) * dpr) / dpr);
+      const f = sum > 0 ? Math.min(total, Math.round(total * (firing[i] / sum) * dpr) / dpr) : 0;
       g.fillStyle = MOVING;
       g.fillRect(x, base - total, BAR, total - f);
       g.fillStyle = MOVING_SPRAY;
@@ -192,7 +205,7 @@
       g.font = "700 12px Bahnschrift, Segoe UI, sans-serif";
       if (last < 0) label("-", nx, y0 + 16, "#c9ced6", "left");
       else {
-        const moving = movement[last] > CLEAN;
+        const moving = isMoving[last] === 1;
         label(`${(firing[last] + movement[last]).toFixed(2)}°`, nx, y0 + 16, moving ? MOVING : STILL, "left");
         g.font = "10px Bahnschrift, Segoe UI, sans-serif";
         label(moving ? `+${movement[last].toFixed(2)}° move` : "still", nx, y0 + 31, "#c9ced6", "left");
@@ -221,61 +234,92 @@
     return minimaps.get(id);
   }
 
+  // Two result layouts: the usual result card (.al-result-modal), and the full-screen
+  // "moment" result of scenario drills (.al-mr-stage, a 1600x900 stage scaled to the window).
+  function resultSpot() {
+    const actions = document.querySelector(".al-result-modal .al-run-actions");
+    if (actions) return { kind: "card", actions };
+    const stage = document.querySelector(".al-mr-stage");
+    if (stage && stage.querySelector(".al-mr-acts")) return { kind: "moment", stage };
+    return null;
+  }
+
   function waitForResult(r) {
     const started = performance.now();
     const look = () => {
       if (round !== r) return;
-      const actions = document.querySelector(".al-result-modal .al-run-actions");
-      if (actions) { r.summary = true; renderSummary(r); return; }
+      if (resultSpot()) { r.summary = true; renderSummary(r); return; }
       if (performance.now() - started < 5000) setTimeout(look, 100);
     };
     look();
   }
 
   const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
-  const avg = (list, f) => (list.length ? list.reduce((s, x) => s + f(x), 0) / list.length : 0);
   const deg = (v) => `${v < 10 ? v.toFixed(2) : v.toFixed(1)}°`;
 
+  function make() {
+    const panel = document.createElement("section");
+    panel.className = "es-shotgraph-sum";
+    panel.setAttribute("aria-label", "Shooting summary");
+    return panel;
+  }
+
   function renderSummary(r) {
-    const modal = document.querySelector(".al-result-modal");
-    const actions = modal && modal.querySelector(".al-run-actions");
-    let panel = modal && modal.querySelector(".es-shotgraph-sum");
-    if (!actions || !r.shots.length || mode() === "off") { if (panel) panel.remove(); return; }
-    if (!panel) {
-      panel = document.createElement("section");
-      panel.className = "es-shotgraph-sum";
-      panel.setAttribute("aria-label", "Shooting summary");
-      actions.before(panel);
+    const spot = resultSpot();
+    let panel = document.querySelector(".es-shotgraph-sum");
+    const { still, moving } = r.stats, total = still.n + moving.n;
+    if (!spot || !total || mode() === "off") { if (panel) panel.remove(); return; }
+    let mapSize = 208;
+    if (spot.kind === "moment") {
+      // the empty strip in the left column, between the score block and the stars
+      // (offsets are in the stage's own 1600x900 units, before its scale)
+      const clock = spot.stage.querySelector(".al-mr-clock"), stars = spot.stage.querySelector(".al-mr-stars");
+      const top = clock ? clock.offsetTop + clock.offsetHeight + 18 : 0;
+      const room = clock && stars ? stars.offsetTop - top - 14 : 0;
+      if (room < 96) { if (panel) panel.remove(); return; }
+      mapSize = Math.min(room, 150);
+      if (!panel || panel.parentElement !== spot.stage) {
+        if (panel) panel.remove();
+        panel = make();
+        spot.stage.appendChild(panel);
+      }
+      panel.classList.add("is-moment");
+      Object.assign(panel.style, { left: clock.offsetLeft + "px", top: top + "px", width: Math.min(clock.offsetWidth, 640) + "px", height: room + "px" });
+    } else if (!panel || panel.nextElementSibling !== spot.actions) {
+      if (panel) panel.remove();
+      panel = make();
+      spot.actions.before(panel);
     }
-    const shots = r.shots, still = shots.filter((s) => !s.moving), moving = shots.filter((s) => s.moving);
-    const hits = (l) => l.filter((s) => s.hit).length, heads = (l) => l.filter((s) => s.head).length;
-    const cell = (l, text) => (l.length ? text : "-");
+    const compact = spot.kind === "moment";
+    const cell = (t, text) => (t.n ? text : "-");
     const walked = r.walked >= 0.5 ? `You walked ${r.walked < 10 ? r.walked.toFixed(1) : Math.round(r.walked)} m.` : "You stayed in place.";
+    const shotsRow = `<tr><th>Shots</th><td>${still.n} <small>${pct(still.n, total)}%</small></td><td>${moving.n} <small>${pct(moving.n, total)}%</small></td></tr>`;
+    const headRow = `<tr><th>Headshots</th><td>${cell(still, still.head)}</td><td>${cell(moving, moving.head)}</td></tr>`;
     panel.innerHTML = `
       <canvas class="es-shotgraph-sum-map" width="1" height="1" role="img"></canvas>
       <div class="es-shotgraph-sum-text">
         <h3>Shooting error</h3>
-        <p class="es-shotgraph-sum-lead">${shots.length} ${shots.length === 1 ? "shot" : "shots"}: <b class="is-still">${still.length} still</b>, <b class="is-moving">${moving.length} while moving</b>.</p>
-        <div class="es-shotgraph-sum-split" aria-hidden="true"><i class="is-still" style="flex-grow:${still.length}"></i><i class="is-moving" style="flex-grow:${moving.length}"></i></div>
+        <p class="es-shotgraph-sum-lead">${total} ${total === 1 ? "shot" : "shots"}: <b class="is-still">${still.n} still</b>, <b class="is-moving">${moving.n} while moving</b>.${compact ? ` ${walked}` : ""}</p>
+        <div class="es-shotgraph-sum-split" aria-hidden="true"><i class="is-still" style="flex-grow:${still.n}"></i><i class="is-moving" style="flex-grow:${moving.n}"></i></div>
         <table>
           <thead><tr><th></th><th class="is-still">Still</th><th class="is-moving">Moving</th></tr></thead>
           <tbody>
-            <tr><th>Shots</th><td>${still.length} <small>${pct(still.length, shots.length)}%</small></td><td>${moving.length} <small>${pct(moving.length, shots.length)}%</small></td></tr>
-            <tr><th>Average error</th><td>${cell(still, deg(avg(still, (s) => s.total)))}</td><td>${cell(moving, deg(avg(moving, (s) => s.total)))}</td></tr>
-            <tr><th>Hits</th><td>${cell(still, `${hits(still)} <small>${pct(hits(still), still.length)}%</small>`)}</td><td>${cell(moving, `${hits(moving)} <small>${pct(hits(moving), moving.length)}%</small>`)}</td></tr>
-            <tr><th>Headshots</th><td>${cell(still, heads(still))}</td><td>${cell(moving, heads(moving))}</td></tr>
+            ${compact ? "" : shotsRow}
+            <tr><th>Average error</th><td>${cell(still, deg(still.err / still.n))}</td><td>${cell(moving, deg(moving.err / moving.n))}</td></tr>
+            <tr><th>Hits</th><td>${cell(still, `${still.hit} <small>${pct(still.hit, still.n)}%</small>`)}</td><td>${cell(moving, `${moving.hit} <small>${pct(moving.hit, moving.n)}%</small>`)}</td></tr>
+            ${compact ? "" : headRow}
           </tbody>
         </table>
-        <p class="es-shotgraph-sum-note">${walked} The map shows your path and a dot where each shot was fired.</p>
+        ${compact ? "" : `<p class="es-shotgraph-sum-note">${walked} The map shows your path and a dot where each shot was fired.</p>`}
       </div>`;
     const map = panel.querySelector("canvas");
-    map.setAttribute("aria-label", `Map of where you fired: ${still.length} shots still, ${moving.length} while moving`);
-    drawMap(map, r, null);
-    loadMinimap(r.mapId).then((mm) => { if (mm && map.isConnected) drawMap(map, r, mm); });
+    map.setAttribute("aria-label", `Map of where you fired: ${still.n} shots still, ${moving.n} while moving`);
+    drawMap(map, r, null, mapSize);
+    loadMinimap(r.mapId).then((mm) => { if (mm && map.isConnected) drawMap(map, r, mm, mapSize); });
   }
 
-  function drawMap(canvas, r, mm) {
-    const SIZE = 208, dpr = window.devicePixelRatio || 1;
+  function drawMap(canvas, r, mm, SIZE) {
+    const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.round(SIZE * dpr);
     canvas.height = Math.round(SIZE * dpr);
     canvas.style.width = canvas.style.height = SIZE + "px";
@@ -294,7 +338,7 @@
     };
     const pts = [];
     for (const p of r.route) if (p) pts.push(toMap(p.x, p.z));
-    for (const s of r.shots) if (Number.isFinite(s.x)) pts.push(toMap(s.x, s.z));
+    for (const s of r.shots) pts.push(toMap(s.x, s.z));
     if (!pts.length) return;
     let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
     for (const p of pts) { u0 = Math.min(u0, p.u); u1 = Math.max(u1, p.u); v0 = Math.min(v0, p.v); v1 = Math.max(v1, p.v); }
@@ -343,7 +387,6 @@
 
     // shots: moving dots drawn last so a few blue dots are not buried under many orange ones
     const dot = (s) => {
-      if (!Number.isFinite(s.x)) return;
       const m = toMap(s.x, s.z);
       c.beginPath();
       c.arc(sx(m.u), sy(m.v), 3.2, 0, Math.PI * 2);

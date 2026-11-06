@@ -385,6 +385,13 @@ body.al-training-active .aim-frame-meter { display:block; }
 @media (max-width: 760px) {
   .es-shotgraph-sum { flex-direction: column; }
 }
+/* scenario ("moment") results: placed by shooting-error.js in the empty strip of the left
+   column of the game's scaled 1600x900 stage, so it scales with the rest of that screen */
+.es-shotgraph-sum.is-moment { position: absolute; box-sizing: border-box; gap: 16px; padding: 0; border-top: 0; overflow: hidden; }
+.es-shotgraph-sum.is-moment h3 { font-size: 15px; }
+.es-shotgraph-sum.is-moment .es-shotgraph-sum-lead { margin-bottom: 6px; }
+.es-shotgraph-sum.is-moment .es-shotgraph-sum-split { margin-bottom: 6px; }
+.es-shotgraph-sum.is-moment th, .es-shotgraph-sum.is-moment td { padding: 2px 0; }
 /* narrower windows: icons only (names stay in the tooltip) */
 @media (max-width: 1700px) {
   html[data-aim-local]:not(#es) body .es-bar-btn span { display: none; }
