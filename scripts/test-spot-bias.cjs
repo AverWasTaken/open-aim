@@ -53,6 +53,7 @@ test('every shipped drill with a random spot pool has scores for its whole pool'
     const e = table[aimSpotKey(doc)];
     assert.ok(e, `${code}: no entry (rerun node tools/spot_scores.mjs, see tools/README.md)`);
     assert.ok(e.codes.includes(code), `${code}: entry lists other drills only`);
+    assert.ok(e.ids.includes(doc.meta.id), `${code}: entry does not list meta id ${doc.meta.id}`);
     for (const id of doc.rules.spawnerPick.pool) {
       const p = e.scores[id];
       assert.ok(typeof p === 'number' && p >= 0 && p <= 1, `${code}: ${id} score ${p}`);

@@ -19,7 +19,8 @@ in every file before anything is written.
    projection by the leftover sub-pixel amount (PerspectiveCamera.setViewOffset), so the aim point
    lands exactly under the crosshair. Even sizes measure 0 and leave the camera untouched. No
    measurement is taken while the ADS crosshair is moved by its follow transform, and offsets over
-   1 device pixel are ignored; the last value is kept.
+   1 device pixel are ignored; the last value is kept. setViewOffset also sets camera.aspect to
+   the canvas ratio; the camera's own aspect (stretched resolutions) is put back right after.
 
 2. Replay resimulation option parity (C_VPDXvn.js):
    Zn (the simple replay resimulator, exported as "e") passed only sensitivity, seed, gait,
@@ -55,7 +56,7 @@ ALIGN = (
     b"const v=cam.view;"
     b"if(__aimXA.dx===0&&__aimXA.dy===0){v&&v.enabled&&cam.clearViewOffset();return}"
     b"if(v&&v.enabled&&v.fullWidth===w&&v.fullHeight===h&&v.offsetX===-__aimXA.dx&&v.offsetY===-__aimXA.dy&&v.width===w&&v.height===h)return;"
-    b"cam.setViewOffset(w,h,-__aimXA.dx,-__aimXA.dy,w,h)}\n"
+    b"const a=cam.aspect;cam.setViewOffset(w,h,-__aimXA.dx,-__aimXA.dy,w,h);cam.aspect!==a&&(cam.aspect=a,cam.updateProjectionMatrix())}\n"
 )
 
 # (old, new, expected count)

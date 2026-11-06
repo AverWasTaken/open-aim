@@ -13,10 +13,13 @@ CnrSARj_.js: a partial Fisher-Yates shuffle of the pool, one rng.fork(24301) num
 
 1. Round start (OkAdunfX.js, aimBotRunOpts from tools/bot_patch.py): when the player picked an
    explicit enemy rank (not "Default") and app/mods/aim-ranks/spot-scores.json
-   (tools/spot_scores.mjs) has the drill, keyed by aimSpotKey(doc), the run options get
+   (tools/spot_scores.mjs) has the drill (keyed by aimSpotKey(doc), a hash of everything the
+   planner reads: map, weapon, player spawn and facing, pool, spawners, blocks and bot bodies; and
+   the entry must list the drill's meta id, so Studio drills never match), the run options get
    spotScores: {spawnerId: p} for the pool (p 0 = common spot .. 1 = off-angle). Like the other
    bot options it is saved in the replay meta, so playback uses the stored scores and never
-   looks them up again.
+   looks them up again. The file is fetched when the game script loads; if a round starts before
+   it arrived, it is read once synchronously (a 16 KB local file) so the first round is biased too.
 2. Sim (CnrSARj_.js): with spotScores and an enemy rank, pI draws the same numbers from the same
    stream but picks with weights w = exp(b * (p - 0.5) * ln 20): at step E it takes the first
    index k >= E whose running weight sum over the not-yet-picked spots passes u * total. Rank
@@ -62,14 +65,13 @@ PI_NEW = (
 OK_TAIL = (
     b"\n/* aim-spots (tools/spotbias_patch.py): off-angle scores per spot (tools/spot_scores.mjs) for rank-biased spot choice */"
     b"let aimSpotTable=null;try{fetch(\"/aim-ranks/spot-scores.json\",{cache:\"no-cache\"}).then(r=>r.ok?r.json():null)"
-    b".then(j=>{aimSpotTable=j&&j.scenes&&typeof j.scenes==\"object\"?j.scenes:null}).catch(()=>{})}catch{}"
-    b"function aimSpotKey(d){const r=n=>Math.round(n*100)/100,p=d?.rules?.spawnerPick;if(!p||!Array.isArray(p.pool)||!Array.isArray(d.spawners))return null;"
-    b"const s=JSON.stringify([d.environment?.map??null,p.pool,d.spawners.map(x=>[x.id,r(x.position.x),r(x.position.y),r(x.position.z)])]);"
-    b"let e=2166136261,h=2646966556;for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);e=Math.imul(e^c,16777619),h=Math.imul(h^c,2246822507)}"
-    b"return(e>>>0).toString(16).padStart(8,\"0\")+(h>>>0).toString(16).padStart(8,\"0\")}"
+    b".then(j=>{aimSpotTable||aimSpotSet(j)}).catch(()=>{})}catch{}"
+    b"function aimSpotSet(j){aimSpotTable=j&&j.scenes&&typeof j.scenes==\"object\"?j.scenes:null}"
+    b'function aimSpotKey(d){const r=n=>typeof n=="number"?Math.round(n*100)/100:null,v=o=>o?[r(o.x),r(o.y),r(o.z)]:null,p=d?.rules?.spawnerPick;if(!p||!Array.isArray(p.pool)||!Array.isArray(d.spawners))return null;const s=JSON.stringify([d.environment?.map??null,d.rules.weapon??null,v(d.playerSpawn?.position),r((d.playerSpawn?.yaw??0)*10),p.pool,d.spawners.map(x=>[x.id,x.kind??null,x.actorTemplateId??null,v(x.position),v(x.size)]),(d.blocks??[]).map(b=>[b.shape??null,v(b.position),r(b.rotationY??0),v(b.size),b.collidable===!1?0:1]),(d.actors??[]).map(a=>[a.id,a.body?.shape??null,r(a.body?.headSize??1),a.body?.motion??null,a.body?.weapon??null])]);let e=2166136261,h=2646966556;for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);e=Math.imul(e^c,16777619),h=Math.imul(h^c,2246822507)}return(e>>>0).toString(16).padStart(8,"0")+(h>>>0).toString(16).padStart(8,"0")}'
     b"function aimSpotOpts(o,F){try{if(!o.enemyRank||!F?.rules?.spawnerPick)return;"
-    b"if(!aimSpotTable){console.log(\"[aim-spots] scores not loaded yet, no spot bias this round\");return}"
-    b"const e=aimSpotTable[aimSpotKey(F)];if(!e||!e.scores||typeof e.scores!=\"object\")return;const s={};"
+    b"if(!aimSpotTable)try{const x=new XMLHttpRequest;x.open(\"GET\",\"/aim-ranks/spot-scores.json\",!1),x.send(),x.status===200&&aimSpotSet(JSON.parse(x.responseText))}catch{}"
+    b"if(!aimSpotTable){console.log(\"[aim-spots] scores not available, no spot bias this round\");return}"
+    b"const e=aimSpotTable[aimSpotKey(F)];if(!e||!e.scores||typeof e.scores!=\"object\"||!Array.isArray(e.ids)||!e.ids.includes(F.meta?.id))return;const s={};"
     b"for(const id of F.rules.spawnerPick.pool){const p=e.scores[id];typeof p==\"number\"&&p>=0&&p<=1&&(s[id]=p)}"
     b"Object.keys(s).length&&(o.spotScores=s,console.log(\"[aim-spots] \"+o.enemyRank+\": spot bias on \"+Object.keys(s).length+\" spots\"))}catch{}}"
     b"function aimSpotBias(){return aimBotOpt&&typeof aimBotOpt.enemyRank==\"string\"&&aimBotOpt.spotScores&&typeof aimBotOpt.spotScores==\"object\""

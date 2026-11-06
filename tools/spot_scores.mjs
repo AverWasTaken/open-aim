@@ -23,8 +23,9 @@
 // average rank). Spots the planner can't reach or never sees get 0.5 (no bias).
 //
 // Keys: aimSpotKey(doc) below, the same text as in OkAdunfX.js (tools/spotbias_patch.py), a hash
-// of the map, the pool and every spawner's id and position. Editing a drill's spots changes the
-// key, so stale scores are never applied. scripts/test-spot-bias.cjs checks that every shipped
+// of everything the planner reads (map, weapon, player spawn and facing, pool, spawners, blocks,
+// bot bodies). Editing any of it changes the key, so stale scores are never applied. Each entry
+// also lists the drills' meta ids (ids); the game only uses an entry for a drill whose id is listed. scripts/test-spot-bias.cjs checks that every shipped
 // drill with a pool still has its entry.
 import fs from "node:fs";
 import path from "node:path";
@@ -41,7 +42,7 @@ const ONLY = arg("--only", null)?.split(",") ?? null;
 const OUT = path.join(ROOT, "app", "mods", "aim-ranks", "spot-scores.json");
 
 // Same text as in OkAdunfX.js.
-const KEY_SRC = 'function aimSpotKey(d){const r=n=>Math.round(n*100)/100,p=d?.rules?.spawnerPick;if(!p||!Array.isArray(p.pool)||!Array.isArray(d.spawners))return null;const s=JSON.stringify([d.environment?.map??null,p.pool,d.spawners.map(x=>[x.id,r(x.position.x),r(x.position.y),r(x.position.z)])]);let e=2166136261,h=2646966556;for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);e=Math.imul(e^c,16777619),h=Math.imul(h^c,2246822507)}return(e>>>0).toString(16).padStart(8,"0")+(h>>>0).toString(16).padStart(8,"0")}';
+const KEY_SRC = 'function aimSpotKey(d){const r=n=>typeof n=="number"?Math.round(n*100)/100:null,v=o=>o?[r(o.x),r(o.y),r(o.z)]:null,p=d?.rules?.spawnerPick;if(!p||!Array.isArray(p.pool)||!Array.isArray(d.spawners))return null;const s=JSON.stringify([d.environment?.map??null,d.rules.weapon??null,v(d.playerSpawn?.position),r((d.playerSpawn?.yaw??0)*10),p.pool,d.spawners.map(x=>[x.id,x.kind??null,x.actorTemplateId??null,v(x.position),v(x.size)]),(d.blocks??[]).map(b=>[b.shape??null,v(b.position),r(b.rotationY??0),v(b.size),b.collidable===!1?0:1]),(d.actors??[]).map(a=>[a.id,a.body?.shape??null,r(a.body?.headSize??1),a.body?.motion??null,a.body?.weapon??null])]);let e=2166136261,h=2646966556;for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);e=Math.imul(e^c,16777619),h=Math.imul(h^c,2246822507)}return(e>>>0).toString(16).padStart(8,"0")+(h>>>0).toString(16).padStart(8,"0")}';
 const aimSpotKey = new Function(`${KEY_SRC};return aimSpotKey;`)();
 
 // Shipped drills: the official scene files and the training set.
@@ -141,7 +142,8 @@ for (const { code, name, doc } of drills()) {
   if (!value) { console.log(`skip ${code} ${name}: no planner route`); continue; }
   const { p, png, skipped } = JSON.parse(value);
   const codes = [...(scenes[key]?.codes ?? []), code];
-  scenes[key] = { codes, name: scenes[key]?.name ?? name, map: doc.environment?.map ?? null, scores: p };
+  const ids = [...new Set([...(scenes[key]?.ids ?? []), doc.meta?.id].filter((x) => typeof x === "string"))];
+  scenes[key] = { codes, ids, name: scenes[key]?.name ?? name, map: doc.environment?.map ?? null, scores: p };
   if (PLOTS && png) fs.writeFileSync(path.join(PLOTS, `${code}.png`), Buffer.from(png.split(",")[1], "base64"));
   console.log(`${code} ${key} ${Object.keys(p).length} spots${skipped.length ? `, no score: ${skipped.join(" ")}` : ""}  ${name}`);
 }
