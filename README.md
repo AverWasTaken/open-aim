@@ -200,7 +200,7 @@ by itself every time you open it.
    .\launcher\Install.cmd
    ```
 
-5. Wait. It downloads about 265 MB, so the first start can take a few minutes.
+5. Wait. It downloads about 450 MB, so the first start can take a few minutes.
    The game opens by itself when it is ready.
 6. From now on, open the game with the **AimTrainer** icon on your desktop.
 
