@@ -60,6 +60,7 @@ async function connect() {
   // (it can be stopped at any time on hp), so the script never hangs.
   ws.onclose = () => { for (const p of pending.values()) p.rej(new Error("websocket closed")); pending.clear(); };
   const send = (method, params = {}) => new Promise((res, rej) => {
+    if (ws.readyState !== 1) { rej(new Error("websocket closed")); return; }
     const n = ++id;
     const t = setTimeout(() => { pending.delete(n); rej(new Error(`${method}: no reply within 20 s`)); }, 20000);
     pending.set(n, { res: (v) => { clearTimeout(t); res(v); }, rej: (e) => { clearTimeout(t); rej(e); } });
@@ -186,10 +187,10 @@ function pageLayout(labelsFrom) {
     const others = [...document.querySelectorAll(".hall-search, .al-wk-card, .al-wk-sort button")];
     // Cards and sort buttons scrolled out of the drill list are clipped by it: only the
     // visible part counts.
-    const board = document.querySelector(".hall-board-body");
     const clip = (o) => {
       const r = rect(o);
-      if (!board || !board.contains(o)) return r;
+      const board = o.closest(".hall-board-body");
+      if (!board) return r;
       const c = rect(board);
       const x = Math.max(r.x, c.x), y = Math.max(r.y, c.y), rr = Math.min(r.r, c.r), bb2 = Math.min(r.b, c.b);
       return { x, y, r: rr, b: bb2, w: rr - x, h: bb2 - y };
@@ -289,6 +290,10 @@ function pageBlur() {
   document.activeElement?.blur?.();
   const body = document.querySelector(".hall-board-body");
   if (body) body.scrollTop = 0;
+  // Put the lobby frame back too, so one size's failure doesn't carry into the next.
+  for (const el of [document.querySelector(".hall-root"), document.querySelector(".hall-body"), document.scrollingElement]) {
+    if (el) { el.scrollTop = 0; el.scrollLeft = 0; }
+  }
   // Reset the sequential focus start point to the top of the page: focus a temporary
   // element at the start of <body>, then remove it, so the next Tab goes to the first stop.
   const tmp = document.createElement("span");
@@ -361,6 +366,8 @@ async function checkSize(send, size) {
     if (i === 0 && !/es-skip/.test(f.id)) result.fails.push(`Tab 1 should be Skip to drills, got ${f.id}`);
   }
   result.info.tabWalk = walk;
+  const walkScrolled = (await evaluate(send, pageSkipResult)).frameScrolled;
+  if (walkScrolled) result.fails.push(`the Tab walk scrolled the lobby frame (${walkScrolled})`);
 
   // Skip to drills: Tab once, press Enter. Focus must land in the first drill card, on
   // screen, and the lobby frame must not scroll (only the drill list may).
@@ -380,7 +387,7 @@ async function checkSize(send, size) {
     if (!s.inCard) result.fails.push(`Skip to drills: focus went to ${s.focus}, not the first drill card`);
     else if (!s.onScreen) result.fails.push(`Skip to drills: focused ${s.focus} is off screen`);
     if (s.frameScrolled !== before) result.fails.push(`Skip to drills: the lobby frame scrolled (before "${before}", after "${s.frameScrolled}")`);
-    else if (before) result.fails.push(`lobby frame was already scrolled before Skip to drills (${before}): an earlier Tab stop scrolled it`);
+    else if (before) result.fails.push(`focusing Skip to drills scrolled the lobby frame (${before})`);
   }
   const docAfter = await evaluate(send, () => document.documentElement.scrollWidth <= innerWidth && (document.scrollingElement?.scrollLeft || 0) === 0);
   if (!docAfter) result.fails.push("page scrolled sideways during the Tab walk");
@@ -407,6 +414,7 @@ try {
     catch (e) { r = { size: `${size.w}x${size.h}@${size.dpr}x`, ok: false, fails: [String(e.message || e)] }; }
     if (!r.ok) failed = true;
     console.log(JSON.stringify(r));
+    if (ws.readyState !== 1) { console.error("the app copy went away; stopping"); failed = true; break; }
   }
 } catch (e) {
   failed = true;

@@ -71,7 +71,7 @@
   // align "start": element at the top of the list; "nearest": only if not fully visible.
   function scrollInBoard(el, align) {
     const board = el.closest(".hall-board-body");
-    if (!board) return;
+    if (!board) { el.scrollIntoView({ block: align === "start" ? "start" : "nearest" }); return; }
     const e = el.getBoundingClientRect(), b = board.getBoundingClientRect();
     const top = b.top + (parseFloat(getComputedStyle(board).scrollPaddingTop) || 0);
     if (align === "start" || e.top < top) board.scrollTop += e.top - top;
@@ -87,6 +87,9 @@
     const target = card.querySelector('button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])') || card;
     if (target === card && !card.hasAttribute("tabindex")) card.tabIndex = -1;
     target.focus({ preventScroll: true });
+    // Shelf rows scroll sideways: bring the row back to its start so the first card shows.
+    const row = card.closest(".al-wk-pages");
+    if (row) row.scrollLeft = 0;
     scrollInBoard(card, "nearest");
   }
 
