@@ -27,6 +27,7 @@ Run them from the repository root with Python 3.
 | `round_nav.mjs` | Writes `app/mods/aim-rounds/<map>.nav.bin`, the Round mode nav graph: the game's own nav builder run on the real collision from both spawns (2-3 min, below-normal priority). `--reuse` keeps the graph and only rewrites the header (setup facings, staging and zone checks, which need sight rays; helpers in `round_navdata.mjs`). See [Round mode nav graph](#round-mode-nav-graph). |
 | `graphics_fx_patch.py` | Combat feedback effects (render only): wall impact sparks + dust, bot hit sparks, kill burst, optional enemy muzzle flash. Hooks the play page `Jy` in the mods `OkAdunfX.js` (both copies) into `app/mods/aim-fx/fx.mjs` (loaded with a dynamic import; until it loads every call is a no-op). See [Graphics effects](#graphics-effects). |
 | `graphics_holes_patch.py` | Bullet holes from a fixed pool of 64 meshes (same look, no new mesh/material per hole). Edits `l1` in the mods `OkAdunfX.js` (both copies). Run after `graphics_fx_patch.py`. |
+| `graphics_botfx_patch.py` | Bot hit flash and death animation (render side only): a white hit pulse on bots (stronger and longer on a headshot) and a short "drop" when a bot dies (humanoids sink, squash and glow white-hot, gone after 220 ms; spheres pop, gone after 120 ms). Edits the actor renderer `Uf` in the mods `CnrSARj_.js` (both copies), so the game and the replay player both get it. No sim change. See [Graphics](#graphics). |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
@@ -57,6 +58,7 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 12. `round_patch.py` (after `peekmove_patch.py`; refuses to run twice: it looks for `/aim-rounds/round-core.mjs`). It keeps each copy's own line ends.
 13. `graphics_fx_patch.py` (after `round_patch.py`; refuses to run twice: it looks for `__aimFxBoot`)
 14. `graphics_holes_patch.py` (needs `graphics_fx_patch.py`; refuses to run twice: it looks for `__aimHoleFree`)
+15. `graphics_botfx_patch.py` (after `graphics_holes_patch.py`; refuses to run twice: it looks for `/* graphics-botfx */`). It keeps each copy's own line ends.
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
@@ -71,6 +73,28 @@ either order. `app/main.js` also patches `OkAdunfX.js` while serving it (`SHOT_L
 
 To start the bot patch over: `git checkout` the three mods files, delete both mods
 `C_VPDXvn.js` copies, then run `python -I tools/bot_patch.py`.
+
+## Graphics
+
+Combat visuals, render side only (nothing the sim or a replay depends on changes).
+
+`graphics_botfx_patch.py` edits only the actor renderer `Uf` in `CnrSARj_.js` (its per-frame
+`apply`), right before `function Uf(` and inside its two actor loops:
+
+- Hit flash: on a shot event that hits a bot, its material's `emissive` (and `emissiveIntensity`
+  for the older skins that use the albedo as emissive map) goes towards white and eases out over
+  14 ticks; a headshot (`hitPart === "head"`) is brighter and lasts 20 ticks. Humanoids no longer
+  get the inverted-colour tint; spheres keep their hit colour with the pulse on top. Only uniform
+  values change (no shader recompile), and only while a pulse runs.
+- Death: alive -> dead while still visible (kills, Round mode spike blast; not time-outs) keeps the
+  bot drawn for 220 ms (humanoid: pose frozen, sinks 0.32 m, squashes, tips back, white-hot, then
+  shrinks away) or 120 ms (sphere: 1 -> 1.25 -> 0). Wall-clock timed, so it finishes even when the
+  drill ends on that kill. A respawn cancels it; `clear()` (retry, replay seek) drops it.
+- `aimBfxSpheres` in the injected code turns the sphere part off (spheres are the "grid dot"
+  targets of `__aimIsGridTargetActor`).
+
+Test: `npm run test:graphics-botfx` (in `app/`) checks the patch is in both copies once and only
+inside `Uf`, and drives the real patched renderer headless with real sim snapshots.
 
 ## Spot scores (rank-biased spots)
 

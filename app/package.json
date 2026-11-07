@@ -19,7 +19,8 @@
     "test:vary": "node --test ../scripts/test-spot-vary.cjs",
     "test:round": "node --test ../scripts/test-round.mjs ../scripts/test-round-sim.mjs ../scripts/test-round-nav.mjs",
     "test:feelsens": "node --test ../scripts/test-feel-sens.cjs",
-    "test:graphics-fx": "node --test ../scripts/test-graphics-fx.mjs"
+    "test:graphics-fx": "node --test ../scripts/test-graphics-fx.mjs",
+    "test:graphics-botfx": "node --test ../scripts/test-graphics-botfx.mjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
