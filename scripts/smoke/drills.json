@@ -1,0 +1,8 @@
+{
+  "drills": [
+    { "id": "fundamentals", "chip": "Fundamentals", "code": "d43f842fb33e4d46", "name": "Micro tiles" }
+  ],
+  "result": { "code": "d43f842fb33e4d46", "name": "Micro tiles", "seconds": 60 },
+  "light": { "code": "d43f842fb33e4d46", "name": "Micro tiles" },
+  "rankPicker": { "code": "c935a7a37b985842", "name": "Ascent B retake" }
+}
