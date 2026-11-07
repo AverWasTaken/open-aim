@@ -266,6 +266,107 @@ export function attackStagingCandidates(g, data, x, z, { r = 4, C = navContext(g
     .map((i) => ({ node: i, x: r2(g.x[i]), y: r2(g.y[i]), z: r2(g.z[i]), side: sideOf(A, i), d: r2(Math.hypot(g.x[i] - x, g.z[i] - z)), spawnT: r2(Math.max(...A.spawnT.map((f) => f[i]))) }));
 }
 
+// ---------------------------------------------------------------- setup candidates (R4 maps)
+// Sight sample points along a barrier segment (where the other team comes through or waits): at 20,
+// 50 and 80 % of its length, on the floor of the nearest node within 1.5 m inside the barrier's y
+// range, 1.0 and 1.6 m above it.
+export function barrierSamples(g, H, b) {
+  const out = [];
+  for (const t of [0.2, 0.5, 0.8]) {
+    const x = b.a.x + (b.b.x - b.a.x) * t, z = b.a.z + (b.b.z - b.a.z) * t;
+    const n = nodesNear(g, H, x, z, 1.5).find((i) => !Array.isArray(b.y) || (g.y[i] >= b.y[0] && g.y[i] <= b.y[1]));
+    if (n === undefined) continue;
+    out.push([x, g.y[n] + BODY, z], [x, g.y[n] + EYE, z]);
+  }
+  return out;
+}
+// Attackers' fastest time from their barriers to each site's zone (walk + drop, from the nodes on the
+// attackers' barrier-phase side within 1.5 m of an attacker barrier, no barriers): with the shortest
+// barrier phase (10 s) a defender setup is safe in time when its spawnT <= 10 + this.
+export function attackEntryTimes(g, data, C = navContext(g, data)) {
+  const A = attackContext(g, data, C), src = [];
+  for (const b of data.barriers.filter((q) => q.team === 'attack')) {
+    const vx = b.b.x - b.a.x, vz = b.b.z - b.a.z, l = vx * vx + vz * vz;
+    for (const i of nodesNear(g, C.H, (b.a.x + b.b.x) / 2, (b.a.z + b.b.z) / 2, Math.sqrt(l) / 2 + 1.5)) {
+      const t = Math.max(0, Math.min(1, ((g.x[i] - b.a.x) * vx + (g.z[i] - b.a.z) * vz) / l));
+      if (A.atkWalkBar[i] !== -2 && Math.hypot(g.x[i] - b.a.x - vx * t, g.z[i] - b.a.z - vz * t) <= 1.5) src.push(i);
+    }
+  }
+  const f = dijkstra(g, src, { types: TYPES.walkDrop }).dist, out = {};
+  for (const s of data.sites) {
+    let m = Infinity;
+    for (let i = 0; i < g.count; i++) if (f[i] < m && inSite(g, s, i)) m = f[i];
+    out[s.id] = r2(m);
+  }
+  return out;
+}
+// Defender setup candidates (how the authored SETUPS of the R4 maps were picked) for a site id, or for
+// a group around `near` points ([x, z] list, e.g. mid callouts): defender-walkable (walk + drop from
+// the defender spawns with the defender barriers up), open floor, inside the zone or within `range`
+// m of it (of a near point), slowest defender spawn -> node <= maxSpawnT s (default for a site:
+// 10 s barrier + the attackers' fastest barrier -> zone time - SETUP_MARGIN, so a setup is held
+// before the first attacker can step into the zone; for a group: MID_SPAWN_T); sees at least one
+// "entrance" (a defender barrier: where attackers come in) within faceRange m and is seen from at
+// most maxSeenBy of them (the bots' sight test, eye 1.6 m, barrier samples 1.0 / 1.6 m);
+// hiddenAtk = no attacker-barrier sample sees it at 1.0 or 1.6 m (attackers waiting at their
+// barriers). Ranked: seen by fewer entrances, then sees more, then nearer the site centre; picked
+// greedily `gap` m apart. Also returns any `hints` ([x, y, z, name]) checked against the same rules.
+export const SETUP_BARRIER_S = 10, SETUP_MARGIN = 1, MID_SPAWN_T = 11.5;
+export function setupCandidates(g, T, data, group, { near = null, range = 12, maxSpawnT = null, faceRange = FACE_RANGE, maxSeenBy = 2, gap = 3, top = 14, hints = [] } = {}) {
+  const C = navContext(g, data), { H } = C;
+  const site = data.sites.find((s) => s.id === group);
+  if (!site && !near) throw new Error(`setupCandidates: ${group} is not a site id; pass near points`);
+  const entryT = attackEntryTimes(g, data, C);
+  if (maxSpawnT === null) maxSpawnT = site ? SETUP_BARRIER_S + entryT[site.id] - SETUP_MARGIN : MID_SPAWN_T;
+  const ctr = site ? [site.center.x, site.center.z] : [near.reduce((a, p) => a + p[0], 0) / near.length, near.reduce((a, p) => a + p[1], 0) / near.length];
+  const spawnFields = C.sp.defense.map((n) => dijkstra(g, [n], { types: TYPES.walkDrop, mask: C.defMask }).dist);
+  const ent = data.barriers.filter((b) => b.team === 'defense').map((b) => ({ id: b.id, pts: barrierSamples(g, H, b) }));
+  const atk = data.barriers.filter((b) => b.team === 'attack').map((b) => ({ id: b.id, pts: barrierSamples(g, H, b) }));
+  const inArea = (i) => site
+    ? (inPoly(site.zone, g.x[i], g.z[i]) || polyEdgeDist(site.zone, g.x[i], g.z[i]) <= range)
+    : near.some(([x, z]) => Math.hypot(g.x[i] - x, g.z[i] - z) <= range);
+  const judge = (i) => {
+    const spawnT = Math.max(...spawnFields.map((f) => f[i]));
+    const eye = [g.x[i], g.y[i] + EYE, g.z[i]], body = [g.x[i], g.y[i] + BODY, g.z[i]];
+    const sees = [], seenBy = [];
+    for (const e of ent) {
+      const pts = e.pts.filter((p) => Math.hypot(p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]) <= faceRange);
+      if (pts.some((p) => T.sight(eye, p))) sees.push(e.id);
+      if (pts.some((p) => T.sight(p, eye) || T.sight(p, body))) seenBy.push(e.id);
+    }
+    const hiddenAtk = !atk.some((a) => a.pts.some((p) => T.sight(p, eye) || T.sight(p, body)));
+    return { spawnT, sees, seenBy, hiddenAtk };
+  };
+  const zoneY = site ? site.y[0] + 0.3 : null;
+  const out = [];
+  for (let i = 0; i < g.count; i++) {
+    if (C.defWalkBar[i] === -2 || !inArea(i) || !openFloor(g, i)) continue;
+    const sp = Math.max(...spawnFields.map((f) => f[i]));
+    if (!(sp <= maxSpawnT)) continue;
+    const j = judge(i);
+    if (!j.sees.length || j.seenBy.length > maxSeenBy) continue;
+    out.push({ node: i, x: r2(g.x[i]), y: r2(g.y[i]), z: r2(g.z[i]), spawnT: r2(j.spawnT), sees: j.sees, seenBy: j.seenBy, hiddenAtk: j.hiddenAtk,
+      inZone: site ? inSite(g, site, i) : false, high: zoneY !== null && g.y[i] > zoneY + 1, d: r2(Math.hypot(g.x[i] - ctr[0], g.z[i] - ctr[1])) });
+  }
+  out.sort((a, b) => a.seenBy.length - b.seenBy.length || b.sees.length - a.sees.length || a.d - b.d || a.node - b.node);
+  const pick = [];
+  for (const k of out) { if (pick.length >= top) break; if (pick.some((q) => Math.hypot(q.x - k.x, q.z - k.z) < gap)) continue; pick.push(k); }
+  const hint = hints.map(([x, y, z, name]) => {
+    const n = nearestNode(g, H, x, z, 0.75, y, 0.6);
+    if (n < 0) return { name, node: -1 };
+    const j = judge(n);
+    return { name, node: n, x: r2(g.x[n]), y: r2(g.y[n]), z: r2(g.z[n]), walk: C.defWalkBar[n] !== -2, open: openFloor(g, n), area: inArea(n), spawnT: r2(j.spawnT), sees: j.sees, seenBy: j.seenBy, hiddenAtk: j.hiddenAtk };
+  });
+  // Per entrance: the best few that watch it (same ranking, `gap` apart), so every entrance gets a look.
+  const byEntrance = {};
+  for (const e of ent) {
+    const l = [];
+    for (const k of out) { if (l.length >= 5) break; if (!k.sees.includes(e.id) || l.some((q) => Math.hypot(q.x - k.x, q.z - k.z) < gap)) continue; l.push(k); }
+    byEntrance[e.id] = l;
+  }
+  return { count: out.length, maxSpawnT: r2(maxSpawnT), pick, byEntrance, hints: hint, entryT };
+}
+
 // Travel-time report (seconds on edgeCost, i.e. run speed 6.75 m/s).
 export function travelReport(g, data, header) {
   const C = navContext(g, data), { H } = C, out = { setups: {}, barriers: {}, sites: {}, spawnToSite: {} };
@@ -294,7 +395,7 @@ export function travelReport(g, data, header) {
       const t = S.field.dist[s.node];
       if (!worst || t > worst.t) worst = { name, t };
     }
-    out.sites[id] = { worstSetup: worst.name, t: r2(worst.t), plusDefuse: r2(worst.t + 7), budget: 45 };
+    out.sites[id] = worst ? { worstSetup: worst.name, t: r2(worst.t), plusDefuse: r2(worst.t + 7), budget: 45 } : { worstSetup: null, t: null, plusDefuse: null, budget: 45 };
     out.spawnToSite[id] = r2(Math.max(...C.sp.defense.map((n) => S.field.dist[n])));
   }
   return out;
