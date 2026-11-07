@@ -22,7 +22,8 @@
     "test:result": "node --test ../scripts/test-ux-result.mjs",
     "test:hit": "node --test ../scripts/test-ux-hit.mjs",
     "test:words": "node --test ../scripts/test-ux-words.mjs",
-    "test:hud": "node --test ../scripts/test-ux-hud.mjs"
+    "test:hud": "node --test ../scripts/test-ux-hud.mjs",
+    "test:cards": "node --test ../scripts/test-ux-cards.mjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",

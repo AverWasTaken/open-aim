@@ -29,7 +29,7 @@ node scripts/ux/settings-layout-check.mjs <cdpPort> [--sizes 1280x720,1920x1080,
 
 ## lobby-layout-check.mjs
 
-Checks the lobby top bar, the feedback link and the keyboard path at eight window sizes.
+Checks the lobby top bar, the feedback link, the keyboard path and the drill cards at eight window sizes.
 
 1. Start a hidden test copy with a CDP port. In the open-aim push this only happens on the
    hp server: `bash hp.sh app-start <name> <AIM_PORT> <cdpPort>` (never the real profile or
@@ -56,11 +56,21 @@ It sets each size with `Emulation.setDeviceMetricsOverride` (1280x720, 1366x768,
 - a 25-step Tab walk starts at "Skip to drills" and every focused element is on screen.
 - pressing Enter on "Skip to drills" moves focus into the first drill card, on screen, and
   only the drill list scrolls (not the lobby frame).
+- drill cards: no card code ("NO.XXXXXX", `.al-wk-card-no` / `.al-wkb-no`) is visible, every
+  visible card play button (`.al-wk-split-go`, `.al-wk-play`) fits its label
+  (scrollWidth <= clientWidth) and its icon is not squashed;
+- at heights up to 800px, with the drill list at the top, the first card's title ends above
+  the bottom bar (`info.firstTitleBottom` <= `info.bottomBarTop`; reported above 800px);
+- at 1280x720 only: the first card rank chip is a `<button type="button">` with an
+  aria-label; a real click opens the rank picker with the pick-only hint ("Enter saves");
+  picking a rank there saves it for that drill (chip updates, focus back on the chip),
+  starts nothing and leaves `localStorage["aim-enemy-rank"]` unchanged. The drill's old
+  pick is put back afterwards. With `shotDir` it also saves `chip-picker-1280.png`.
 
 It prints one JSON line per size (`ok`, `fails`, `info`) and exits 1 if any check failed.
 Each CDP call gives up after 20 s (also when the copy is stopped), and the whole run stops
 with exit 3 after 8 minutes, so it never holds the shared hp copy past its slot.
-`info.firstCardTop` is reported only (the hero height at 1280x720 is a later item).
+`info.firstCardTop` and `info.heroHeight` are reported only.
 `info.navNeed` / `info.navFree` are reported only: the width the top nav needs in its current
 state and its spare room, to check the 1660px / 1860px breakpoints against real widths.
 With `shotDir` it saves `lobby-<w>x<h>@<dpr>x.png` per size and `tab-1280-<n>.png` for the

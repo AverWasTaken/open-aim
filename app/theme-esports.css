@@ -466,6 +466,24 @@ html[data-aim-local]:not(#es) body .al-wk-feat {
   clip-path: var(--es-cut) !important;
 }
 html[data-aim-local]:not(#es) body .al-wk-feat-why { color: var(--es-red-2) !important; font-weight: 700 !important; text-transform: uppercase; letter-spacing: 0.06em; }
+/* Short windows (1280x720 up to 800px tall): a compact hero, so the first row of drill cards
+   shows without scrolling. No line under the heading, no featured description or tags; the
+   featured drill's name and its Play button share one row. */
+@media (max-height: 800px) {
+  html[data-aim-local]:not(#es) body .al-wk-hero-copy { padding-top: 14px !important; padding-bottom: 12px !important; }
+  html[data-aim-local]:not(#es) body .al-wk-hero-copy h1 { font-size: 24px !important; line-height: 1.2 !important; }
+  html[data-aim-local]:not(#es) body :is(.al-wk-hero-sub, .al-wk-feat-desc, .al-wk-feat-tags) { display: none !important; }
+  html[data-aim-local]:not(#es) body .al-wk-feat {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    align-items: center !important;
+    gap: 0 16px !important;
+    margin-top: 8px !important;
+    padding: 10px 16px 12px !important;
+  }
+  html[data-aim-local]:not(#es) body .al-wk-feat.is-carousel { padding-bottom: 22px !important; }
+  html[data-aim-local]:not(#es) body .al-wk-feat h2 { margin-top: 2px !important; font-size: 20px !important; line-height: 1.2 !important; white-space: nowrap !important; }
+  html[data-aim-local]:not(#es) body .al-wk-feat .al-wk-go { margin: 0 !important; }
+}
 
 /* ---------- toolbar: map strip, filters, sort ---------- */
 html[data-aim-local]:not(#es) body .al-wk-tools { border-radius: 0 !important; border: none !important; border-top: 2px solid var(--es-red) !important; background: var(--es-panel) !important; }
@@ -522,7 +540,8 @@ html[data-aim-local]:not(#es) body .al-wk-dock .al-wk-dchips .al-wk-chip { paddi
 }
 html[data-aim-local]:not(#es) body .al-wk-card :is(.al-wk-art, img) { border-radius: 0 !important; }
 html[data-aim-local]:not(#es) body .al-wk-card h3 { font-size: 19px !important; font-weight: 800 !important; line-height: 1.1 !important; font-stretch: 75%; text-transform: uppercase; }
-html[data-aim-local]:not(#es) body .al-wk-card-no { font-weight: 700 !important; letter-spacing: 0.08em; color: #fff !important; }
+/* The "NO.D5A855" share code means nothing to players: hidden on both card faces. */
+html[data-aim-local]:not(#es) body :is(.al-wk-card-no, .al-wkb-no) { display: none !important; }
 html[data-aim-local]:not(#es) body .al-wk-tag { background: var(--es-red) !important; clip-path: var(--es-slant-sm) !important; padding-inline: 10px !important; border-radius: 0 !important; }
 html[data-aim-local]:not(#es) body .al-wk-tag * { color: #fff !important; }
 html[data-aim-local]:not(#es) body .al-wk-fav { border-radius: 0 !important; }
@@ -535,8 +554,12 @@ html[data-aim-local]:not(#es) body .aim-rank-chip {
   display: inline-flex; align-items: center; gap: 6px; height: 26px; margin: 8px 0 0; padding: 0 12px 0 8px;
   font: 700 12px "Bahnschrift", "Segoe UI", sans-serif; font-stretch: 75%; letter-spacing: 0.06em; text-transform: uppercase;
   color: #fff; background: color-mix(in srgb, var(--rank-tone, #9aa1ae) 22%, rgba(14, 17, 23, 0.82));
-  border-left: 2px solid var(--rank-tone, #9aa1ae); clip-path: var(--es-slant-sm);
+  border: none; border-left: 2px solid var(--rank-tone, #9aa1ae); clip-path: var(--es-slant-sm); cursor: pointer;
 }
+/* The chip is a button (opens the rank picker for this drill): brighter on hover, and an inset
+   focus ring because the slant clip would cut an outside one off. */
+html[data-aim-local]:not(#es) body .aim-rank-chip:hover { color: #fff; background: color-mix(in srgb, var(--rank-tone, #9aa1ae) 38%, rgba(14, 17, 23, 0.9)); }
+html[data-aim-local]:not(#es) body .aim-rank-chip:focus-visible { outline-offset: -2px !important; }
 html[data-aim-local]:not(#es) body .aim-rank-chip :is(img, svg) { width: 19px; height: 19px; object-fit: contain; flex: none; }
 html[data-aim-local]:not(#es) body .aim-rank-chip[data-key="pick"] { padding-left: 10px; color: #c9ced6; }
 html[data-aim-local]:not(#es) body .aim-rank-chip[data-key="none"] { --rank-tone: #6b7280; }
@@ -565,6 +588,30 @@ html[data-aim-local]:not(#es) body :is(.al-wk-go, .al-wk-split-go) {
 }
 html[data-aim-local]:not(#es) body :is(.al-wk-go, .al-wk-split-go):hover { background: var(--es-red-2) !important; }
 html[data-aim-local]:not(#es) body :is(.al-wk-go, .al-wk-split-go) * { color: #fff !important; }
+/* Card play buttons sit in a narrow cell: with the 22px side padding the label was cut off and
+   the icon squashed to a dot. Less padding and a fixed icon size. The single play button
+   (cards without a second button) gets the same look, in the same place. */
+html[data-aim-local]:not(#es) body .al-wk-card :is(.al-wk-split-go, .al-wk-play) { min-width: 0; gap: 8px !important; padding-inline: 10px !important; }
+html[data-aim-local]:not(#es) body .al-wk-card :is(.al-wk-split-go, .al-wk-play) svg { flex: none; width: 14px; height: 14px; }
+html[data-aim-local]:not(#es) body .al-wk-card .al-wk-play {
+  position: static !important;
+  flex: none;
+  height: 38px !important;
+  margin: 0 12px 12px;
+  transform: none !important;
+  background: var(--es-red) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 0 !important;
+  clip-path: var(--es-slant) !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  font-stretch: 75%;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+html[data-aim-local]:not(#es) body .al-wk-card .al-wk-play:hover { background: var(--es-red-2) !important; }
 
 /* ---------- every panel, row and control: square corners ---------- */
 html[data-aim-local]:not(#es) body :is(.hall-root, .hall-portal, .al-studio-shell, .pw, .rov, .al-tn, .al-stage-wrap, [class*="al-wk"]) :is(kbd,button, input, select, textarea, summary, .el-button, .el-input__wrapper, .el-select__wrapper,

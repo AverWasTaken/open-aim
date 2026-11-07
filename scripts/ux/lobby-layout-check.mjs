@@ -8,8 +8,12 @@
 // 1280x720, one per step of the first 8 Tab presses (tab-1280-<n>.png).
 //
 // For each window size it checks the lobby's top bar, the feedback link in the bottom
-// bar and the keyboard path, prints one JSON line per size, and exits non-zero if any
-// check failed. The size override is cleared at the end.
+// bar, the keyboard path and the drill cards (no card code shown, play buttons not cut
+// off, and at heights up to 800px the first card's title above the bottom bar), prints
+// one JSON line per size, and exits non-zero if any check failed. At 1280x720 it also
+// clicks a card's rank chip: it must be a button that opens the rank picker, and a pick
+// made there must not change the global enemy rank (localStorage "aim-enemy-rank").
+// The size override is cleared at the end.
 // No dependencies: Node 22+ built-in fetch and WebSocket (runs from any folder,
 // e.g. via hp.sh cdp-script, which copies it to /tmp).
 
@@ -248,7 +252,90 @@ function pageLayout(labelsFrom) {
 
   const card = document.querySelector(".al-wk-card");
   out.info.firstCardTop = card ? Math.round(card.getBoundingClientRect().top) : null;
+
+  // Drill cards: the "NO.XXXXXX" code is hidden on both faces, play buttons fit their label.
+  const shown = (e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && getComputedStyle(e).visibility !== "hidden"; };
+  const code = [...document.querySelectorAll(".al-wk-card-no, .al-wkb-no")].find(shown);
+  if (code) fail(`card code shown: "${code.textContent.trim()}"`);
+  const plays = [...document.querySelectorAll(".al-wk-card :is(.al-wk-split-go, .al-wk-play)")].filter(shown);
+  out.info.playButtons = plays.length;
+  if (!plays.length) fail("no visible play button on any drill card");
+  const cut = plays.find((b) => b.scrollWidth > b.clientWidth);
+  if (cut) fail(`play button cut off: scrollWidth ${cut.scrollWidth} > clientWidth ${cut.clientWidth} ("${cut.textContent.trim()}")`);
+  const icon = plays.map((b) => b.querySelector("svg")).find((s) => s && s.getBoundingClientRect().width < 10);
+  if (icon) fail(`play icon squashed to ${Math.round(icon.getBoundingClientRect().width)}px`);
+  if (plays[0]) out.info.play = { ...rect(plays[0]), label: plays[0].textContent.trim() };
+
+  // Lobby hero: with the drill list at the top, the first card's title is above the bottom
+  // bar. Required up to 800px tall (the hero shrinks there); reported above that.
+  const title = document.querySelector(".hall-board-body .al-wk-card h3, .al-wk-card h3");
+  const bar = document.querySelector(".hall-bottombar");
+  const hero = document.querySelector(".al-wk-hero");
+  if (hero) out.info.heroHeight = Math.round(hero.getBoundingClientRect().height);
+  if (title && bar) {
+    const t = Math.round(title.getBoundingClientRect().bottom), top = Math.round(bar.getBoundingClientRect().top);
+    out.info.firstTitleBottom = t;
+    out.info.bottomBarTop = top;
+    if (vh <= 800 && t > top) fail(`first drill title ends at ${t}px, below the bottom bar top ${top}px`);
+  } else if (vh <= 800) fail("no drill card title or bottom bar to measure");
   return out;
+}
+
+// Rank chip (rank-picker.js): take the first card that has one, bring it into the drill
+// list view (the list scrolls, not the frame) and report where to click.
+function pageChipPrep() {
+  const chip = document.querySelector(".al-wk-card[data-share-code] .aim-rank-chip");
+  if (!chip) return { error: "no rank chip on any drill card" };
+  const body = chip.closest(".hall-board-body");
+  if (body) {
+    const c = chip.getBoundingClientRect(), b = body.getBoundingClientRect();
+    if (c.top < b.top + 80 || c.bottom > b.bottom - 80) body.scrollTop += c.top - b.top - b.height / 2;
+  }
+  const r = chip.getBoundingClientRect();
+  const x = r.x + r.width / 2, y = r.y + r.height / 2;
+  const at = document.elementFromPoint(x, y);
+  let rank = null, picks = null;
+  try { rank = localStorage.getItem("aim-enemy-rank"); picks = localStorage.getItem("aim-rank-picks"); } catch {}
+  return {
+    tag: chip.tagName,
+    type: chip.getAttribute("type") || "",
+    label: chip.getAttribute("aria-label") || "",
+    key: chip.dataset.key || "",
+    code: chip.closest(".al-wk-card").dataset.shareCode,
+    x, y,
+    hit: !!at && (at === chip || chip.contains(at)),
+    rank, picks,
+  };
+}
+
+function pagePickerState() {
+  const shade = document.querySelector(".aim-pick-shade");
+  if (!shade) return null;
+  const tiles = [...shade.querySelectorAll(".aim-pick-tile")].map((t) => {
+    const r = t.getBoundingClientRect();
+    return { pick: t.dataset.pick, x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  return { hint: shade.querySelector(".es-tool-head p")?.textContent || "", tiles };
+}
+
+function pageChipAfter(code) {
+  const chip = document.querySelector(`.al-wk-card[data-share-code="${CSS.escape(code)}"] .aim-rank-chip`);
+  let rank = null, picks = null;
+  try { rank = localStorage.getItem("aim-enemy-rank"); picks = localStorage.getItem("aim-rank-picks"); } catch {}
+  return {
+    open: !!document.querySelector(".aim-pick-shade"),
+    key: chip?.dataset.key || "",
+    focusOnChip: !!chip && document.activeElement === chip,
+    lobby: !!document.querySelector(".hall-root .al-wk-card") && !document.pointerLockElement,
+    rank, picks,
+  };
+}
+
+function pageRestorePicks(picks) {
+  try { picks == null ? localStorage.removeItem("aim-rank-picks") : localStorage.setItem("aim-rank-picks", picks); } catch {}
+  // Same-window writes fire no storage event: send one so rank-picker.js redraws the chips.
+  dispatchEvent(new StorageEvent("storage", { key: "aim-rank-picks" }));
+  return true;
 }
 
 function pageModalCheck() {
@@ -304,6 +391,51 @@ function pageBlur() {
   return true;
 }
 
+async function click(send, x, y) {
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+  await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
+  await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 });
+}
+
+// Click a rank chip, pick a rank in the picker, check that nothing global changed.
+async function checkChip(send, fails, info) {
+  const c = await evaluate(send, pageChipPrep);
+  if (c.error) { fails.push(`rank chip: ${c.error}`); return; }
+  await evaluate(send, pageRafs);
+  const c2 = await evaluate(send, pageChipPrep); // after the drill list scrolled
+  if (c2.error) { fails.push(`rank chip: ${c2.error}`); return; }
+  info.chip = { tag: c2.tag, label: c2.label, key: c2.key };
+  if (c2.tag !== "BUTTON" || c2.type !== "button") fails.push(`rank chip is a <${c2.tag.toLowerCase()} type="${c2.type}">, not a <button type="button">`);
+  if (!c2.label.trim()) fails.push("rank chip has no aria-label");
+  if (!c2.hit) { fails.push("rank chip is covered at its centre"); return; }
+  try {
+    await click(send, c2.x, c2.y);
+    const st = await waitFor(send, pagePickerState, 3000);
+    if (!st) { fails.push("rank chip click did not open the rank picker"); return; }
+    await shot(send, "chip-picker-1280.png");
+    if (!/Enter saves/.test(st.hint)) fails.push(`chip picker hint is "${st.hint}", expected the pick-only "Enter saves" text`);
+    const want = ["gold", "silver", "iron"].find((p) => p !== c2.key && st.tiles.some((t) => t.pick === p));
+    const t = st.tiles.find((x) => x.pick === want);
+    if (!t) { fails.push("rank picker has no Iron/Silver/Gold tile"); return; }
+    await click(send, t.x, t.y);
+    await waitFor(send, () => !document.querySelector(".aim-pick-shade"), 3000);
+    await evaluate(send, pageRafs);
+    await sleep(800); // a drill would have started by now
+    const a = await evaluate(send, pageChipAfter, c2.code);
+    info.chipAfter = { key: a.key, focusOnChip: a.focusOnChip };
+    if (a.open) fails.push("rank picker still open after a pick");
+    if (a.rank !== c2.rank) fails.push(`picking via the chip changed aim-enemy-rank: ${c2.rank} -> ${a.rank}`);
+    if (!a.lobby) fails.push("picking via the chip left the lobby (a drill started?)");
+    if (a.picks === c2.picks) fails.push("picking via the chip did not save the drill's pick (aim-rank-picks unchanged)");
+    if (a.key !== want) fails.push(`chip shows "${a.key}" after picking "${want}"`);
+    if (!a.focusOnChip) fails.push("focus did not go back to the chip after the pick");
+  } finally {
+    await evaluate(send, () => { document.querySelector(".aim-pick-shade .es-tool-x")?.click(); return true; });
+    await evaluate(send, pageRestorePicks, c2.picks);
+    await evaluate(send, pageBlur);
+  }
+}
+
 // ---- main ----
 
 async function settle(send) {
@@ -349,6 +481,8 @@ async function checkSize(send, size) {
     await evaluate(send, () => { window.__aimTools?.close?.(); return true; });
     await waitFor(send, () => !document.querySelector(".es-tool-shade"), 3000);
   }
+
+  if (size.w === 1280 && size.h === 720) await checkChip(send, result.fails, result.info);
 
   // Tab walk from the top: every focused element must be inside the viewport.
   await evaluate(send, pageBlur);
