@@ -3,13 +3,18 @@ const { app, dialog, ipcMain } = require("electron");
 const fs = require("fs/promises");
 const path = require("path");
 const NAMES = ["riotusersettings.ini", "gameusersettings.ini", "backupkeybinds.json"];
-function register(getWindow, saveVsync) {
+// headless (test copies): no file picker, it would appear on screen.
+function register(getWindow, saveVsync, { headless = false } = {}) {
   function check(event) {
     const window = getWindow();
     if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error("Import is only available in the trainer window.");
   }
   ipcMain.handle("aim:valorant:choose", async event => {
     check(event);
+    if (headless) {
+      console.log("VALORANT IMPORT: file picker ignored (headless)");
+      throw new Error("Not available in headless test mode.");
+    }
     const selection = await dialog.showOpenDialog(getWindow(), {
       title: "Choose VALORANT settings from one account",
       defaultPath: path.join(process.env.LOCALAPPDATA || path.join(app.getPath("home"), "AppData", "Local"), "VALORANT", "Saved", "Config"),

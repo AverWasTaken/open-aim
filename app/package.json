@@ -18,6 +18,8 @@
     "test:spots": "node --test ../scripts/test-spot-bias.cjs",
     "test:vary": "node --test ../scripts/test-spot-vary.cjs",
     "test:round": "node --test ../scripts/test-round.mjs ../scripts/test-round-sim.mjs",
+    "test:shell": "node --test ../scripts/test-shell-hardening.cjs",
+    "test:feelsens": "node --test ../scripts/test-feel-sens.cjs",
     "test:smokelib": "node --test ../scripts/smoke/lib.test.mjs",
     "smoke": "node ../scripts/smoke/run.mjs"
   },
@@ -52,6 +54,8 @@
       "valorant-import-ipc.js",
       "valorant-import.css",
       "backups.js",
+      "shell-log.js",
+      "shell-env.js",
       "local-guard.js",
       "offline.css",
       "studio-store.js",
