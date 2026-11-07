@@ -484,6 +484,21 @@ test('B2 update drives il like lN: [here, target, next] + finish run + index 1 w
   assert.equal(calls.length, 1); assert.equal(calls[0].opts.brake, true); assert.equal(a.roundHoldFire, 0);
 });
 
+test('B2 pickTarget never steers across an active barrier: stands ([-1, -1]) when even the line to its own node is cut', () => {
+  const N = useNav(), g = N.g, F = I.fieldFor(N, N.g.header.setups['B default'].node, null);
+  let c = -1;
+  for (let i = 0; i < g.count && c < 0; i++) if (F.viaE[i] >= 0 && g.edgeType[F.viaE[i]] === 0 && g.x[F.via[i]] > g.x[i] + 0.4 && Math.abs(g.z[F.via[i]] - g.z[i]) < 0.01) c = i;
+  assert.ok(c >= 0);
+  const px = g.x[c] - 0.3, pz = g.z[c];
+  const wall = [{ a: { x: g.x[c] - 0.15, z: pz - 5 }, b: { x: g.x[c] - 0.15, z: pz + 5 } }];
+  assert.deepEqual(I.pickTarget(N, F, c, px, pz, wall), [-1, -1]);
+  const [t] = I.pickTarget(N, F, c, px, pz, []);
+  assert.ok(t >= 0 && t !== c, 'without the barrier it walks on');
+  // A barrier past its node only: it steers to its own node at most.
+  const far = [{ a: { x: g.x[c] + 0.2, z: pz - 5 }, b: { x: g.x[c] + 0.2, z: pz + 5 } }];
+  assert.equal(I.pickTarget(N, F, c, px, pz, far)[0], c);
+});
+
 test('B2 stuck: a bot that makes no progress re-plans every 2 s, then stands where it is (no teleport, no more il calls)', () => {
   useNav();
   const { a, ctx, st } = initBot('Market');

@@ -88,7 +88,7 @@ async function runReal(doc, { seed, extra = {}, ticks, each = null }) {
       const r = res.get(a.id);
       r.b = b; r.p = { ...p };
       assert.equal(b.nav, 1, 'nav mode');
-      if (b.air === 1) r.airTicks++;
+      if (b.air === 1) { r.airTicks++; r.lipRun = 0; }
       else {
         const top = p.y + 0.5, t = W.ray(W.pawn, [p.x, top, p.z], [0, -1, 0], 2);
         if (t < 0) r.noFloor++;
@@ -158,7 +158,7 @@ test('real Ascent, 20 s barrier, both movement modes: all 15 setups reached befo
       });
       checkRun(res, label);
       for (const r of res) {
-        arrivals.push({ barrier: 20, mode, setup: r.name, field: +r.field.toFixed(2), start: +r.b.goT.toFixed(2), arrive: r.b.arriveT, air: r.airTicks });
+        arrivals.push({ barrier: 20, mode, setup: r.name, field: +r.field.toFixed(2), start: +r.b.goT.toFixed(2), arrive: r.b.arriveT, air: r.airTicks, lip: r.maxLip ?? 0 });
         assert.equal(r.b.arrived, 1, `${label} ${r.name}: arrived`);
         assert.ok(r.b.arriveT < 20, `${label} ${r.name}: arrived at ${r.b.arriveT} (barrier 20)`);
         assert.ok(r.b.arriveT <= r.b.goT + 1.25 * r.field + 1, `${label} ${r.name}: arrived ${r.b.arriveT} vs field ${r.field.toFixed(2)} from ${r.b.goT.toFixed(2)}`);
@@ -175,6 +175,7 @@ test('real Ascent, 20 s barrier, both movement modes: all 15 setups reached befo
     }
   }
   assert.ok(airChecked, 'a bot was in the air (drop) on some route, and its save/restore was checked');
+  assert.ok(arrivals.some((a) => a.lip > 0), 'the drop-lip rule was exercised (and capped)');
   assert.ok(arrivals.filter((a) => a.barrier === 20 && a.air > 0).length >= 4, 'drop routes exercised on real collision');
   report();
 });
