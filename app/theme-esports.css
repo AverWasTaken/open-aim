@@ -610,8 +610,8 @@ html[data-aim-local]:not(#es) body .al-hud-chip {
   border-radius: 0 !important;
   box-shadow: none !important;
 }
-html[data-aim-local]:not(#es) body .al-hud-chip :is(b, strong) { font-weight: 700 !important; font-size: 1.15em; letter-spacing: 0.02em; }
-html[data-aim-local]:not(#es) body .al-hud-chip :is(span, small, em) { text-transform: uppercase; font-stretch: 75%; letter-spacing: 0.06em; color: var(--es-muted) !important; }
+html[data-aim-local]:not(#es) body .al-hud-chip :is(b, strong) { font-weight: 700 !important; font-size: 26px; line-height: 1.05; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+html[data-aim-local]:not(#es) body .al-hud-chip :is(span, small, em) { font-size: 11px; text-transform: uppercase; font-stretch: 75%; letter-spacing: 0.06em; color: var(--es-muted) !important; }
 html[data-aim-local]:not(#es) body .al-scene-start-cue :is(h1, h2, strong, b) { font-stretch: 75% !important; text-transform: uppercase !important; font-weight: 800 !important; font-style: italic; letter-spacing: 0.03em; }
 html[data-aim-local]:not(#es) body .al-scene-start-cue :is(button, [class*="chip"], [class*="pill"]) { border-radius: 0 !important; }
 
