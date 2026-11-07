@@ -397,7 +397,7 @@
 
       const { ads, scoped } = zoomMults();
       o("zoom").innerHTML = zoomRows(v, d, ads, scoped)
-        .map((r) => `<tr><td>${r.zoom}×<small>${r.what}</small></td><td>${r.kind === "ads" ? "ADS" : "Scoped"} ${fmt(r.mult, 3)}</td><td>${fmt(r.cm360, 1)}</td><td class="feel-sens-dim">${r.match0.toFixed(3)}</td></tr>`)
+        .map((r) => `<tr><td>${r.zoom}×<small>${r.what}</small></td><td>${r.kind === "ads" ? "ADS" : "Scoped"} ${fmt(r.mult, 3)}</td><td>${Number.isFinite(r.cm360) ? r.cm360.toFixed(1) : "–"}</td><td class="feel-sens-dim">${r.match0.toFixed(3)}</td></tr>`)
         .join("");
     }
 
