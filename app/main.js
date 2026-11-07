@@ -102,6 +102,8 @@ const INTERFACE_MODE_JS = fs.readFileSync(path.join(__dirname, "interface-mode.j
 // Backups and sensitivity panels opened from the top bar.
 const SNIPER_SCOPES_JS = fs.readFileSync(path.join(__dirname,"sniper-scopes.js"),"utf-8");
 const FAN_AUDIO_JS = fs.readFileSync(path.join(__dirname,"fan-audio.js"),"utf-8");
+// Sound mix, 3D enemy sound, enemy footsteps, headshot and kill sounds (feel-audio.js).
+const FEEL_AUDIO_JS = fs.readFileSync(path.join(__dirname, "feel-audio.js"), "utf-8");
 const ADVANCED_TRACERS_JS = fs.readFileSync(path.join(__dirname, "advanced-tracers.js"), "utf-8");
 const LOCAL_CUSTOMIZATION_JS = fs.readFileSync(path.join(__dirname, "local-customization.js"), "utf-8");
 const PLAYER_TOOLS_JS = fs.readFileSync(path.join(__dirname, "player-tools.js"), "utf-8");
@@ -129,6 +131,7 @@ const UI_SCRIPTS = [
   ["SMOOTH SCROLL", SMOOTH_SCROLL_JS],
   ["SNIPER SCOPES", SNIPER_SCOPES_JS],
   ["FAN AUDIO", FAN_AUDIO_JS],
+  ["FEEL AUDIO", FEEL_AUDIO_JS],
   ["ADVANCED TRACERS", ADVANCED_TRACERS_JS],
   ["LOCAL CUSTOMIZATION", LOCAL_CUSTOMIZATION_JS],
   ["PLAYER TOOLS", PLAYER_TOOLS_JS],

@@ -13,7 +13,7 @@
   function stop(channel){const voice=voices.get(channel);if(voice){voices.delete(channel);try{voice.stop();}catch{}}}
   function stopAll(){if(!voices.size)return;for(const channel of voices.keys())stop(channel);}
   function play(selected,name,audio,elapsed=0,delay=0,channel=name){const buffer=buffers.get(selected+':'+name);if(!buffer)return;const relative=elapsed-delay;if(relative>=buffer.duration)return;const output=audio?.ensure();if(!output)return;
-    const source=output.context.createBufferSource();source.__aimSlot=selected+':'+name;source.buffer=buffer;source.connect(output.master);const key=selected+':'+channel;voices.set(key,source);source.onended=()=>{source.disconnect();if(voices.get(key)===source)voices.delete(key);};source.start(relative<0?output.context.currentTime-relative:0,Math.max(0,relative));
+    const source=output.context.createBufferSource();source.__aimSlot=selected+':'+name;source.buffer=buffer;source.connect(output.bus?.weapon??output.master);const key=selected+':'+channel;voices.set(key,source);source.onended=()=>{source.disconnect();if(voices.get(key)===source)voices.delete(key);};source.start(relative<0?output.context.currentTime-relative:0,Math.max(0,relative));
   }
   function update(currentWeapon,seconds,currentEquipTick,actions,audio,phase='running'){
     const choice=window.__aimMeleeSkin==='half-life-crowbar'?'prime-axe':window.__aimMeleeSkin==='orange-butterfly'?'blackmarket-butterfly':window.__aimMeleeSkin;const selected=(currentWeapon==='melee'||currentWeapon==='knife')&&packs[choice]?choice:null;
