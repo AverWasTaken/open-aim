@@ -12,8 +12,9 @@
 //   rev goes up whenever anything drawn changes (spike kind, its rounded x/z, pulse on/off), so the
 //   minimap's redraw key changes exactly then. Coordinates are world x/z, the same frame as the
 //   minimap pose (player.position.x/z).
-// Visibility (never leaks the defense side's hidden info): planted spike for both sides; dropped
-// spike only on the attack side; botPlanting / carrier are never read.
+// Visibility (never leaks the defense side's hidden info): planted spike for both sides (hidden once
+// it detonates); dropped spike only on the attack side; botPlanting / carrier are never read.
+// The draw functions never throw (a throw would stop the game's minimap frame loop).
 //
 // Mapper contract (from the patch): map(x, z) -> [px, py] canvas pixels.
 //   small map: already rotated + zoomed + centred; R = radius in px (the map is a circle), dpr.
@@ -45,7 +46,7 @@ export function updateRoundMarks(m, view) {
   if (!m || !view) return;
   const s = view.spike;
   let kind = 0, at = null;
-  if (s?.planted) { kind = 1; at = s.planted; }
+  if (s?.planted) { if (view.reason !== 'detonated') { kind = 1; at = s.planted; } } // gone once it blows, like the 3D prop
   else if (s?.dropped && view.side === 'attack') { kind = 2; at = s.dropped; }
   const x = at ? Math.round(at.x * 5) / 5 : 0, z = at ? Math.round(at.z * 5) / 5 : 0;
   const pulse = kind === 1 && view.phase === 'planted';
@@ -106,44 +107,51 @@ function spike(ctx, m, x, y, r, dpr, now) {
 
 const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
+// Runs one overlay inside save()/restore(); a throw never escapes (it would stop the game's
+// minimap frame loop, which schedules its next frame after drawing).
+function guarded(ctx, draw) {
+  ctx.save();
+  try { draw(); } catch {} finally { ctx.restore(); }
+}
+
 // Small (corner) map. Letters outside the circle are skipped; the spike is pinned to the rim.
 export function drawMiniMarks(ctx, m, map, R, dpr, now = clock()) {
   if (!m || typeof map !== 'function') return;
-  ctx.save();
-  for (const l of m.letters) {
-    const [px, py] = map(l.x, l.z);
-    if (Math.hypot(px - R, py - R) > R - 8 * dpr) continue;
-    letter(ctx, l.t, px, py, 12 * dpr);
-  }
-  if (m.spike) {
-    let [px, py] = map(m.sx, m.sz);
-    const dx = px - R, dy = py - R, d = Math.hypot(dx, dy), lim = R - 6 * dpr;
-    if (d > lim && d > 0) { px = R + (dx / d) * lim; py = R + (dy / d) * lim; }
-    spike(ctx, m, px, py, 4.5 * dpr, dpr, now);
-  }
-  ctx.restore();
+  guarded(ctx, () => {
+    for (const l of m.letters) {
+      const [px, py] = map(l.x, l.z);
+      if (Math.hypot(px - R, py - R) > R - 8 * dpr) continue;
+      letter(ctx, l.t, px, py, 12 * dpr);
+    }
+    if (m.spike) {
+      let [px, py] = map(m.sx, m.sz);
+      const dx = px - R, dy = py - R, d = Math.hypot(dx, dy), lim = R - 6 * dpr;
+      if (d > lim && d > 0) { px = R + (dx / d) * lim; py = R + (dy / d) * lim; }
+      spike(ctx, m, px, py, 4.5 * dpr, dpr, now);
+    }
+  });
 }
 
 // Big map. The site letter sits in a badge above the site centre, clear of the callout label
 // (callout names are drawn to the right of their dot).
 export function drawBigMarks(ctx, m, map, dpr, now = clock()) {
   if (!m || typeof map !== 'function') return;
-  ctx.save();
-  for (const l of m.letters) {
-    const [px, py0] = map(l.x, l.z);
-    const r = 11 * dpr, py = py0 - 20 * dpr;
-    ctx.beginPath();
-    ctx.arc(px, py, r, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(16,19,26,0.85)';
-    ctx.fill();
-    ctx.lineWidth = 2 * dpr;
-    ctx.strokeStyle = RED;
-    ctx.stroke();
-    letter(ctx, l.t, px, py + 0.5 * dpr, 15 * dpr);
-  }
-  if (m.spike) {
-    const [px, py] = map(m.sx, m.sz);
-    spike(ctx, m, px, py, 7 * dpr, dpr, now);
-  }
-  ctx.restore();
+  guarded(ctx, () => {
+    for (const l of m.letters) {
+      const [px, py0] = map(l.x, l.z);
+      const r = 11 * dpr, py = py0 - 20 * dpr;
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(16,19,26,0.85)';
+      ctx.fill();
+      ctx.lineWidth = 2 * dpr;
+      ctx.strokeStyle = RED;
+      ctx.stroke();
+      letter(ctx, l.t, px, py + 0.5 * dpr, 15 * dpr);
+    }
+    if (m.spike) {
+      const [px, py] = map(m.sx, m.sz);
+      spike(ctx, m, px, py, 7 * dpr, dpr, now);
+    }
+  });
 }

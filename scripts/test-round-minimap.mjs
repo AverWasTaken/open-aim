@@ -74,6 +74,8 @@ test('updateRoundMarks: planted both sides, dropped attack only, never botPlanti
   assert.equal(m.rev, r2, 'same frame again: no bump');
   mm.updateRoundMarks(m, { side: 'defense', phase: 'ended', reason: 'defused', spike: { planted: P } });
   assert.equal(m.spike, 1); assert.equal(m.pulse, false, 'no pulse after the round'); assert.equal(m.rev, r2 + 1);
+  mm.updateRoundMarks(m, { side: 'defense', phase: 'ended', reason: 'detonated', spike: { planted: P } });
+  assert.equal(m.spike, 0, 'gone after detonation'); assert.equal(m.rev, r2 + 2);
   mm.updateRoundMarks(m, null); mm.updateRoundMarks(null, { spike: {} }); // no throw
 });
 
@@ -122,6 +124,11 @@ test('drawMiniMarks: letters at mapped spots, outside ones skipped, spike pinned
   mm.drawMiniMarks(c3, m, map, R, dpr, 0);
   assert.ok(c3.log.some((c) => c[0] === '=fillStyle' && c[1] === '#ffd166'));
   assert.equal(calls(c3, 'arc').length, 0);
+  // A throwing mapper never escapes (it would stop the minimap loop) and the ctx state is restored.
+  const c5 = fakeCtx();
+  assert.doesNotThrow(() => mm.drawMiniMarks(c5, m, () => { throw new Error('x'); }, R, dpr));
+  assert.doesNotThrow(() => mm.drawBigMarks(c5, m, () => { throw new Error('x'); }, dpr));
+  balanced(c5);
   // Nothing to draw: no ctx calls at all.
   const c4 = fakeCtx();
   mm.drawMiniMarks(c4, null, map, R, dpr);
