@@ -1,13 +1,14 @@
 // Bot hit flash + death animation (tools/graphics_botfx_patch.py): the patch is in both copies of
 // the mods CnrSARj_.js exactly once and only inside the actor renderer Uf (render side, no sim
 // code), and the real patched renderer, driven headless with the real sim's snapshots, plays the
-// death drop / sphere pop, the white hit pulse, and restores everything after. Needs the game files
-// in site/ for the renderer tests (skipped without them).
+// humanoid death drop and white hit pulse, restores everything after, and leaves spheres (grid
+// dots) exactly as before. Needs the game files in site/ for the renderer tests (skipped without them).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import os from 'node:os';
 import { register } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -60,11 +61,20 @@ test('patch is in both copies once, the copies are byte-identical, and it only t
   assert.equal(count(src, 'aimDie'), count(src.slice(start, ufEnd), 'aimDie'));
 });
 
-test('the patch script refuses to run twice', () => {
-  const r = spawnSync('python', [path.join(root, 'tools', 'graphics_botfx_patch.py')], { encoding: 'utf-8' });
-  if (r.error) return; // no python on this machine
-  assert.notEqual(r.status, 0);
-  assert.match(r.stderr + r.stdout, /already patched/);
+test('the patch script refuses to run twice (on a temp copy, never the repo files)', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aimbfx-'));
+  try {
+    const rels = [['next', 'js'], ['_assets', 'r20261021-1', 'next', 'js']];
+    rels.forEach((rel, k) => {
+      fs.mkdirSync(path.join(tmp, ...rel), { recursive: true });
+      fs.copyFileSync(COPIES[k], path.join(tmp, ...rel, 'CnrSARj_.js'));
+    });
+    const r = spawnSync('python', ['-I', path.join(root, 'tools', 'graphics_botfx_patch.py'), '--mods', tmp], { encoding: 'utf-8' });
+    assert.ok(!r.error, `python not runnable: ${r.error}`);
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr + r.stdout, /already patched/);
+    rels.forEach((rel, k) => assert.ok(fs.readFileSync(path.join(tmp, ...rel, 'CnrSARj_.js')).equals(fs.readFileSync(COPIES[k])), 'nothing written'));
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
 // ---- renderer, headless ----
@@ -107,29 +117,23 @@ const mat = (root) => {
 };
 const lum = (c) => c.r + c.g + c.b;
 
-test('sphere: a kill pops (1 -> 1.25 -> 0) and is gone after 120 ms; transforms are restored', { skip }, () => {
+test('sphere (grid dot): no new fx, a kill hides it at once as before', { skip }, () => {
   const { snap, r, actor, root } = setup('sphere');
   const pivot = pivotOf(root);
   const s0 = pivot.scale.x;
+  const e0 = mat(root).emissive.clone();
   const T = snap.tick;
   clock = 5000;
   r.apply(at(snap, T + 1, actor.id, { alive: false }), [], 0, null, null);
-  assert.equal(root.visible, true, 'still drawn at the kill');
+  assert.equal(root.visible, false, 'hidden at the kill (no pop)');
   clock += 30; r.apply(at(snap, T + 2, actor.id, { alive: false }), [], 0, null, null);
-  assert.ok(pivot.scale.x > s0 * 1.15, `grows first (${pivot.scale.x})`);
-  assert.ok(lum(mat(root).emissive) > 1, 'glows');
-  clock += 50; r.apply(at(snap, T + 3, actor.id, { alive: false }), [], 0, null, null);
-  assert.ok(pivot.scale.x < s0 * 0.8, `then shrinks (${pivot.scale.x})`);
-  assert.equal(root.visible, true);
-  clock += 50; r.apply(at(snap, T + 4, actor.id, { alive: false }), [], 0, null, null);
-  assert.equal(root.visible, false, 'gone after 120 ms');
+  assert.equal(root.visible, false);
   assert.equal(pivot.scale.x, s0);
-  assert.equal(pivot.scale.y, s0);
-  assert.equal(pivot.rotation.x, 0);
+  assert.ok(mat(root).emissive.equals(e0), 'no glow');
 });
 
 test('a time-out (hidden at death) is not animated; a respawn cancels a running death', { skip }, () => {
-  const { snap, r, actor, root } = setup('sphere');
+  const { snap, r, actor, root } = setup('humanoid');
   const T = snap.tick;
   const s0 = pivotOf(root).scale.x;
   clock = 9000;
@@ -139,7 +143,7 @@ test('a time-out (hidden at death) is not animated; a respawn cancels a running 
   r.apply(at(snap, T + 2, actor.id, { bornTick: T + 2 }), [], 0, null, null);
   r.apply(at(snap, T + 3, actor.id, { bornTick: T + 2, alive: false }), [], 0, null, null);
   clock += 20; r.apply(at(snap, T + 4, actor.id, { bornTick: T + 2, alive: false }), [], 0, null, null);
-  assert.ok(pivotOf(root).scale.x > s0 * 1.01, 'dying');
+  assert.ok(pivotOf(root).rotation.x !== 0 && root.visible, 'dying');
   clock += 10; r.apply(at(snap, T + 5, actor.id, { bornTick: T + 5 }), [], 0, null, null);
   assert.equal(root.visible, true);
   const s = pivotOf(root).scale;
@@ -147,17 +151,20 @@ test('a time-out (hidden at death) is not animated; a respawn cancels a running 
   assert.equal(s.x, s0, 'scale restored');
 });
 
-test('sphere hit pulse: emissive goes up on the hit and is restored exactly afterwards', { skip }, () => {
+test('sphere hit: origin look (hit colour for the flash ticks, emissive untouched)', { skip }, () => {
   const { snap, r, actor, root } = setup('sphere');
   const m = mat(root);
   const T = snap.tick;
   r.apply(at(snap, T + 1, actor.id, {}), [], 0, null, null);
   const base = m.emissive.clone();
+  const color = m.color.getHex();
   const shot = { tick: T + 2, kind: 'shot', hitActorId: actor.id, hitPart: 'body' };
   r.apply(at(snap, T + 2, actor.id, {}), [shot], 0, null, null);
-  assert.ok(lum(m.emissive) > lum(base) + 0.5, 'pulse on the hit');
+  assert.ok(m.emissive.equals(base), 'no emissive pulse');
+  assert.notEqual(m.color.getHex(), color, "the game's own hit colour");
   for (let k = 3; k < 40; k++) r.apply(at(snap, T + k, actor.id, {}), [], 0, null, null);
-  assert.ok(m.emissive.equals(base), 'restored');
+  assert.ok(m.emissive.equals(base));
+  assert.equal(m.color.getHex(), color, 'colour back');
 });
 
 test('humanoid: kill drops (sinks, squashes, pose frozen, white-hot) and is gone after 220 ms', { skip }, () => {
@@ -184,32 +191,35 @@ test('humanoid: kill drops (sinks, squashes, pose frozen, white-hot) and is gone
   assert.equal(lum(mat(root).emissive), 0, 'emissive back to black');
 });
 
-test('humanoid hit: white pulse instead of the inverted tint; headshot is stronger and longer', { skip }, () => {
+test('humanoid hit: white pulse (holds, then eases out) instead of the inverted tint; headshot stronger and longer', { skip }, () => {
   const { snap, r, actor, root } = setup('humanoid');
   const m = mat(root);
   const T = snap.tick;
   r.apply(at(snap, T + 1, actor.id, {}), [], 0, null, null);
-  const color = m.color.getHex();
-  const peak = (part, tick) => {
+  const color = m.color.clone();
+  const lumAt = (tick) => { r.apply(at(snap, tick, actor.id, {}), [], 0, null, null); return lum(m.emissive); };
+  const pulse = (part, tick) => {
     r.apply(at(snap, tick, actor.id, {}), [{ tick, kind: 'shot', hitActorId: actor.id, hitPart: part }], 0, null, null);
     const p = lum(m.emissive);
-    assert.equal(m.color.getHex(), color, 'no colour swap on humanoids');
-    r.apply(at(snap, tick + 15, actor.id, {}), [], 0, null, null);
-    const late = lum(m.emissive);
-    for (let k = 16; k < 40; k++) r.apply(at(snap, tick + k, actor.id, {}), [], 0, null, null);
-    assert.equal(lum(m.emissive), 0, 'restored');
-    return { p, late };
+    assert.ok(lum(m.color) >= lum(color) + (3 - lum(color)) * 0.3 - 1e-9, `colour pulled toward white (${lum(color)} -> ${lum(m.color)})`);
+    const held = lumAt(tick + 4);
+    const t19 = lumAt(tick + 19);
+    for (let k = 20; k < 40; k++) r.apply(at(snap, tick + k, actor.id, {}), [], 0, null, null);
+    assert.equal(lum(m.emissive), 0, 'emissive restored');
+    assert.ok(m.color.equals(color), 'colour restored');
+    return { p, held, t19 };
   };
-  const body = peak('body', T + 2);
-  const head = peak('head', T + 50);
+  const body = pulse('body', T + 2);
+  const head = pulse('head', T + 50);
   assert.ok(body.p > 1, `body pulse visible (${body.p})`);
+  assert.equal(body.held, body.p, 'body pulse holds its peak for 4 ticks (~31 ms)');
   assert.ok(head.p > body.p * 1.3, 'headshot brighter');
-  assert.equal(body.late, 0, 'body pulse over by 15 ticks');
-  assert.ok(head.late > 0, 'headshot pulse still going at 15 ticks');
+  assert.equal(body.t19, 0, 'body pulse over by 19 ticks');
+  assert.ok(head.t19 > 0, 'headshot pulse still going at 19 ticks');
 });
 
 test('clear() drops all death/flash state (replay seek)', { skip }, () => {
-  const { snap, r, actor, scene } = setup('sphere');
+  const { snap, r, actor, scene } = setup('humanoid');
   const T = snap.tick;
   r.apply(at(snap, T + 1, actor.id, { alive: false }), [], 0, null, null);
   r.clear();
