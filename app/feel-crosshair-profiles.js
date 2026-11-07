@@ -87,16 +87,23 @@
 
   function startUi() {
     if (typeof document === "undefined") return;
-    const css = `.feel-xprof{margin-top:10px;display:flex;flex-direction:column;gap:6px}
-.feel-xprof-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.feel-xprof-label{font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;opacity:.85;margin-right:2px}
-.feel-xprof select,.feel-xprof input{flex:1 1 140px;min-width:0;height:30px;box-sizing:border-box;padding:0 8px;font:inherit;font-size:13px;color:inherit;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.18);border-radius:3px}
-.feel-xprof select option{color:#111;background:#eee}
-.feel-xprof select:focus,.feel-xprof input:focus{outline:1px solid rgba(255,255,255,.5)}
-.feel-xprof-status{min-height:1.2em;font-size:12px;opacity:.8}
-.feel-xprof-status.is-bad{color:#ff6b6b;opacity:1}
-.feel-xprof button.feel-xprof-danger{border-color:#ff4655;color:#ff4655}
-.feel-xprof [hidden]{display:none!important}`;
+    // The code panel is a flex column in the in-round dialog and a grid in the lobby Settings,
+    // where every direct div child is put in the button cell; the strip takes a full row instead.
+    // The lobby's right column (crosshair lab + code panel) is taller than the screen and did not
+    // scroll, which left the strip under the bottom bar; it scrolls while it holds the strip.
+    const css = `.feel-xprof{grid-area:auto/1/auto/-1!important;display:flex!important;flex-direction:column;gap:8px;padding-top:10px;border-top:1px solid var(--h-border,rgba(255,255,255,.1))}
+.feel-xprof .feel-xprof-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.feel-xprof .feel-xprof-label{font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--h-text)}
+.feel-xprof select,.feel-xprof input{flex:1 1 160px;min-width:0;height:32px;box-sizing:border-box;padding:0 10px;font:inherit;font-size:12.5px;color:var(--h-text);background:var(--h-surface);border:1px solid var(--h-border);border-radius:6px;outline:none}
+.st-view .feel-xprof select,.st-view .feel-xprof input{border:0;border-radius:0;box-shadow:inset 0 0 0 1px var(--st-line,var(--h-border))}
+.feel-xprof select:focus,.feel-xprof input:focus{border-color:var(--h-accent);box-shadow:inset 0 0 0 1px var(--h-accent)}
+.feel-xprof select option{color:var(--h-text);background:var(--h-surface)}
+.feel-xprof .feel-xprof-row .hall-dialog-btn{flex:1 1 0;padding:0 10px;white-space:nowrap}
+.feel-xprof .hall-dialog-btn.feel-xprof-danger{color:var(--h-danger);box-shadow:inset 0 0 0 1px var(--h-danger)}
+.feel-xprof .feel-xprof-status{min-height:1.4em;font-size:12px;color:var(--h-text-muted)}
+.feel-xprof .feel-xprof-status.is-bad{font-weight:700;color:var(--h-danger)}
+.feel-xprof [hidden]{display:none!important}
+.st-side:has(.feel-xprof){overflow-y:auto;min-height:0;overscroll-behavior:contain}`;
     let lastCode = null;
     const store = () => { try { return localStorage; } catch { return null; } };
     const current = () => { try { return localStorage.getItem(CURRENT); } catch { return null; } };
@@ -108,13 +115,15 @@
       document.head.appendChild(style);
     }
     // The game panel's import button, found by structure (its label is translated).
-    const importButton = panel => panel.querySelector(':scope > div:last-child > button:not(.is-primary)');
+    // The button row is the panel's last div other than the strip itself.
+    const importButton = panel => [...panel.querySelectorAll(':scope > div:not([data-role="crosshair-profiles"])')].pop()
+      ?.querySelector(':scope > button:not(.is-primary)') || null;
 
     function build(panel) {
       const button = importButton(panel), textarea = panel.querySelector("textarea");
       if (!button || !textarea) return;
       addCss();
-      const scoped = [...button.attributes].filter(a => a.name.startsWith("data-v-")).map(a => a.name);
+      const scoped = [...panel.attributes].filter(a => a.name.startsWith("data-v-")).map(a => a.name);
       const btnClass = [...button.classList].filter(c => c !== "is-primary").join(" ");
       const el = (tag, cls, text) => {
         const node = document.createElement(tag);
@@ -125,16 +134,18 @@
       };
       const btn = (text, action) => { const b = el("button", btnClass, text); b.type = "button"; b.dataset.xprof = action; return b; };
       const strip = el("div", "feel-xprof"); strip.dataset.role = "crosshair-profiles";
-      const row = el("div", "feel-xprof-row"), label = el("span", "feel-xprof-label", "Profiles");
+      const pick = el("div", "feel-xprof-row"), label = el("span", "feel-xprof-label", "Profiles");
       const select = el("select"); select.setAttribute("aria-label", "Crosshair profile");
+      pick.append(label, select);
+      const row = el("div", "feel-xprof-row");
       const saveAs = btn("Save current as…", "save"), renameBtn = btn("Rename", "rename"), del = btn("Delete", "delete");
-      row.append(label, select, saveAs, renameBtn, del);
+      row.append(saveAs, renameBtn, del);
       const edit = el("div", "feel-xprof-row"); edit.hidden = true;
       const input = el("input"); input.type = "text"; input.maxLength = NAME_MAX; input.placeholder = "Profile name"; input.setAttribute("aria-label", "Profile name");
       const ok = btn("Save", "ok"), cancel = btn("Cancel", "cancel");
       edit.append(input, ok, cancel);
       const status = el("small", "feel-xprof-status"); status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
-      strip.append(row, edit, status);
+      strip.append(pick, row, edit, status);
       // Typing a name must not trigger drill key binds.
       for (const type of ["keydown", "keyup", "keypress"]) strip.addEventListener(type, e => e.stopPropagation());
 
@@ -165,7 +176,8 @@
       }
       function commitEdit() {
         if (mode === "save") {
-          const code = current();
+          // Before the first change the game has stored nothing; the panel then shows the default code.
+          const code = current() ?? textarea.value.trim();
           if (!validCode(code)) { say("No crosshair to save yet. Change a setting first.", true); return; }
           const r = upsert(state(), { name: input.value, code });
           if (r.error) { say(r.error, true); return; }
