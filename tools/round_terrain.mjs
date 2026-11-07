@@ -29,7 +29,11 @@ const JS = (root) => path.join(root, 'app', 'mods', 'next', 'js');
 export const CACHE_DIR = path.join(os.tmpdir(), 'open-aim-round-cache');
 
 export const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
-export const fileSha = (file) => sha256(fs.readFileSync(file));
+// Text inputs are hashed with CRLF folded to LF so a Windows checkout (CRLF) and a Linux one agree.
+export const fileSha = (file) => {
+  const buf = fs.readFileSync(file);
+  return /\.(js|mjs|json)$/i.test(file) ? sha256(Buffer.from(buf.toString('latin1').replace(/\r\n/g, '\n'), 'latin1')) : sha256(buf);
+};
 
 // Map file: app/mods/aim-maps overrides site/aim-maps (same as the app's static server).
 export function mapFile(map, ext, root = ROOT) {
