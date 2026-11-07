@@ -491,13 +491,14 @@
   }
 
   // ---------- visibility and settings ----------
-  // The graph shows in the round view (.al-aimlab-root) and hides behind the result card.
+  // The graph shows in the round view (.al-aimlab-root) while the run is live.
   let inRound = false;
   function sync() {
     const root = !!document.querySelector(".al-aimlab-root");
     if (root !== inRound) { inRound = root; count = 0; head = 0; shown = ""; if (!root) round = null; }
     const result = !!document.querySelector(".al-result-overlay");
-    const m = root && !result ? mode() : "off";
+    // Only while a run is live: not over the loading screen, the pause menu or the result card.
+    const m = root && !result && phase === "running" ? mode() : "off";
     if (m !== "off" && !canvas) build();
     if (canvas) canvas.style.display = m !== "off" ? "" : "none";
     if (m !== shown) { shown = m; if (m !== "off") paint(); }
