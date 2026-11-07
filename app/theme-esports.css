@@ -303,6 +303,26 @@ html[data-aim-local]:not(#es) body .es-bar-fps.is-on { color: #fff !important; b
 .aim-video-local { margin: -3px 0 10px; }
 .aim-frame-controls button:focus-visible, .aim-meter-choice button:focus-visible { outline: 2px solid #ff4655 !important; outline-offset: 2px; }
 
+/* settings page layout (ux): lobby SETTINGS page only (.hall-root .st-view), not the in-game dialog (.hall-portal) */
+/* Full setting descriptions: wrap instead of one line cut off with "...". Also covers shell-injected rows. */
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-list :is(.hall-field-text small, .al-number-field .al-number-hint) { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: break-word; font-size: 13px; line-height: 1.45; }
+/* Settings column grows on wide screens (600px at 1280, about 45% up to 880px); the preview is capped at 1.4x the 880px column. */
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-main:not(.is-wide) { grid-template-columns: minmax(460px, clamp(600px, 45%, 880px)) minmax(0, 1fr); }
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack { width: min(100cqw, (100cqh - 236px) * 16 / 9, 1232px); }
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack.is-cross { width: min(100cqw, (100cqh - 196px) * 16 / 9, 1232px); }
+/* Audio tab: the preview shows nothing related, so hide it. Not while searching (data-tab is stale then; .st-brief is only set when not searching). */
+html[data-aim-local]:not(#es) body .hall-root .st-view[data-tab="audio"] .st-main:has(> .st-list.st-brief) { grid-template-columns: minmax(0, 1fr); }
+html[data-aim-local]:not(#es) body .hall-root .st-view[data-tab="audio"] .st-main:has(> .st-list.st-brief) > .st-side { display: none; }
+html[data-aim-local]:not(#es) body .hall-root .st-view[data-tab="audio"] .st-main > .st-list.st-brief { max-width: 880px; }
+/* Preview header and stat strip: no cut-off labels in a narrow preview. */
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-bar { height: auto; min-height: 40px; }
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-bar h2 { flex: none; white-space: nowrap; }
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-bar p { white-space: normal; overflow: visible; text-overflow: clip; text-align: right; line-height: 1.35; }
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-tele dt { white-space: normal; overflow: visible; text-overflow: clip; }
+@container (max-width: 560px) {
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-tele { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 /* Single game-render counter: updated four times per second, no glass blur. */
 .aim-frame-meter { display:none;position:fixed;left:16px;top:64px;z-index:2147483000;pointer-events:none;min-width:165px;max-width:calc(100vw - 32px);padding:0;border:0;background:transparent;color:#f2f3f5;text-shadow:0 1px 3px #000,0 0 2px #000;font-family:"Bahnschrift","Segoe UI",sans-serif;font-variant-numeric:tabular-nums; }
 body.al-training-active .aim-frame-meter { display:block; }
