@@ -20,7 +20,8 @@
     "test:round": "node --test ../scripts/test-round.mjs ../scripts/test-round-sim.mjs",
     "test:training-hooks": "node --test ../scripts/test-training-hooks.mjs",
     "test:training": "node --test ../scripts/test-training-scenarios.mjs",
-    "test:progress": "node --test ../scripts/test-training-progress.cjs"
+    "test:progress": "node --test ../scripts/test-training-progress.cjs",
+    "test:feelsens": "node --test ../scripts/test-feel-sens.cjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
