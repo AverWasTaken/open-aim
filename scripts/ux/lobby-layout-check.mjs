@@ -2,16 +2,26 @@
 // Lobby layout check over CDP (ux). Needs a running test copy of the app with
 // --remote-debugging-port; not part of npm test and not packaged.
 //
-//   node scripts/ux/lobby-layout-check.mjs <cdpPort>
+//   node scripts/ux/lobby-layout-check.mjs <cdpPort> [shotDir]
+//
+// With shotDir it also saves a screenshot per size (lobby-<w>x<h>@<dpr>x.png) and, at
+// 1280x720, one per step of the first 8 Tab presses (tab-1280-<n>.png).
 //
 // For each window size it checks the lobby's top bar, the feedback link in the bottom
 // bar and the keyboard path, prints one JSON line per size, and exits non-zero if any
 // check failed. The size override is cleared at the end.
-// No dependencies: Node 22+ built-in fetch and WebSocket.
+// No dependencies: Node 22+ built-in fetch and WebSocket (runs from any folder,
+// e.g. via hp.sh cdp-script, which copies it to /tmp).
 
-const port = process.argv[2];
+import { mkdirSync, writeFileSync } from "node:fs";
+
+const argv = process.argv.slice(2);
+// hp.sh cdp-script already passes the port first; tolerate it being given twice.
+if (argv[1] && argv[1] === argv[0]) argv.splice(1, 1);
+const port = argv[0];
+const shotDir = argv[1] || "";
 if (!port) {
-  console.error("usage: node scripts/ux/lobby-layout-check.mjs <cdpPort>");
+  console.error("usage: node scripts/ux/lobby-layout-check.mjs <cdpPort> [shotDir]");
   process.exit(2);
 }
 
@@ -24,6 +34,9 @@ const SIZES = [
   { w: 1920, h: 1080, dpr: 2 },
 ];
 const TAB_STEPS = 25;
+const TAB_SHOTS = 8;
+// Must match theme-esports.css: below this width the bar shows icons only.
+const LABELS_FROM = 1660;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function connect() {
@@ -108,7 +121,7 @@ function pageRafs() {
   return new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => res(true))));
 }
 
-function pageLayout() {
+function pageLayout(labelsFrom) {
   const out = { fails: [], info: {} };
   const fail = (m) => out.fails.push(m);
   const vw = innerWidth, vh = innerHeight;
@@ -146,11 +159,29 @@ function pageLayout() {
     if (hit) fail(`feedback link overlaps ${hit.className}`);
   }
 
+  // The tab row may shrink and scroll inside itself as a fallback. With Bahnschrift (the
+  // Windows font the widths are tuned for) no tab may be cut off; with a fallback font
+  // (hp has none) it is only reported.
+  const ctx = document.createElement("canvas").getContext("2d");
+  const probe = "OPEN-AIM Quick start mmwwii";
+  ctx.font = "700 40px monospace"; const mono = ctx.measureText(probe).width;
+  ctx.font = "700 40px Bahnschrift, monospace"; const bahn = ctx.measureText(probe).width;
+  out.info.bahnschrift = Math.abs(mono - bahn) > 0.5;
+  const tabs = document.querySelector(".hall-topnav .hall-tabs");
+  if (tabs) {
+    out.info.tabsClipped = tabs.scrollWidth > tabs.clientWidth + 1;
+    if (out.info.tabsClipped && out.info.bahnschrift) fail(`tab row cut off: scrollWidth ${tabs.scrollWidth} > clientWidth ${tabs.clientWidth}`);
+  }
+
   const btns = [...document.querySelectorAll(".es-bar .es-bar-btn")];
   out.info.barButtons = btns.length;
   out.info.labelsShown = btns.length > 0 && btns.every((b) => { const s = b.querySelector("span"); return s && getComputedStyle(s).display !== "none"; });
   if (!btns.length) fail("no .es-bar-btn buttons");
-  for (const b of btns) if (!(b.getAttribute("aria-label") || "").trim()) fail(`bar button without aria-label: ${b.title}`);
+  if (vw >= labelsFrom && !out.info.labelsShown) fail(`bar labels hidden at ${vw}px (should show from ${labelsFrom}px)`);
+  for (const b of btns) {
+    if (!(b.getAttribute("aria-label") || "").trim()) fail(`bar button without aria-label: ${b.title}`);
+    if (!(b.title || "").trim()) fail(`bar button without title tooltip: ${b.getAttribute("aria-label")}`);
+  }
   const fps = document.querySelector(".es-bar .es-bar-fps");
   if (!fps) fail("no FPS button");
   else if (!["true", "false"].includes(fps.getAttribute("aria-pressed"))) fail("FPS button has no aria-pressed");
@@ -212,6 +243,13 @@ async function settle(send) {
   return false;
 }
 
+async function shot(send, name) {
+  if (!shotDir) return;
+  const r = await send("Page.captureScreenshot", { format: "png" });
+  mkdirSync(shotDir, { recursive: true });
+  writeFileSync(`${shotDir}/${name}`, Buffer.from(r.data, "base64"));
+}
+
 async function checkSize(send, size) {
   const result = { size: `${size.w}x${size.h}@${size.dpr}x`, ok: false, fails: [], info: {} };
   await send("Emulation.setDeviceMetricsOverride", { width: size.w, height: size.h, deviceScaleFactor: size.dpr, mobile: false, screenWidth: size.w, screenHeight: size.h });
@@ -219,9 +257,10 @@ async function checkSize(send, size) {
   await waitFor(send, pageReady, 10000);
   if (!(await settle(send))) result.fails.push("layout did not settle within 6 s");
 
-  const lay = await evaluate(send, pageLayout);
+  const lay = await evaluate(send, pageLayout, LABELS_FROM);
   result.fails.push(...lay.fails);
   result.info = lay.info;
+  await shot(send, `lobby-${size.w}x${size.h}@${size.dpr}x.png`);
 
   // A panel's dim layer must cover the feedback link.
   const opened = await evaluate(send, () => { if (!window.__aimTools?.openSens) return false; window.__aimTools.openSens(); return true; });
@@ -245,6 +284,7 @@ async function checkSize(send, size) {
     const f = await evaluate(send, pageFocusRect);
     if (!f) { walk.push(null); continue; }
     walk.push(f.id);
+    if (size.w === 1280 && i < TAB_SHOTS) await shot(send, `tab-1280-${i + 1}.png`);
     const inside = f.w > 0 && f.h > 0 && f.x >= -1 && f.y >= -1 && f.r <= f.vw + 1 && f.b <= f.vh + 1;
     if (!inside) result.fails.push(`Tab ${i + 1}: ${f.id} outside the viewport (${f.x},${f.y} ${f.w}x${f.h})`);
     if (i === 0 && !/es-skip/.test(f.id)) result.fails.push(`Tab 1 should be Skip to drills, got ${f.id}`);
@@ -262,7 +302,7 @@ const { ws, send } = await connect();
 let failed = false;
 try {
   await send("Runtime.enable");
-  if (!(await waitFor(send, pageStart, 30000))) throw new Error("lobby did not load (startup screen still up or no tabs)");
+  if (!(await waitFor(send, pageStart, 90000))) throw new Error("lobby did not load (startup screen still up or no tabs)");
   for (const size of SIZES) {
     let r;
     try { r = await checkSize(send, size); }

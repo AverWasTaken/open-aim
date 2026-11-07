@@ -410,11 +410,24 @@ body.al-training-active .aim-frame-meter { display:block; }
 .es-shotgraph-sum.is-moment .es-shotgraph-sum-split { margin-bottom: 6px; }
 .es-shotgraph-sum-line { margin: 2px 0 0; color: #b9bfca; }
 .es-shotgraph-sum-line b { display: inline-block; min-width: 58px; font-weight: 700; }
-/* narrower windows: icons only (names stay in the tooltip) */
-@media (max-width: 1700px) {
-  html[data-aim-local]:not(#es) body .es-bar-btn span { display: none; }
-  html[data-aim-local]:not(#es) body .es-bar-btn { padding: 0 9px !important; }
+/* Top bar widths, measured in Bahnschrift: brand + full tabs + labelled bar + Sens ~1820px,
+   with compact tabs ~1610px, compact tabs + icon-only bar ~1250px.
+   Below 1860px: compact tabs and no brand subtitle. Below 1660px: bar icons only
+   (the name stays in the title tooltip and aria-label). */
+@media (max-width: 1859px) {
+  html[data-aim-local]:not(#es) body .hall-tab { padding-inline: 12px !important; font-size: 13px !important; }
+  html[data-aim-local]:not(#es) body .hall-topnav .hall-tabs { gap: 4px; }
+  html[data-aim-local]:not(#es) body .hall-topnav .hall-brand { padding: 0 16px !important; }
+  html[data-aim-local]:not(#es) body .hall-topnav .hall-brand small { display: none !important; }
 }
+@media (max-width: 1659px) {
+  html[data-aim-local]:not(#es) body .es-bar-btn span { display: none; }
+  html[data-aim-local]:not(#es) body .es-bar-btn { padding: 0 8px !important; }
+  html[data-aim-local]:not(#es) body .es-bar-quick { padding: 0 14px !important; }
+}
+/* Safety net (other fonts, extra bar items): the tab row shrinks and scrolls inside
+   itself instead of pushing Quick start and the Sens box off the page. */
+html[data-aim-local]:not(#es) body .hall-topnav .hall-tabs { min-width: 0; overflow: auto hidden; scrollbar-width: none; }
 
 /* ---------- hero ---------- */
 html[data-aim-local]:not(#es) body .al-wk-hero-art { border-radius: 0 !important; }
