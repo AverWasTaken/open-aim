@@ -1,7 +1,7 @@
 {
   "item": {
     "createTime": "2026-11-06 12:00:00",
-    "description": "Sheriff only. Bots strafe 10 to 25 m away. One headshot kills, body shots don't, so wait for the stop and tap the head.",
+    "description": "Sheriff only. Bots strafe 10 to 25 m away. One headshot kills, one body shot doesn't, so wait for the stop and tap the head.",
     "docBytes": 1131,
     "featured": false,
     "mapId": null,
@@ -20,7 +20,7 @@
     "authorUid": "local",
     "blockCount": 1,
     "createTime": "2026-11-06 12:00:00",
-    "description": "Sheriff only. Bots strafe 10 to 25 m away. One headshot kills, body shots don't, so wait for the stop and tap the head.",
+    "description": "Sheriff only. Bots strafe 10 to 25 m away. One headshot kills, one body shot doesn't, so wait for the stop and tap the head.",
     "docBytes": 1131,
     "name": "Sheriff one-taps",
     "playCount": 0,

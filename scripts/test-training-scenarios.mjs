@@ -39,7 +39,8 @@ const RAD_PER_COUNT = (0.07 * Math.PI) / 180; // sensitivity 1: one mouse count 
 const EYE = 1.75; // standing eye height (shot origin y)
 const HEAD = 1.86; // middle of a humanoid head above its feet, at scale 1 (head spans ~1.72-2.0)
 const BODY = 1.2;
-const createSim = (doc, seed = 7) => sim.c(doc, { sensitivity: 1, zoomSensitivity: 1, seed }); // OkAdunfX: c as p0
+// OkAdunfX: c as p0. Each sim gets its own copy of the doc: runs must not share state through it.
+const createSim = (doc, seed = 7) => sim.c(structuredClone(doc), { sensitivity: 1, zoomSensitivity: 1, seed });
 
 const SCENARIOS = fs.readdirSync(path.join(root, 'scenarios')).filter((f) => f.endsWith('.json')).sort().map((file) => {
   const data = JSON.parse(fs.readFileSync(path.join(root, 'scenarios', file), 'utf-8').replace(/^﻿/, ''));
@@ -62,7 +63,8 @@ function aimAt(snap, a, h) {
   const dy = a.position.y + h * (a.scale || 1) - (p.position.y + EYE);
   const yaw = Math.atan2(-dx, -dz); // yaw 0 looks down -z; +mouseDx lowers yaw
   const pitch = Math.atan2(dy, Math.hypot(dx, dz)); // +mouseDy lowers pitch
-  return { mouseDx: -(yaw - p.yaw) / RAD_PER_COUNT, mouseDy: -(pitch - p.pitch) / RAD_PER_COUNT };
+  // A shot leaves along view + recoil (+ spread): aim the view against the current recoil.
+  return { mouseDx: -(yaw - p.recoilYaw - p.yaw) / RAD_PER_COUNT, mouseDy: -(pitch - p.recoilPitch - p.pitch) / RAD_PER_COUNT };
 }
 
 // Plays `sec` seconds. policy(snap, tick, target) -> input (or null for idle); target = the alive,
@@ -184,13 +186,29 @@ test('Jiggle-peek duels: peekers shoot back, the player can win duels', { skip }
   assert.equal(doc.rules.weapon, 'vandal');
   assert.equal(doc.rules.playerDeath, 'endRound');
   assert.ok(doc.actors.every((a) => a.behaviors.some((b) => b.kind === 'shooter' && b.engage === 'stop')));
-  assert.ok(doc.actors.every((a) => a.behaviors.some((b) => b.kind === 'cross' && b.pauses?.length >= 4)), 'peek then A-D jiggle');
+  assert.ok(doc.actors.every((a) => a.behaviors.some((b) => b.kind === 'cross' && b.pauses?.length >= 5)), 'two jiggles, then the peek');
+  // With an idle player, the first peeker (Studio silver reaction) shows a shoulder twice, hides in
+  // between, then swings wide and shoots. Offset = metres from its wall's middle (walls at x -6/0/6).
+  const s = createSim(doc, 7);
+  const seen = [];
+  for (let i = 0; i < 10 * TPS; i++) {
+    const ev = s.step(IDLE);
+    const a = s.snapshot().actors.find((x) => x.alive);
+    if (a) {
+      const off = Math.round(Math.abs(a.position.x - Math.round(a.position.x / 6) * 6) * 10) / 10;
+      if (seen.at(-1) !== off) seen.push(off);
+    }
+    if (ev.some((e) => e.kind === 'enemyShot')) break;
+  }
+  const marks = seen.map((o) => (o <= 0.4 ? 'hidden' : o === 1.5 ? 'shoulder' : o >= 2.1 ? 'wide' : null)).filter((m, i, all) => m && m !== all.slice(0, i).filter(Boolean).at(-1));
+  // (it passes 1.5 m once more on the way out to the wide peek)
+  assert.deepEqual(marks, ['hidden', 'shoulder', 'hidden', 'shoulder', 'hidden', 'shoulder', 'wide'], `route before the first shot: ${seen.join(' ')}`);
   // Standing still and not shooting: a peeker comes out and kills the player.
   const idle = play(doc, 30, () => null);
   assert.ok(idle.n.enemyShot > 0 && idle.n.playerDead === 1, `bots shoot back: ${JSON.stringify(idle.n)}`);
   // Taps at the head while a bot is out: wins duels before dying.
   for (const seed of [7, 9]) {
-    const r = play(doc, 20, shooterPolicy(HEAD, 20), { seed });
+    const r = play(doc, 20, shooterPolicy(HEAD, 32), { seed });
     assert.ok(r.n.kill >= 3, `seed ${seed}: ${JSON.stringify(r.n)}`);
   }
 });
@@ -230,13 +248,11 @@ test('Operator angle hold: Operator, bots cross the gap, a scoped body shot kill
   assert.equal(doc.rules.fireMode, 'single');
   assert.ok(!doc.rules.perfectAccuracy, 'unscoped shots are inaccurate: scope in');
   assert.ok(doc.actors.every((a) => (a.health ?? 150) <= 150), 'Operator body (150) kills');
-  let scoped = true;
-  const policy = shooterPolicy(BODY, 240);
-  const r = play(doc, 30, policy, { each: (s) => s.setZoomLevel(scoped ? 1 : 0) });
+  // The Operator fires about every 1.7 s; shooting sooner gives 1 degree of spread even scoped.
+  const r = play(doc, 30, shooterPolicy(BODY, 240), { each: (s) => s.setZoomLevel(1) });
   assert.ok(r.n.kill >= 3, JSON.stringify(r.n));
   assert.ok(r.shots.filter((e) => e.hitPart === 'body').length <= r.n.kill, 'every body hit kills');
   assert.ok(r.shots.every((e) => e.spreadDeg < 0.5), 'scoped shots are accurate');
-  scoped = false;
   const hip = play(doc, 10, shooterPolicy(BODY, 240), { each: (s) => s.setZoomLevel(0) });
   assert.ok(hip.shots.length > 0 && hip.shots.every((e) => e.spreadDeg > 2), 'unscoped shots spread');
 });
