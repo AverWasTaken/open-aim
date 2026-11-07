@@ -56,10 +56,15 @@ async function connect() {
     pending.delete(msg.id);
     msg.error ? p.rej(new Error(msg.error.message)) : p.res(msg.result);
   };
+  // Each call gives up after 20 s, and all open calls fail when the copy goes away
+  // (it can be stopped at any time on hp), so the script never hangs.
+  ws.onclose = () => { for (const p of pending.values()) p.rej(new Error("websocket closed")); pending.clear(); };
   const send = (method, params = {}) => new Promise((res, rej) => {
     const n = ++id;
-    pending.set(n, { res, rej });
-    ws.send(JSON.stringify({ id: n, method, params }));
+    const t = setTimeout(() => { pending.delete(n); rej(new Error(`${method}: no reply within 20 s`)); }, 20000);
+    pending.set(n, { res: (v) => { clearTimeout(t); res(v); }, rej: (e) => { clearTimeout(t); rej(e); } });
+    try { ws.send(JSON.stringify({ id: n, method, params })); }
+    catch (e) { pending.get(n)?.rej(e); pending.delete(n); }
   });
   return { ws, send };
 }
@@ -79,6 +84,12 @@ async function waitFor(send, fn, timeout = 15000, ...args) {
     if (Date.now() > end) return v;
     await sleep(150);
   }
+}
+
+async function enter(send) {
+  const common = { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 };
+  await send("Input.dispatchKeyEvent", { type: "keyDown", text: "\r", unmodifiedText: "\r", ...common });
+  await send("Input.dispatchKeyEvent", { type: "keyUp", ...common });
 }
 
 async function key(send, name, shift = false) {
@@ -173,7 +184,17 @@ function pageLayout(labelsFrom) {
     const l = rect(link), bb = rect(bottom);
     if (l.x < bb.x - 1 || l.y < bb.y - 1 || l.r > bb.r + 1 || l.b > bb.b + 1) fail(`feedback link outside the bottom bar ${JSON.stringify(l)} vs ${JSON.stringify(bb)}`);
     const others = [...document.querySelectorAll(".hall-search, .al-wk-card, .al-wk-sort button")];
-    const hit = others.find((o) => { const r = rect(o); return r.w > 0 && overlap(l, r); });
+    // Cards and sort buttons scrolled out of the drill list are clipped by it: only the
+    // visible part counts.
+    const board = document.querySelector(".hall-board-body");
+    const clip = (o) => {
+      const r = rect(o);
+      if (!board || !board.contains(o)) return r;
+      const c = rect(board);
+      const x = Math.max(r.x, c.x), y = Math.max(r.y, c.y), rr = Math.min(r.r, c.r), bb2 = Math.min(r.b, c.b);
+      return { x, y, r: rr, b: bb2, w: rr - x, h: bb2 - y };
+    };
+    const hit = others.find((o) => { const r = clip(o); return r.w > 0 && r.h > 0 && overlap(l, r); });
     if (hit) fail(`feedback link overlaps ${hit.className}`);
   }
 
@@ -243,6 +264,25 @@ function pageFocusRect() {
   const b = e.getBoundingClientRect();
   const id = (e.tagName.toLowerCase() + (e.className && typeof e.className === "string" ? "." + e.className.trim().split(/\s+/).join(".") : "") + (e.getAttribute("aria-label") ? `[${e.getAttribute("aria-label")}]` : "") || "").slice(0, 80);
   return { id, x: Math.round(b.x), y: Math.round(b.y), r: Math.round(b.right), b: Math.round(b.bottom), w: Math.round(b.width), h: Math.round(b.height), vw: innerWidth, vh: innerHeight };
+}
+
+function pageSkipResult() {
+  const e = document.activeElement;
+  const card = document.querySelector(".hall-board-body .al-wk-card, .al-wk-card");
+  const b = e ? e.getBoundingClientRect() : null;
+  const moved = [];
+  for (const sel of [".hall-root", ".hall-body"]) {
+    const el = document.querySelector(sel);
+    if (el && (el.scrollTop || el.scrollLeft)) moved.push(`${sel} ${el.scrollLeft},${el.scrollTop}`);
+  }
+  const se = document.scrollingElement;
+  if (se && (se.scrollTop || se.scrollLeft)) moved.push(`page ${se.scrollLeft},${se.scrollTop}`);
+  return {
+    focus: e ? (e.tagName.toLowerCase() + "." + String(e.className || "").trim().split(/\s+/).join(".")).slice(0, 80) : "none",
+    inCard: !!(card && e && card.contains(e)),
+    onScreen: !!b && b.width > 0 && b.height > 0 && b.top >= -1 && b.left >= -1 && b.bottom <= innerHeight + 1 && b.right <= innerWidth + 1,
+    frameScrolled: moved.join("; "),
+  };
 }
 
 function pageBlur() {
@@ -321,6 +361,27 @@ async function checkSize(send, size) {
     if (i === 0 && !/es-skip/.test(f.id)) result.fails.push(`Tab 1 should be Skip to drills, got ${f.id}`);
   }
   result.info.tabWalk = walk;
+
+  // Skip to drills: Tab once, press Enter. Focus must land in the first drill card, on
+  // screen, and the lobby frame must not scroll (only the drill list may).
+  await evaluate(send, pageBlur);
+  await evaluate(send, pageRafs);
+  await key(send, "Tab");
+  await evaluate(send, pageRafs);
+  const onSkip = await evaluate(send, () => !!document.activeElement?.classList?.contains("es-skip"));
+  if (!onSkip) result.fails.push("Skip to drills: not focused after one Tab");
+  else {
+    const before = (await evaluate(send, pageSkipResult)).frameScrolled;
+    await enter(send);
+    await evaluate(send, pageRafs);
+    await evaluate(send, pageRafs);
+    const s = await evaluate(send, pageSkipResult);
+    result.info.skip = s;
+    if (!s.inCard) result.fails.push(`Skip to drills: focus went to ${s.focus}, not the first drill card`);
+    else if (!s.onScreen) result.fails.push(`Skip to drills: focused ${s.focus} is off screen`);
+    if (s.frameScrolled !== before) result.fails.push(`Skip to drills: the lobby frame scrolled (before "${before}", after "${s.frameScrolled}")`);
+    else if (before) result.fails.push(`lobby frame was already scrolled before Skip to drills (${before}): an earlier Tab stop scrolled it`);
+  }
   const docAfter = await evaluate(send, () => document.documentElement.scrollWidth <= innerWidth && (document.scrollingElement?.scrollLeft || 0) === 0);
   if (!docAfter) result.fails.push("page scrolled sideways during the Tab walk");
   await evaluate(send, pageBlur);
@@ -328,6 +389,9 @@ async function checkSize(send, size) {
   result.ok = result.fails.length === 0;
   return result;
 }
+
+// Hard stop so a stuck run never holds the shared hp copy past its 10-minute slot.
+setTimeout(() => { console.error("lobby-layout-check: gave up after 8 minutes"); process.exit(3); }, 8 * 60 * 1000).unref();
 
 const { ws, send } = await connect();
 let failed = false;

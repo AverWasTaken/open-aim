@@ -54,8 +54,12 @@ It sets each size with `Emulation.setDeviceMetricsOverride` (1280x720, 1366x768,
 - every top-bar button has an aria-label, the FPS button has aria-pressed;
 - the Sens arrows are 24x16 and not tab stops, the hidden file input is not a tab stop;
 - a 25-step Tab walk starts at "Skip to drills" and every focused element is on screen.
+- pressing Enter on "Skip to drills" moves focus into the first drill card, on screen, and
+  only the drill list scrolls (not the lobby frame).
 
 It prints one JSON line per size (`ok`, `fails`, `info`) and exits 1 if any check failed.
+Each CDP call gives up after 20 s (also when the copy is stopped), and the whole run stops
+with exit 3 after 8 minutes, so it never holds the shared hp copy past its slot.
 `info.firstCardTop` is reported only (the hero height at 1280x720 is a later item).
 `info.navNeed` / `info.navFree` are reported only: the width the top nav needs in its current
 state and its spare room, to check the 1660px / 1860px breakpoints against real widths.

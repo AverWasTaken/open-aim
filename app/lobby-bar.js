@@ -66,6 +66,18 @@
     bottom.appendChild(link);
   }
 
+  // Scroll only the lobby's drill list (.hall-board-body), never the fixed lobby frame
+  // around it (scrollIntoView would also scroll overflow:hidden parents).
+  // align "start": element at the top of the list; "nearest": only if not fully visible.
+  function scrollInBoard(el, align) {
+    const board = el.closest(".hall-board-body");
+    if (!board) return;
+    const e = el.getBoundingClientRect(), b = board.getBoundingClientRect();
+    const top = b.top + (parseFloat(getComputedStyle(board).scrollPaddingTop) || 0);
+    if (align === "start" || e.top < top) board.scrollTop += e.top - top;
+    else if (e.bottom > b.bottom) board.scrollTop += Math.min(e.bottom - b.bottom, e.top - top);
+  }
+
   // Keyboard: a "Skip to drills" link (first stop in the top nav, shown only on focus),
   // and no tab stops on the hidden file input or the small Sens arrows (the Sens box's
   // own arrow keys still change the value).
@@ -75,7 +87,7 @@
     const target = card.querySelector('button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])') || card;
     if (target === card && !card.hasAttribute("tabindex")) card.tabIndex = -1;
     target.focus({ preventScroll: true });
-    card.scrollIntoView({ block: "center" });
+    scrollInBoard(card, "nearest");
   }
 
   function syncKeyboard() {
@@ -110,7 +122,7 @@
     if (!el) { searchShown = false; return; }
     if (searchShown) return;
     searchShown = true;
-    el.scrollIntoView({ block: "start" });
+    scrollInBoard(el, "start");
   }
 
   function sync() {
