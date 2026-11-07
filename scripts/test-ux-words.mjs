@@ -73,6 +73,13 @@ const GOLDEN = [
   ['· 被玩过 3 次 · 10-21 发布 · 1.1 KB', '· Played 3 times · 10-21 published · 1.1 KB'],
   [' 靶打掉后 0 秒补一个。 ', ' A new target appears 0 sec after each kill. '],
   [' 时长由这份场景决定： ', ' Length is set by this drill: '],
+  ['在', ''],
+  ['的真实点位练预瞄、架枪、背闪', ': real spots to practice pre-aim, holding angles and dodging flashes'],
+  ['的方块场地上练基础功，不绑定地图', ' block arena: practice the basics, no map needed'],
+  ['打过 5 次 · 打完 3', 'Played 5 times · finished 3'],
+  ['你从本地导入的场景 · 12 个方块', 'Imported from your PC · 12 blocks'],
+  ['本局时长', 'Run time'],
+  ['已复制', 'Copied'],
   // pause menu text
   ['停住倒计时，慢慢熟悉地图。开过的这一局不计排名，成绩照常记录。', 'Stops the countdown so you can learn the map. This run won\'t be ranked; your score is still saved.'],
   // base terms
