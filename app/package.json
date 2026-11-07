@@ -18,7 +18,8 @@
     "test:spots": "node --test ../scripts/test-spot-bias.cjs",
     "test:vary": "node --test ../scripts/test-spot-vary.cjs",
     "test:round": "node --test ../scripts/test-round.mjs ../scripts/test-round-sim.mjs",
-    "test:training-hooks": "node --test ../scripts/test-training-hooks.mjs"
+    "test:training-hooks": "node --test ../scripts/test-training-hooks.mjs",
+    "test:training": "node --test ../scripts/test-training-scenarios.mjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
