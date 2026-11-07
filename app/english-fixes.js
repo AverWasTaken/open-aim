@@ -702,4 +702,9 @@ module.exports = {
   "你还没在这里把它完整打过一次。确定不用先试玩吗？": "You haven't played it through here yet. Skip testing it first?",
   "要试玩改过的": "To test your changes",
   "训练场里玩的是作者交的那一版，而且去了就离开这一页，你改的地方会丢。要试玩改过的，用顶栏的 ▶ 试玩。": "The range plays the saved version, and going there leaves this page, so unsaved changes are lost. To test your changes, use ▶ Try in the top bar.",
+
+  // ux result screen (strings added by tools/ux_result_patch.py)
+  "追平了个人纪录。": "You tied your best.",
+  "小球工坊 · 训练完成": "TARGET DRILL · COMPLETE",
+  "返回小球项目": "Back to Target drills",
 };

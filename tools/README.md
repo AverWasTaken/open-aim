@@ -50,6 +50,13 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 10. `spotvary_patch.py` (needs `spotbias_patch.py`; refuses to run twice: it looks for `aimSpotApply`)
 11. `peekmove_patch.py` (needs `spotvary_patch.py`; refuses to run twice: it looks for `aimPeekUpdate`)
 12. `round_patch.py` (after `peekmove_patch.py`; refuses to run twice: it looks for `/aim-rounds/round-core.mjs`). It keeps each copy's own line ends.
+13. `ux_result_patch.py` (ux; after `round_patch.py`; refuses to run twice: it looks for `__aimPb` in
+    `OkAdunfX.js` and the Target drill header in `Hwnlm6zD.js`). Result screen only, no sim or
+    replay code: the record check `uM` counts earlier runs only (no "new personal best" on a first
+    run, a 0-point run or a tie), RunReport gets a tie line, time to kill shows seconds
+    (`0.42s`, no delta), and Target drills get their own result header and back label. The
+    English for the new strings is in `app/english-fixes.js` ("ux result screen"). Tests:
+    `npm run test:result` (`--mods <dir>` patches another copy). It keeps each copy's own line ends.
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
