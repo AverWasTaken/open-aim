@@ -19,18 +19,22 @@ const checkBudget = (what) => { if (left() <= 0) throw new Bail("time budget use
 const RESULT = { checks: {}, errors: [], notes: [] };
 const errs = [];
 const BENIGN = [/desktop-seen/, /aimlab\/plays\/workshop/, /lock-events/, /Insecure Content-Security-Policy/, /Multiple instances of Three\.js/];
-let ws, send, sessionAlive = true;
+let ws, send, sessionAlive = false;
 async function connect() {
-  sessionAlive = true;
+  if (ws) { const old = ws; ws = null; try { old.close(); } catch {} }
   const list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();
   const t = list.find((x) => x.type === "page" && !x.url.startsWith("devtools"));
   if (!t) throw new Error("no page target");
-  ws = new WebSocket(t.webSocketDebuggerUrl);
-  await new Promise((ok, bad) => { ws.onopen = ok; ws.onerror = bad; });
+  const sock = new WebSocket(t.webSocketDebuggerUrl);
+  ws = sock;
+  await new Promise((ok, bad) => { sock.onopen = ok; sock.onerror = bad; });
+  sessionAlive = true;
   let id = 0;
   const pending = new Map();
-  ws.onclose = () => { sessionAlive = false; for (const { bad } of pending.values()) bad(new Error("CDP connection closed")); pending.clear(); };
-  ws.onmessage = (ev) => {
+  // Handlers of a replaced socket must not touch the current session.
+  sock.onclose = () => { if (ws === sock) sessionAlive = false; for (const { bad } of pending.values()) bad(new Error("CDP connection closed")); pending.clear(); };
+  sock.onmessage = (ev) => {
+    if (ws !== sock) return;
     const m = JSON.parse(ev.data);
     if (m.id && pending.has(m.id)) {
       const { ok, bad } = pending.get(m.id);
@@ -50,10 +54,10 @@ async function connect() {
     }
   };
   send = (method, params = {}) => new Promise((ok, bad) => {
-    if (!sessionAlive) return bad(new Error("CDP connection closed"));
+    if (!sessionAlive || ws !== sock) return bad(new Error("CDP connection closed"));
     const i = ++id;
     pending.set(i, { ok, bad });
-    ws.send(JSON.stringify({ id: i, method, params }));
+    sock.send(JSON.stringify({ id: i, method, params }));
   });
   await send("Runtime.enable");
   await send("Log.enable");
@@ -118,11 +122,6 @@ async function waitLobby(ms = 60000) {
   if (ok) await ev(HOOKS);
   return !!ok;
 }
-async function reload() {
-  await send("Page.reload", { ignoreCache: false });
-  await sleep(1500);
-  return waitLobby(90000);
-}
 async function viewport() {
   try { await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false }); } catch {}
   return ev(`[innerWidth,innerHeight,devicePixelRatio]`);
@@ -186,7 +185,6 @@ function takeErrors(label) {
 }
 async function finish(body) {
   try {
-    await connect();
     await body();
   } catch (e) {
     RESULT.fatal = (e instanceof Bail ? "BAIL: " : "") + (e.stack || e.message || String(e)).slice(0, 600);
@@ -194,6 +192,7 @@ async function finish(body) {
     if (sessionAlive) await shot("zz-fatal");
   } finally {
     takeErrors("end");
+    try { summarize(); } catch (e) { RESULT.notes.push("summary failed: " + e.message); }
     RESULT.elapsed = elapsed();
     try { writeFileSync(`${OUT}/result.json`, JSON.stringify(RESULT, null, 2)); } catch {}
     console.log("RESULT_JSON " + JSON.stringify(RESULT));
@@ -286,7 +285,7 @@ async function drill(prefix, code, { loading = true, big = false } = {}) {
       await sleep(1500);
       D.big = await ev(HUD);
       await shot(prefix + "-hud-2560");
-    } finally { await viewport(); await sleep(1500); }
+    } finally { try { await viewport(); } catch {} await sleep(1500); }
   }
   Object.assign(D, await pausedCheck(prefix));
   if (!D.paused?.paused) RESULT.notes.push(prefix + ": Tab did not pause the drill (pointer lock: " + (D.start && D.start.lock) + ")");
@@ -317,12 +316,18 @@ await finish(async () => {
   log("waiting for lobby");
   // The page can reload/navigate while the app boots (start screen -> lobby): reconnect.
   let lobby = false;
-  for (let i = 0; i < 8 && !lobby; i++) {
+  for (let i = 0; i < 10 && !lobby; i++) {
+    checkBudget("connect");
     try {
-      if (!sessionAlive) { await sleep(3000); await connect(); log("reconnected"); }
+      if (!sessionAlive) { if (i) await sleep(3000); await connect(); log(i ? "reconnected" : "connected"); }
       lobby = await waitLobby(150000);
       if (!lobby) break;
-    } catch (e) { log("lobby wait:", e.message); sessionAlive = false; }
+    } catch (e) {
+      if (e instanceof Bail) throw e;
+      log("lobby wait:", e.message);
+      if (ws && ws.readyState !== 1) sessionAlive = false; // only reconnect when the socket is really gone
+      if (!ws) sessionAlive = false;
+    }
   }
   if (!lobby) throw new Error("lobby never ready");
   await ev(`(()=>{localStorage.setItem('aim-valorant-import-hide-startup-v1','1');return 1})()`);
@@ -336,7 +341,9 @@ await finish(async () => {
   log("bot", JSON.stringify(RESULT.checks.bot.paused || {}).slice(0, 300));
   if (left() > 150000) await round();
   else RESULT.notes.push("round check skipped: time budget");
-  // summary
+});
+
+function summarize() {
   const S = (RESULT.summary = {});
   for (const k of ["ball", "bot", "round"]) {
     const p = RESULT.checks[k]?.paused;
@@ -344,4 +351,5 @@ await finish(async () => {
     S[k] = { paused: p.paused, valuePx: p.valuePx, labelPx: p.labelPx, topDisplay: p.top && p.top.display, topAboveCard: p.topAboveCard, overlayAlpha: p.layer && p.layer.alpha, layer: p.layer && p.layer.cls, coversCenter: RESULT.checks[k].running?.coversCenter, coversMinimap: RESULT.checks[k].running?.coversMinimap, meta: p.meta };
   }
   S.big = RESULT.checks.bot?.big && { vp: RESULT.checks.bot.big.vp, valuePx: RESULT.checks.bot.big.valuePx, top: RESULT.checks.bot.big.top, coversCenter: RESULT.checks.bot.big.coversCenter, coversMinimap: RESULT.checks.bot.big.coversMinimap };
-});
+  S.loading = { ball: RESULT.checks.ball?.loading?.msPerStage, bot: RESULT.checks.bot?.loading?.msPerStage };
+}
