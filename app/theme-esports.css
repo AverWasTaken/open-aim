@@ -190,36 +190,28 @@ html[data-aim-local]:not(#es) body :is(h1, h2, h3, .al-wk-hero-word, .al-wk-s-na
 /* ---------- lobby shell ---------- */
 html[data-aim-local]:not(#es) body .hall-topnav { background: #0c0e13 !important; border-bottom: 2px solid var(--es-red) !important; }
 html[data-aim-local]:not(#es) body .hall-bottombar { background: #0c0e13 !important; border-top: 1px solid var(--es-line) !important; }
-html[data-aim-local]:not(#es) body .es-discord-panel {
-  position: fixed;
-  right: 22px;
-  bottom: 76px;
-  z-index: 35;
-  display: grid;
-  gap: 11px;
-  width: 252px;
-  padding: 16px 18px 17px;
-  color: var(--es-text);
-  background: #10131a;
-  border-top: 3px solid var(--es-red);
-  box-shadow: 0 16px 38px rgba(0, 0, 0, .45), inset 0 0 0 1px var(--es-line-2);
+/* feedback link (lobby-bar.js): a small item in the bottom bar, just left of the footer text */
+html[data-aim-local]:not(#es) body .hall-bottombar::after { margin-left: 12px; }
+html[data-aim-local]:not(#es) body .hall-bottombar .es-discord-panel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 32px;
+  margin-left: auto;
+  padding: 0 10px;
+  color: var(--es-muted);
+  background: transparent;
+  font: 700 12px/1 var(--es-head);
+  font-stretch: 75%;
+  letter-spacing: .06em;
+  text-transform: uppercase;
   text-decoration: none;
+  white-space: nowrap;
   cursor: pointer;
-  transition: background-color .15s ease, transform .15s ease, border-color .15s ease;
 }
-html[data-aim-local]:not(#es) body .es-discord-panel:hover,
-html[data-aim-local]:not(#es) body .es-discord-panel:focus-visible {
-  background: var(--es-raised-2);
-  border-top-color: var(--es-red-2);
-  transform: translateY(-3px);
-  outline: 2px solid var(--es-red-2);
-  outline-offset: 2px;
-}
-html[data-aim-local]:not(#es) body .es-discord-panel-head { display: flex; align-items: center; gap: 8px; color: var(--es-red-2); font: 800 11px var(--es-head); letter-spacing: .12em; }
-html[data-aim-local]:not(#es) body .es-discord-panel-head svg { width: 21px; height: 21px; flex: none; }
-html[data-aim-local]:not(#es) body .es-discord-panel > strong { font: 800 19px/1.12 var(--es-head); text-transform: uppercase; }
-html[data-aim-local]:not(#es) body .es-discord-panel-action { display: flex; align-items: center; justify-content: space-between; padding-top: 10px; border-top: 1px solid var(--es-line-2); color: var(--es-soft); font: 800 12px var(--es-head); letter-spacing: .04em; }
-html[data-aim-local]:not(#es) body .es-discord-panel-action span { color: var(--es-red-2); font-size: 16px; }
+html[data-aim-local]:not(#es) body .hall-bottombar .es-discord-panel:hover { color: var(--es-text); background: var(--es-raised); }
+html[data-aim-local]:not(#es) body .hall-bottombar .es-discord-panel svg { width: 16px; height: 16px; flex: none; }
 body.al-training-active .es-discord-panel { display: none !important; }
 
 html[data-aim-local]:not(#es) body .hall-tab {
@@ -278,7 +270,32 @@ html[data-aim-local]:not(#es) body .es-bar-quick {
   font-style: italic;
 }
 html[data-aim-local]:not(#es) body .es-bar-quick:hover { background: var(--es-red-2) !important; }
-html[data-aim-local]:not(#es) body .es-bar-fps.is-on { color: #fff !important; border-bottom-color: var(--es-red) !important; }
+/* FPS is an on/off switch, not a page: no tab underline, a small light that is lit when on */
+html[data-aim-local]:not(#es) body .es-bar-fps.is-on { color: var(--es-soft) !important; border-bottom-color: transparent !important; }
+html[data-aim-local]:not(#es) body .es-bar-dot { display: block; flex: none; width: 6px; height: 6px; box-shadow: inset 0 0 0 1px var(--es-dim); }
+html[data-aim-local]:not(#es) body .es-bar-fps.is-on .es-bar-dot { background: var(--es-green); box-shadow: 0 0 6px rgba(74, 222, 128, .6); }
+/* Sens box arrows: two 24x16 hit areas filling the box height; not tab stops (lobby-bar.js),
+   the number box's own arrow keys change the value */
+html[data-aim-local]:not(#es) body .hall-topnav .hall-sens .hall-sens-stepper { width: 24px; gap: 0; }
+html[data-aim-local]:not(#es) body .hall-topnav .hall-sens .hall-sens-stepper button { width: 24px; height: 16px; font-size: 8px; }
+/* "Skip to drills" (lobby-bar.js): first Tab stop in the lobby, shown only while focused */
+html[data-aim-local]:not(#es) body .hall-topnav > .es-skip {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 5;
+  padding: 10px 16px;
+  color: #fff;
+  background: var(--es-red);
+  font: 800 13px/1 var(--es-head);
+  font-stretch: 75%;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+html[data-aim-local]:not(#es) body .hall-topnav > .es-skip:focus { transform: none; }
+html[data-aim-local]:not(#es) body .hall-topnav > .es-skip[hidden] { display: none; }
 
 /* Video controls inherit the native choice/button styles and scoped attributes. */
 .aim-video-panel > [data-setting="frameMode"],
