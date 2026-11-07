@@ -35,9 +35,11 @@ const opt = { sizes: "1280x720,1920x1080,3840x2160", tabs: "", shots: "", search
 while (argv.length) {
   const a = argv.shift();
   if (a === "--no-search") opt.search = false;
-  else if (a === "--sizes") opt.sizes = argv.shift();
-  else if (a === "--tabs") opt.tabs = argv.shift();
-  else if (a === "--shots") opt.shots = argv.shift();
+  else if (["--sizes", "--tabs", "--shots"].includes(a)) {
+    const v = argv.shift();
+    if (!v || v.startsWith("--")) { console.error(`${a} needs a value`); process.exit(2); }
+    opt[a.slice(2)] = v;
+  }
   else { console.error(`unknown argument ${a}`); process.exit(2); }
 }
 const sizes = opt.sizes.split(",").map((s) => {
