@@ -61,23 +61,26 @@
     if (document.getElementById("aim-round-panel-css")) return;
     const s = document.createElement("style");
     s.id = "aim-round-panel-css";
+    // Colours from theme-esports.css (ux-style.md); each var has its value as a fallback.
     s.textContent = `
 .es-tool.aim-round { width: min(860px, 100%); }
-.aim-round-row { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: start; margin-bottom: 12px; }
-.aim-round-row > h3 { margin: 10px 0 0; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #8b93a3; font-weight: 600; }
-.aim-round-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.aim-round-row { display: grid; grid-template-columns: 92px 1fr; gap: 12px; align-items: start; margin-bottom: 12px; }
+.aim-round-row > h3 { margin: 10px 0 0; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--es-muted, #9aa1ae); font-weight: 600; }
+.aim-round-opts { display: flex; flex-wrap: wrap; gap: 8px; }
 .aim-round-opts .aim-pick-grid { width: 100%; }
-.es-tool .es-tool-body button.aim-round-opt { min-height: 40px; padding: 6px 14px; border-radius: 4px; border: 1px solid #2a303c; background: #191d26; color: #e8ebf0; font: inherit; font-size: 13px; cursor: pointer; display: inline-flex; flex-direction: column; align-items: flex-start; justify-content: center; text-align: left; }
-.es-tool .es-tool-body button.aim-round-opt small { font-size: 11px; color: #8b93a3; }
-.es-tool .es-tool-body button.aim-round-opt.is-active { border-color: #ff4655; background: #2a1a20; box-shadow: inset 3px 0 0 #ff4655; }
+.es-tool .es-tool-body button.aim-round-opt { height: auto; min-height: 40px; padding: 6px 14px; border-radius: 0; border: 1px solid var(--es-line, #272d39); background: var(--es-raised-2, #1e232d); color: var(--es-text, #f4f5f7); font: 700 13px var(--es-head, "Bahnschrift", sans-serif); cursor: pointer; display: inline-flex; flex-direction: column; align-items: flex-start; justify-content: center; text-align: left; }
+.es-tool .es-tool-body button.aim-round-opt small { font-size: 11px; font-weight: 600; color: var(--es-muted, #9aa1ae); }
+.es-tool .es-tool-body button.aim-round-opt.is-active { border-color: var(--es-red, #ff4655); background: var(--es-red-wash, rgba(255,70,85,.14)); }
 .es-tool .es-tool-body button.aim-round-opt:disabled { opacity: .45; cursor: default; }
-.es-tool .es-tool-body button.aim-round-opt:not(:disabled):hover { border-color: #4a5262; }
-.aim-round-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; padding-top: 12px; border-top: 1px solid #262b35; }
-.aim-round-keys { margin: 0; font-size: 12px; color: #8b93a3; line-height: 1.6; }
-.aim-round-keys kbd { display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid #3a4150; border-bottom-width: 2px; border-radius: 3px; background: #11141a; color: #e8ebf0; font: 600 11px/18px inherit; text-align: center; }
-.es-tool .es-tool-body button.aim-round-start { min-width: 150px; min-height: 44px; border: 0; border-radius: 4px; background: #ff4655; color: #fff; font: inherit; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; cursor: pointer; }
-.es-tool .es-tool-body button.aim-round-start:hover { background: #ff5b68; }
-.aim-round-note { min-height: 1.2em; margin: 8px 0 0; font-size: 12px; color: #ffb4ba; }
+.es-tool .es-tool-body button.aim-round-opt:not(:disabled):hover { border-color: var(--es-line-2, #343b4a); }
+.es-tool .es-tool-body button.aim-round-opt.is-active:not(:disabled):hover { border-color: var(--es-red, #ff4655); }
+.es-tool.aim-round button:focus-visible { outline: 2px solid var(--es-red, #ff4655); outline-offset: 2px; }
+.aim-round-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--es-line, #272d39); }
+.aim-round-keys { margin: 0; font-size: 13px; color: var(--es-muted, #9aa1ae); line-height: 1.6; }
+.aim-round-keys kbd { display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid var(--es-line-2, #343b4a); border-bottom-width: 2px; border-radius: 0; background: var(--es-panel, #10131a); color: var(--es-text, #f4f5f7); font: 600 11px/18px var(--es-head, "Bahnschrift", sans-serif); text-align: center; }
+/* Look comes from theme-esports.css .es-tool-primary (red, slanted); only the size is set here. */
+.es-tool .es-tool-body button.aim-round-start { min-width: 150px; min-height: 44px; letter-spacing: .08em; font-weight: 800; }
+.aim-round-note { min-height: 1.2em; margin: 8px 0 0; font-size: 13px; color: var(--es-red-2, #ff6b77); }
 `;
     document.head.appendChild(s);
   }
@@ -108,7 +111,7 @@
         <div class="aim-round-row"><h3>Barrier</h3><div class="aim-round-opts" data-k="barrier"></div></div>
         <div class="aim-round-foot">
           <p class="aim-round-keys">Hold <kbd>4</kbd> in a site to plant (4 s) · <kbd>F</kbd> defuses (7 s) · stand still or walk while holding</p>
-          <button type="button" class="aim-round-start">Start</button>
+          <button type="button" class="aim-round-start es-tool-primary">Start</button>
         </div>
         <p class="aim-round-note" role="status"></p>
       </div></section>`;
