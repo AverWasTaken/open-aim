@@ -54,11 +54,11 @@
 //    with every barrier up, the nav graph is flooded from each team's spawns (all edges); for each
 //    barrier the edges it cuts must have one end in exactly one team's flood and the other end in
 //    neither (that team owns it), at least BARRIER_MIN_CUT walk edges, no edge joining the two
-//    teams' floods and none with both ends in one team's flood; anything else fails.
+//    teams' floods and none with both ends in one team's flood; anything else fails. Id = team +
+//    nearest callout (stable across runs). Needs the nav.bin: the first run (no nav.bin) writes the
+//    barriers without a team and fails; bake, then run again.
 //  - MARKS without LABELS: barrier marks in world [x, z] (no picture), snapped to the choke like
-//    Ascent's; in terrain mode each mark needs `floor`. Id = team + nearest callout (stable across runs).
-//    Needs the nav.bin: the first run (no nav.bin) writes the barriers without a team and fails;
-//    bake, then run again.
+//    Ascent's; id / team / name come from the mark; in terrain mode each mark needs `floor`.
 //  - CALLOUT_SPOTS: per-callout [x, z] or [x, y, z] that replaces the minimap spot for the seal check
 //    (minimap spots that lie off the walkable floor); recorded under authoring.calloutSpots.
 //  - FACING: callout the spawn rows face (Ascent: Mid Courtyard).

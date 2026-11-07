@@ -371,8 +371,9 @@ for (const MAP of MAPS) {
     const pts = data.barriers.filter((b) => b.team === "attack").flatMap((b) => barrierSamples(nav, H, b));
     assert.ok(pts.length >= 6, "attacker barrier sample points");
     let rays = 0;
+    const see = (a, b) => { rays++; return T.sight(a, b); };
     for (const s of data.sites) {
-      const hidden = data.setups.defense[s.id].filter((p) => pts.every((q) => { rays += 2; return !T.sight(q, [p.x, p.y + 1.6, p.z]) && !T.sight(q, [p.x, p.y + 1.0, p.z]); }));
+      const hidden = data.setups.defense[s.id].filter((p) => pts.every((q) => !see(q, [p.x, p.y + 1.6, p.z]) && !see(q, [p.x, p.y + 1.0, p.z])));
       assert.ok(hidden.length >= 1, `site ${s.id}: no setup hidden from the attacker barriers`);
     }
     t.diagnostic(`${MAP}: setup hidden-from-attacker-barrier check: ${rays} rays`);
