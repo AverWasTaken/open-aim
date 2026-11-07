@@ -341,3 +341,47 @@ test('install: result time from the phase event, guard, then a click', () => {
   press('KeyQ');
   assert.equal(quit.clicks, 1);
 });
+
+test('install: text field focus blocks R/Esc; an extra card button (routine bar) does not', () => {
+  let clock = 0;
+  const handlers = {};
+  const retry = fakeButton();
+  const back = fakeButton();
+  const page = {
+    '.al-result-overlay': {},
+    '.al-result-overlay .al-run-actions .al-primary-btn': retry,
+    '.al-result-overlay .al-run-actions .al-secondary-btn': back,
+  };
+  const doc = fakeDoc(page);
+  doc.elementFromPoint = () => page.__top;
+  const win = {
+    document: doc,
+    performance: { now: () => clock },
+    addEventListener(type, fn) { handlers[type] = fn; },
+    MutationObserver: class { constructor() {} observe() {} },
+  };
+  keys.install(win, doc);
+  handlers['aim-round-phase']({ detail: { phase: 'result' } });
+  clock = 2000;
+  const press = (code, target) => {
+    const e = { ...ev(code), target, prevented: false, preventDefault() { this.prevented = true; } };
+    handlers.keydown(e);
+    return e;
+  };
+  const input = { nodeType: 1, tagName: 'INPUT' };
+  page.__top = retry;
+  assert.equal(press('KeyR', input).prevented, false);
+  doc.activeElement = { nodeType: 1, tagName: 'DIV', isContentEditable: true };
+  page.__top = back;
+  assert.equal(press('Escape', null).prevented, false);
+  assert.equal(retry.clicks + back.clicks, 0);
+  // Training's "Next drill" button (.tr-btn, outside .al-run-actions) has focus: R still clicks
+  // the real Play again, never the focused button.
+  const next = fakeButton();
+  doc.activeElement = next;
+  next.nodeType = 1; next.tagName = 'BUTTON';
+  page.__top = retry;
+  assert.equal(press('KeyR', next).prevented, true);
+  assert.equal(retry.clicks, 1);
+  assert.equal(next.clicks, 0);
+});
