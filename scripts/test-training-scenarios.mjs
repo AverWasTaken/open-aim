@@ -187,22 +187,38 @@ test('Jiggle-peek duels: peekers shoot back, the player can win duels', { skip }
   assert.equal(doc.rules.playerDeath, 'endRound');
   assert.ok(doc.actors.every((a) => a.behaviors.some((b) => b.kind === 'shooter' && b.engage === 'stop')));
   assert.ok(doc.actors.every((a) => a.behaviors.some((b) => b.kind === 'cross' && b.pauses?.length >= 5)), 'two jiggles, then the peek');
-  // With an idle player, the first peeker (Studio silver reaction) shows a shoulder twice, hides in
-  // between, then swings wide and shoots. Offset = metres from its wall's middle (walls at x -6/0/6).
-  const s = createSim(doc, 7);
-  const seen = [];
-  for (let i = 0; i < 10 * TPS; i++) {
-    const ev = s.step(IDLE);
-    const a = s.snapshot().actors.find((x) => x.alive);
-    if (a) {
-      const off = Math.round(Math.abs(a.position.x - Math.round(a.position.x / 6) * 6) * 10) / 10;
-      if (seen.at(-1) !== off) seen.push(off);
+  // Each peeker alone (one dispatcher route), idle player, Classic bots, Human-like bots (the app's
+  // default) and Human-like at Radiant: it shows a shoulder twice, hides in between, and the first
+  // shot only comes once it is past its shoulder spot on the way to the wide peek.
+  // Offset = metres from the peeker's wall middle (walls at x -6/0/6).
+  for (const tpl of doc.actors) {
+    const cross = tpl.behaviors.find((b) => b.kind === 'cross');
+    const home = cross.waypoints[0].x;
+    const offs = cross.waypoints.map((w) => Math.round(Math.abs(w.x - home) * 100) / 100);
+    const shoulder = offs[1];
+    const wide = Math.max(...offs);
+    assert.deepEqual(offs, [0, shoulder, 0.4, shoulder, 0.4, wide, 0], `${tpl.id} route`);
+    const one = structuredClone(doc);
+    one.dispatchers[0].routes = [{ templateId: tpl.id, streak: [1, 1] }];
+    for (const opts of [{}, { bots: 'human' }, { bots: 'human', enemyRank: 'radiant' }]) {
+      const s = sim.c(structuredClone(one), { sensitivity: 1, zoomSensitivity: 1, seed: 7, ...opts });
+      const marks = [];
+      let shotAt = null;
+      for (let i = 0; i < 10 * TPS && shotAt === null; i++) {
+        const ev = s.step(IDLE);
+        const a = s.snapshot().actors.find((x) => x.alive);
+        if (!a) continue;
+        const off = Math.abs(a.position.x - home);
+        const m = off <= 0.41 ? 'hidden' : Math.abs(off - shoulder) < 0.01 ? 'shoulder' : null;
+        if (m && marks.at(-1) !== m) marks.push(m);
+        if (ev.some((e) => e.kind === 'enemyShot')) shotAt = off;
+      }
+      const label = `${tpl.id} ${JSON.stringify(opts)}`;
+      assert.ok(shotAt !== null, `${label}: shoots`);
+      assert.ok(shotAt > shoulder + 0.25, `${label}: first shot at ${shotAt.toFixed(2)} m, shoulder ${shoulder}`);
+      assert.deepEqual(marks.slice(0, 4), ['hidden', 'shoulder', 'hidden', 'shoulder'], `${label}: ${marks.join(' ')}`);
     }
-    if (ev.some((e) => e.kind === 'enemyShot')) break;
   }
-  const marks = seen.map((o) => (o <= 0.4 ? 'hidden' : o === 1.5 ? 'shoulder' : o >= 2.1 ? 'wide' : null)).filter((m, i, all) => m && m !== all.slice(0, i).filter(Boolean).at(-1));
-  // (it passes 1.5 m once more on the way out to the wide peek)
-  assert.deepEqual(marks, ['hidden', 'shoulder', 'hidden', 'shoulder', 'hidden', 'shoulder', 'wide'], `route before the first shot: ${seen.join(' ')}`);
   // Standing still and not shooting: a peeker comes out and kills the player.
   const idle = play(doc, 30, () => null);
   assert.ok(idle.n.enemyShot > 0 && idle.n.playerDead === 1, `bots shoot back: ${JSON.stringify(idle.n)}`);
