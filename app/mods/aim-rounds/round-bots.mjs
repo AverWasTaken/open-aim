@@ -35,7 +35,7 @@
 //   "game" movement setting; il then uses the game's acceleration model), ctx.ground(x, z, y, up,
 //   down) -> floor y | null (only for ground movers when the scene has collision; never in init).
 // ctx.round.bots entry: { id, spawnerId, alive, x, y, z, mode, defusing (0|1), seenTick, nav (0|1),
-//   node, goal, arrived (0|1), moving (0|1), pushed (0|1), staged (0|1), cand }
+//   node, goal, arrived (0|1), moving (0|1), pushed (0|1), staged (0|1), cand, air (0|1) }
 //   seenTick = the bot's shooter lastSeenTick (the shooter runs before roundBot in the template, so
 //   "sees the player this tick" inside roundBotUpdate is actor.behavior.shooter.lastSeenTick ===
 //   ctx.tick; in the snapshot a sighting on the previous tick reads seenTick === ctx.tick - 1).
@@ -50,6 +50,7 @@
 //   goal     = its setup's nav node (or the substitute, see below), -1 without nav.
 //   arrived  = 1 once it reached its setup (stays 1; the fallback bot is there from the start).
 //   moving   = the sim's own actor.moving flag (one tick old), used for yielding.
+//   air      = 1 while il has the bot in the air (a drop): nobody yields to it.
 //   pushed   = 1 once the bot pushes the retake (latched until the next plant; B3).
 //   staged   = 1 while it counts as staged for the retake (at / <= 1.5 s from its slot, or staged in
 //              place; B3).
@@ -119,13 +120,15 @@
 // the shooter keeps "seeing" the body, which would hold them in place for the rest of the round.
 // Facing turns at most 540 deg/s.
 // Yield: a walking bot brakes for a MOVING bot with a lower id that is within 0.9 m and ahead
-// (60 deg cone, same floor), at most 0.75 s in a row, then ignores yields for 1 s (passes through).
+// (60 deg cone, same floor; not in the air, not > 0.6 m below), at most 0.75 s in a row, then
+// ignores yields for 1 s (passes through).
 // Stuck: if the field value at the bot's node hasn't dropped by 0.2 s in 2 s of free walking, it
 // re-finds its node globally (re-plan; in the barrier phase only among nodes reachable from its
 // spawn inside the barriers); after 3 re-plans it stands where it is (mode stuck). Every goal
 // change after that (the barrier drop, the plant, the push, a new defuse candidate, an info
 // rotation) gives it one more try: re-find + walk; 2 s without progress -> stuck again. A straight
 // line to its own node that would cross an active barrier is never taken (it stands instead).
+// Never arrives or stands while airborne (a goal right under a drop: it would hang in the air).
 // Dead: clears its flags; if it died in the air it finishes the fall (il with brake), as lN does
 // under "game" movement (here in both modes: lN's default-mode dead bot keeps walking).
 //
@@ -141,7 +144,7 @@
 // re-rotation.
 // Retake (from the first tick that sees phase 'planted'): spike field = one multi-source field to
 // the defuse goal set: nav nodes reachable from the bots' spawn points within xz 1.2 / |dy| < 1.8
-// of the spike, else within round-core's own rule (xz 1.6 / |dy| < 2). No such node (Ascent: a few
+// of the spike, else within round-core's own rule (xz 1.6 / |dy| < 2; selected within 1.585 / 1.9). No such node (Ascent: a few
 // stacked-crate tops that need 2+ jumps) -> nobody defuses there (cover set = nodes within xz 4 /
 // |dy| < 3; the spike goes off). Plant-time fields live in a small LRU (8).
 //   Latch (each bot computes the same from the snapshot, alive nav bots by id): a bot whose spike
@@ -158,13 +161,14 @@
 //   ties lowest id; latched while it stays eligible, then re-elected. After the push the candidate
 //   walks to the spike goal set, the others to their cover spots (facing the spike).
 //   Defuse: the candidate starts (actor.roundDefusing = 1, mode defuse) once it stands at the goal
-//   (after the il move: xz <= 1.5, |dy| < 1.9, stopped, not airborne, combatHold !== 1) and the
+//   (after the il move: xz <= 1.5, |dy| < 1.9 (fallback set: 1.595 / 1.95), stopped, not airborne, combatHold !== 1) and the
 //   player is dead or it hasn't seen them for >= 1 s. It then holds the flag every tick without
 //   moving (no il) until the round ends, unless it sees the player and the rank isn't iron..gold:
 //   then it stops to fight, except past the checkpoint with time left < defuse left + 1.5 s.
 // Flat state (nav mode): nav, mode, snap, spawn, goal, setup, wait, cur, tgt, tx, ty, tz, goT,
 //   arrived, arriveT, fk, best, bestT, replans, yieldT, yieldCd, face, face2, face2On, faceSel,
-//   altT, at (node it stopped on), gk (goal kind), lx, lz (look point), retries, B3: pk (plant tick
+//   altT, at (node it stopped on), gk (goal kind), lx, lz (look point), retries, real (on real
+//   floors: floor-aware node tracking), B3: pk (plant tick
 //   latched), sgi (staging index, -1 in place, -2 none), slotT, ipT, covT, cand, pushed, staged,
 //   rotN (rotation node), rotT (tick it goes), rotI (site index), rotTrig (sighting tick)
 //   + il's own (index, speed, finished, air, vy, jy, jb, stuck). -1 = none.
@@ -193,8 +197,10 @@ const FAR = 1e9; // 'no value yet' in the flat state (Infinity would not survive
 const STAGE_SLOT = 1.2, STAGE_NEAR = 1.5, STAGE_COST = 2;
 const PUSH_MARGIN = 5, ACCEL_MARGIN = 0.3;
 const COVER_MIN = 3, COVER_MAX = 5, COVER_WIDE = 8, COVER_SEP = 1.5;
-const GOAL_XZ = 1.2, GOAL_DY = 1.8, FULL_XZ = 1.6, FULL_DY = 2, NEAR_XZ = 4, NEAR_DY = 3;
-const DEFUSE_XZ = 1.5, DEFUSE_DY = 1.9, UNSEEN_SEC = 1, FIGHT_MARGIN = 1.5;
+// Defuse goal sets: tight (start within 1.5 / 1.9), else round-core's own rule (1.6 / 2) with a
+// small margin for where il leaves the bot (start within 1.595 / 1.95).
+const GOAL_XZ = 1.2, GOAL_DY = 1.8, FULL_XZ = 1.585, FULL_DY = 1.9, NEAR_XZ = 4, NEAR_DY = 3;
+const DEFUSE_XZ = 1.5, DEFUSE_DY = 1.9, DEFUSE_FULL_XZ = 1.595, DEFUSE_FULL_DY = 1.95, UNSEEN_SEC = 1, FIGHT_MARGIN = 1.5;
 const FACE_SPIKE_M = 15;
 const PLANT_LRU = 8;
 const LOW_RANKS = new Set(['iron', 'bronze', 'silver', 'gold']); // keep defusing while seen
@@ -469,10 +475,10 @@ function spikeData(N, cfg, sp) {
   if (d) { L.delete(key); L.set(key, d); return d; }
   const g = N.g, R = reachUnion(N, cfg);
   const around = (r, dy) => nodesNear(N, sp.x, sp.z, r).filter((k) => (!R || R[k] === 1) && Math.abs(g.y[k] - sp.y) < dy);
-  let set = around(GOAL_XZ, GOAL_DY), kind = 'defuse';
-  if (!set.length) set = around(FULL_XZ, FULL_DY);
+  let set = around(GOAL_XZ, GOAL_DY), kind = 'defuse', full = 0;
+  if (!set.length) { set = around(FULL_XZ, FULL_DY); full = 1; }
   if (!set.length) { set = around(NEAR_XZ, NEAR_DY); kind = set.length ? 'near' : 'none'; }
-  d = { key, kind, set, field: set.length ? fieldMulti(N, set) : null };
+  d = { key, kind, full, set, field: set.length ? fieldMulti(N, set) : null };
   L.set(key, d);
   while (L.size > PLANT_LRU) L.delete(L.keys().next().value);
   return d;
@@ -483,10 +489,14 @@ const dxz = (g, i, x, z) => Math.hypot(g.x[i] - x, g.z[i] - z);
 
 // The bot's node, re-picked among its graph neighbours (outgoing walk/drop up to 2 hops, incoming
 // walk 1 hop, edges allowed by mask), nearest in xz; ties keep the earlier candidate (cur first).
-function trackNode(N, cur, x, z, mask) {
-  const g = N.g, R = N.rev;
+// With y given (the bot is known to walk on the nav's real floors, st.real) and the bot within
+// 0.8 m of cur's floor, only nodes of its own floor (|dy| < 0.8) count, so the landing node of a
+// drop next to a ledge is not taken before the bot has actually dropped (it would steer the bot
+// off the ledge). y null (flat test ground: bot y unrelated to the nav's): xz only.
+function trackNode(N, cur, x, z, mask, y = null) {
+  const g = N.g, R = N.rev, floor = y !== null && Math.abs(g.y[cur] - y) < 0.8;
   let best = cur, bd = dxz(g, cur, x, z);
-  const take = (j) => { const d = dxz(g, j, x, z); if (d < bd) { bd = d; best = j; } };
+  const take = (j) => { if (floor && Math.abs(g.y[j] - y) >= 0.8) return; const d = dxz(g, j, x, z); if (d < bd) { bd = d; best = j; } };
   for (let e = g.edgeStart[cur]; e < g.edgeStart[cur + 1]; e++) {
     if (!(WD >> g.edgeType[e] & 1) || (mask && mask[e])) continue;
     const j = g.edgeTo[e];
@@ -606,7 +616,7 @@ function navInit(actor, ctx, s, st) {
     nav: 1, mode: MODE.walk, spawn, setup, goal, wait, cur: spawn, tgt: -1, tx: p.x, ty: p.y, tz: p.z,
     goT: ctx.elapsed + actor.rng.range(0, STAGGER_SEC), arrived: 0, arriveT: -1, fk: -1, best: FAR, bestT: ctx.elapsed,
     replans: 0, yieldT: 0, yieldCd: -1, face, face2, face2On: hs && finite(hs.face2) ? 1 : 0, faceSel: 0, altT: -1,
-    at: -1, gk: GK.setup, lx: FAR, lz: FAR, retries: 0,
+    at: -1, gk: GK.setup, lx: FAR, lz: FAR, retries: 0, real: 0,
     pk: -1, sgi: -2, slotT: 0, ipT: -1, covT: -1, cand: -1, pushed: 0, staged: 0, rotN: -1, rotT: -1, rotI: -1, rotTrig: -1,
     index: 0, speed: 0, finished: false,
   });
@@ -644,7 +654,7 @@ function shouldYield(actor, ctx, st) {
   if (ul < 1e-6) return false;
   ux /= ul; uz /= ul;
   for (const o of list) {
-    if (!o || o.id === actor.id || !o.alive || o.moving !== 1 || !(o.id < actor.id)) continue;
+    if (!o || o.id === actor.id || !o.alive || o.moving !== 1 || !(o.id < actor.id) || o.air === 1 || o.y < p.y - 0.6) continue; // not to a bot falling / below
     const dx = o.x - p.x, dz = o.z - p.z, d = Math.hypot(dx, dz);
     if (d > YIELD_DIST || d < 1e-6 || Math.abs(o.y - p.y) > 1.5) continue;
     if ((dx * ux + dz * uz) / d > YIELD_COS) return true;
@@ -798,13 +808,16 @@ function goalFor(N, ctx, st, rs, barrier, mask, plan) {
   return { F, stopT: 0, kind, fk: F.goal * 2 + (barrier ? 1 : 0) };
 }
 
-const inReach = (p, sp) => Math.hypot(p.x - sp.x, p.z - sp.z) <= DEFUSE_XZ && Math.abs(p.y - sp.y) < DEFUSE_DY;
+const inReach = (p, plan) => {
+  const sp = plan.sp, full = plan.sd.full === 1;
+  return Math.hypot(p.x - sp.x, p.z - sp.z) <= (full ? DEFUSE_FULL_XZ : DEFUSE_XZ) && Math.abs(p.y - sp.y) < (full ? DEFUSE_FULL_DY : DEFUSE_DY);
+};
 
 // Start defusing (after the il move): candidate at the spike goal, stopped, on the ground, not in
 // combat, and the player dead or unseen for >= 1 s.
 function tryDefuse(actor, ctx, st, rs, plan, G) {
   if (!plan || G.kind !== GK.spike || st.mode !== MODE.cover || rs.phase !== 'planted' || actor.roundDefusing === 1) return;
-  if ((st.speed ?? 0) > 0.05 || st.air === 1 || (actor.combatHold === 1 && rs.playerAlive !== false) || !inReach(actor.position, plan.sp)) return;
+  if ((st.speed ?? 0) > 0.05 || st.air === 1 || (actor.combatHold === 1 && rs.playerAlive !== false) || !inReach(actor.position, plan)) return;
   if (rs.playerAlive !== false && ctx.tick - lastSeen(actor) < ticksOf(UNSEEN_SEC, tickSecOf(ctx))) return;
   actor.roundDefusing = 1;
   st.mode = MODE.defuse;
@@ -812,7 +825,7 @@ function tryDefuse(actor, ctx, st, rs, plan, G) {
 // Keep defusing this tick? (Seen by the player: iron..gold keep on; higher ranks stop to fight
 // unless past the checkpoint with too little time to restart.)
 function keepDefusing(actor, ctx, st, cfg, rs, plan) {
-  if (!plan || rs.phase !== 'planted' || st.cand !== actor.id || !inReach(actor.position, plan.sp)) return false;
+  if (!plan || rs.phase !== 'planted' || st.cand !== actor.id || !inReach(actor.position, plan)) return false;
   if (rs.playerAlive === false || actor.behavior?.shooter?.lastSeenTick !== ctx.tick) return true;
   if (LOW_RANKS.has(ctx.enemyRank)) return true;
   const ts = tickSecOf(ctx), left = (ticksOf(num(cfg.defuseSec, ROUND_DEF.defuseSec), ts) - (rs.defuse ?? 0)) * ts;
@@ -850,8 +863,10 @@ function navUpdate(actor, ctx, dt, il, st) {
     if (k >= 0) st.cur = k;
   }
 
-  // Node tracking (neighbours only; global re-find when lost).
-  st.cur = trackNode(N, st.cur, p.x, p.z, mask);
+  // Node tracking (neighbours only; global re-find when lost). st.real latches once the bot stands
+  // exactly on a nav floor that is clearly not y 0 (real collision; never on flat test ground).
+  if (st.real !== 1 && st.air !== 1 && Math.abs(g.y[st.cur]) > 1 && Math.abs(p.y - g.y[st.cur]) < 0.05) st.real = 1;
+  st.cur = trackNode(N, st.cur, p.x, p.z, mask, st.real === 1 ? p.y : null);
   if (dxz(g, st.cur, p.x, p.z) > 1) { const k = refindNode(N, p.x, p.y, p.z, 2.5, st.cur, okNodes); if (k >= 0) st.cur = k; }
 
   // Goal descriptor {field, stopT}: barrier phase -> masked to the setup, or to the wait node when
@@ -868,7 +883,7 @@ function navUpdate(actor, ctx, dt, il, st) {
   if (!finite(F.dist[st.cur])) { st.speed = 0; faceIdle(actor, ctx, st, dt, calm); return; } // cut off (never on Ascent)
 
   if (STOPPED.has(st.mode)) {
-    if (dxz(g, st.at >= 0 ? st.at : st.cur, p.x, p.z) <= HOLD_LEAVE) { tryDefuse(actor, ctx, st, rs, plan, G); faceIdle(actor, ctx, st, dt, calm); return; }
+    if (st.air !== 1 && dxz(g, st.at >= 0 ? st.at : st.cur, p.x, p.z) <= HOLD_LEAVE) { tryDefuse(actor, ctx, st, rs, plan, G); faceIdle(actor, ctx, st, dt, calm); return; }
     st.mode = MODE.walk; st.best = FAR; st.bestT = ctx.elapsed;
   }
 
@@ -878,7 +893,7 @@ function navUpdate(actor, ctx, dt, il, st) {
   if (t < 0) { st.speed = 0; st.bestT = ctx.elapsed; faceIdle(actor, ctx, st, dt, calm); return; } // never across a barrier
   if (t !== st.tgt) { delete st.stuck; st.tgt = t; }
   st.tx = g.x[t]; st.ty = g.y[t]; st.tz = g.z[t];
-  if (t2 < 0 && dxz(g, t, p.x, p.z) <= 0.02 && (st.speed ?? 0) <= 0.05) { arrive(actor, ctx, st, G.kind, t); tryDefuse(actor, ctx, st, rs, plan, G); faceIdle(actor, ctx, st, dt, calm); return; }
+  if (t2 < 0 && st.air !== 1 && dxz(g, t, p.x, p.z) <= 0.02 && (st.speed ?? 0) <= 0.05) { arrive(actor, ctx, st, G.kind, t); tryDefuse(actor, ctx, st, rs, plan, G); faceIdle(actor, ctx, st, dt, calm); return; }
   const combat = !calm && actor.combatHold === 1 && st.air !== 1;
   let yieldNow = false;
   if (!combat && shouldYield(actor, ctx, st)) {
@@ -890,7 +905,7 @@ function navUpdate(actor, ctx, dt, il, st) {
   if (t2 >= 0) way.push({ x: g.x[t2], y: g.y[t2], z: g.z[t2] });
   st.finished = false; st.index = 1;
   if (typeof il === 'function') il(st, { waypoints: way, loop: false, speed: runSpeed(ctx, barrier), finish: t2 >= 0 ? 'run' : 'stop', ...(brake ? { brake: true } : {}) }, actor, ctx, dt);
-  if (t2 < 0 && st.finished === true) arrive(actor, ctx, st, G.kind, t);
+  if (t2 < 0 && st.finished === true && st.air !== 1) arrive(actor, ctx, st, G.kind, t);
 
   // Stuck: no progress down the field in STUCK_SEC of free walking -> re-plan, then give up.
   const fv = F.dist[st.cur];
@@ -980,7 +995,7 @@ export function aimRoundBotList(actors) {
       mode: s.mode, defusing: a.roundDefusing === 1 ? 1 : 0, seenTick: a.behavior.shooter?.lastSeenTick ?? -1,
       nav: s.nav === 1 ? 1 : 0, node: s.nav === 1 ? s.cur : -1, goal: s.nav === 1 ? s.goal : -1,
       arrived: s.arrived === 1 ? 1 : 0, moving: a.moving === true ? 1 : 0,
-      pushed: s.pushed === 1 ? 1 : 0, staged: s.staged === 1 ? 1 : 0, cand: Number.isInteger(s.cand) ? s.cand : -1,
+      pushed: s.pushed === 1 ? 1 : 0, staged: s.staged === 1 ? 1 : 0, cand: Number.isInteger(s.cand) ? s.cand : -1, air: s.air === 1 ? 1 : 0,
     });
   }
   return out;

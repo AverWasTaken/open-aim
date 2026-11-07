@@ -288,6 +288,18 @@ test('B3 real Ascent: spike on a crate (>= 0.8 m above the floor) -> defused fro
   void g;
 });
 
+test('B3 real Ascent: spike under the heaven ledge, the candidate is the heaven bot: it drops onto the spike (lands, never hangs in the air) and defuses', { skip }, async () => {
+  let airCand = 0;
+  const m = await retake({
+    set: ['A heaven', 'Market', 'Pizza', 'B default', 'B back site'], spike: { x: -77.33, y: 5, z: -60.33, site: 'A' }, seed: 23,
+    onTick: (s, st) => { for (const a of st.actors) if (a.alive && a.behavior.roundBot.cand === a.id && a.behavior.roundBot.gk === I.GK.spike && a.behavior.roundBot.air === 1) airCand++; },
+  });
+  checkRetake(m, 'A under heaven');
+  assert.ok(airCand > 0, 'the candidate dropped on its way to the spike');
+  const d = m.s.saveState().actors.find((a) => a.behavior.roundBot.mode === I.MODE.defuse || a.behavior.roundBot.cand === a.id);
+  assert.ok(!d.behavior.roundBot.air, 'not in the air at the end');
+});
+
 test('B3 real Ascent: spike on a stacked-crate top no bot can reach -> nobody defuses, bots stand (no loop), the spike goes off', { skip }, async () => {
   const N = useNav(), bad = N.header.zones.A.bad[1];
   const m = await retake({ set: SETS[0], spike: { x: bad[0], y: bad[1], z: bad[2], site: 'A' }, seed: 11 });

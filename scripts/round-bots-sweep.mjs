@@ -172,6 +172,7 @@ const RANKS = [undefined, 'iron', 'gold', 'platinum', 'radiant'];
 async function main() {
   const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
   const seeds = +arg('--seeds', 6), out = arg('--out', path.join('/tmp', 'round-bots-sweep.json')), maxMin = +arg('--max-min', 9);
+  const only = arg('--only', '') ? new Set(arg('--only', '').split(',').map(Number)) : null, debug = process.argv.includes('--debug');
   register(pathToFileURL(path.join(root, 'scripts', 'sim-loader.mjs')).href);
   globalThis.window ??= globalThis; globalThis.self ??= globalThis;
   globalThis.localStorage ??= { getItem: () => null, setItem() {}, removeItem() {} };
@@ -183,13 +184,22 @@ async function main() {
   console.log(`zone spots: A ${spots.A.all.length} (${spots.A.box.length} box), B ${spots.B.all.length} (${spots.B.box.length} box)`);
   outer: for (let k = 0; k < seeds; k++) for (const site of ['A', 'B']) for (const barrierSec of [10, 20]) for (const player of ['hidden', 'dead']) {
     if (Date.now() - t0 > maxMin * 60e3) { console.log(`time budget (${maxMin} min) reached, stopping`); break outer; }
-    const seed = 1000 + k * 17 + (site === 'B' ? 7 : 0) + barrierSec + (player === 'dead' ? 3 : 0), R = rng(seed);
+    const seed = 1000 + k * 100 + (site === 'B' ? 50 : 0) + (barrierSec === 20 ? 20 : 0) + (player === 'dead' ? 5 : 0), R = rng(seed); // unique per run
+    if (only && !only.has(seed)) continue;
     const box = R() < 0.25 && spots[site].box.length > 0, pool = box ? spots[site].box : spots[site].all;
     const node = pool[Math.floor(R() * pool.length)], rank = RANKS[Math.floor(R() * RANKS.length)], game = R() < 0.5;
     const plantAfter = 2 + R() * 10;
     const doc = realDoc({ barrierSec });
     const w0 = Date.now();
-    const m = retakeRun({ sim: sim, W, doc, seed, extra: { ...(rank ? { enemyRank: rank } : {}), ...(game ? { movement: 'game' } : {}) }, plantAfter, spike: spotOf(N, node, site), player, maxSec: barrierSec + plantAfter + 50 });
+    const m = retakeRun({ sim: sim, W, doc, seed, extra: { ...(rank ? { enemyRank: rank } : {}), ...(game ? { movement: 'game' } : {}) }, plantAfter, spike: spotOf(N, node, site), player, maxSec: barrierSec + plantAfter + 50,
+      onTick: debug ? (q, st, mm, info) => {
+        if (mm.plant < 0) return;
+        const dtk = info.tick - mm.plant;
+        if (process.env.RB_WIN && dtk >= +process.env.RB_WIN.split(',')[0] * TPS && dtk <= +process.env.RB_WIN.split(',')[1] * TPS && dtk % 4 === 0) console.log(`  w+${(dtk / TPS).toFixed(3)} ` + st.actors.map((a) => `[${a.id} ${[a.position.x, a.position.y, a.position.z].map((v) => v.toFixed(2))} tgt ${a.behavior.roundBot.tgt} air ${a.behavior.roundBot.air ?? 0} sp ${(a.behavior.roundBot.speed ?? 0).toFixed(1)}]`).join(' '));
+        if (dtk % 64 !== 0) return;
+        const g = N.g, sd = I.spikeData(N, doc.rules.round, st.aimRound.spike.planted);
+        for (const a of st.actors) { const b = a.behavior.roundBot; if (b.cand !== a.id) continue; console.log(`  t+${((info.tick - mm.plant) / TPS).toFixed(1)} cand ${a.id} pos ${[a.position.x, a.position.y, a.position.z].map((v) => v.toFixed(2))} cur ${b.cur} y ${g.y[b.cur].toFixed(2)} field ${sd.field?.dist[b.cur].toFixed(2)} tgt ${b.tgt} mode ${b.mode} gk ${b.gk} replans ${b.replans} air ${b.air ?? 0} speed ${(b.speed ?? 0).toFixed(2)} yield ${b.yieldT.toFixed(2)}`); }
+      } : null });
     const row = {
       seed, site, barrierSec, player, rank: rank ?? 'default', movement: game ? 'game' : 'default', box, kind: m.kind,
       spike: [+m.spike.x.toFixed(2), +m.spike.y.toFixed(2), +m.spike.z.toFixed(2)], plantMs: m.plantMs === null ? null : +m.plantMs.toFixed(1),
@@ -200,6 +210,15 @@ async function main() {
     };
     rows.push(row);
     console.log(JSON.stringify(row));
+    if (debug) {
+      console.log(`  arrivals ${JSON.stringify(m.arrivals)} defusers ${m.defusers} plant ${m.plant} live ${m.live}`);
+      const st = m.s.saveState(), sp = st.aimRound.spike.planted, sd = I.spikeData(N, doc.rules.round, sp), g = N.g;
+      console.log(`  spike ${JSON.stringify(sp)} kind ${sd.kind} set ${JSON.stringify(sd.set.map((k) => [k, +g.x[k].toFixed(2), +g.y[k].toFixed(2), +g.z[k].toFixed(2)]))}`);
+      for (const a of st.actors) {
+        const b = a.behavior.roundBot, p = a.position;
+        console.log(`  bot ${a.id} alive ${a.alive} mode ${b.mode} gk ${b.gk} cand ${b.cand} pushed ${b.pushed} pos ${[p.x, p.y, p.z].map((v) => v.toFixed(2))} cur ${b.cur} (${[g.x[b.cur], g.y[b.cur], g.z[b.cur]].map((v) => v.toFixed(2))}) at ${b.at} tgt ${b.tgt} speed ${(b.speed ?? 0).toFixed(2)} air ${b.air ?? 0} ch ${a.combatHold ?? '-'} seen ${st.aimRound.tick - (a.behavior.shooter?.lastSeenTick ?? -1e9)} xz ${Math.hypot(p.x - sp.x, p.z - sp.z).toFixed(2)} dy ${(p.y - sp.y).toFixed(2)} field ${sd.field ? sd.field.dist[b.cur].toFixed(2) : '-'}`);
+      }
+    }
   }
   const n = rows.length, ok = rows.filter((r) => r.kind === 'defuse'), defused = ok.filter((r) => r.outcome === 'defused');
   const q = (a, f) => { const v = a.map(f).filter((x) => x !== null).sort((x, y) => x - y); return v.length ? { min: v[0], med: v[Math.floor(v.length / 2)], max: v[v.length - 1] } : null; };

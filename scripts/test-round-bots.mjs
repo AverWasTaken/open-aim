@@ -95,7 +95,7 @@ test('aimRoundBotList / aimRoundIoBots: only round bots, flat entries', () => {
   a.behavior.shooter = { lastSeenTick: 4 };
   const list = bots.aimRoundBotList([a, plain, b]);
   assert.deepEqual(list.map((e) => e.id), [1, 2]);
-  assert.deepEqual(list[0], { id: 1, spawnerId: 'sp', alive: true, x: 3, y: 1.5, z: -4, mode: 0, defusing: 1, seenTick: 4, nav: 0, node: -1, goal: -1, arrived: 1, moving: 0, pushed: 0, staged: 0, cand: -1 });
+  assert.deepEqual(list[0], { id: 1, spawnerId: 'sp', alive: true, x: 3, y: 1.5, z: -4, mode: 0, defusing: 1, seenTick: 4, nav: 0, node: -1, goal: -1, arrived: 1, moving: 0, pushed: 0, staged: 0, cand: -1, air: 0 });
   assert.equal(list[1].alive, false);
   assert.equal(list[1].seenTick, -1);
   assert.deepEqual(bots.aimRoundIoBots([plain, a, b]), [{ id: 1, spawnerId: 'sp', alive: true, x: 3, y: 1.5, z: -4, defusing: 1, planting: 0 }, { id: 2, spawnerId: 'sp', alive: false, x: 3, y: 1.5, z: -4, defusing: 0, planting: 0 }]);
