@@ -134,18 +134,35 @@ test('custom tracers: warm draw on the first active frame, again only after a to
   const store = { 'es-advanced-tracers-v1': JSON.stringify({ mode: 'custom' }) };
   globalThis.localStorage ??= { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
   const { createTracers } = await import(pathToFileURL(path.join(root, 'app', 'mods', 'aim-tracers', 'renderer.mjs')).href);
-  class V3 { constructor() { this.x = this.y = this.z = 0; } copy(v) { Object.assign(this, { x: v.x, y: v.y, z: v.z }); return this; } setFromMatrixPosition() { return this; } setFromMatrixColumn() { return this; } }
+  const made = [];
+  class V3 {
+    constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; }
+    set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
+    copy(v) { return this.set(v.x, v.y, v.z); }
+    addScaledVector(v, k) { return this.set(this.x + v.x * k, this.y + v.y * k, this.z + v.z * k); }
+    subVectors(a, b) { return this.set(a.x - b.x, a.y - b.y, a.z - b.z); }
+    crossVectors(a, b) { return this.set(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x); }
+    lengthSq() { return this.x * this.x + this.y * this.y + this.z * this.z; }
+    length() { return Math.sqrt(this.lengthSq()); }
+    multiplyScalar(k) { return this.set(this.x * k, this.y * k, this.z * k); }
+    divideScalar(k) { return this.multiplyScalar(1 / k); }
+    normalize() { return this.divideScalar(this.length() || 1); }
+    distanceToSquared(v) { return (this.x - v.x) ** 2 + (this.y - v.y) ** 2 + (this.z - v.z) ** 2; }
+    distanceTo(v) { return Math.sqrt(this.distanceToSquared(v)); }
+    setFromMatrixPosition(m) { const e = m.elements; return this.set(e[12], e[13], e[14]); }
+    setFromMatrixColumn(m, i) { const e = m.elements; return this.set(e[i * 4], e[i * 4 + 1], e[i * 4 + 2]); }
+  }
   class Geo { constructor() { this.drawRange = { start: 0, count: Infinity }; } setAttribute() {} setIndex() {} setDrawRange(s, c) { this.drawRange = { start: s, count: c }; } dispose() {} }
-  class Attr { constructor(a, n) { this.array = a; this.itemSize = n; } setUsage() { return this; } clearUpdateRanges() {} addUpdateRange() {} }
+  class Attr { constructor(a, n) { this.array = a; this.itemSize = n; this.ranges = []; this.needsUpdate = false; made.push(this); } setUsage() { return this; } clearUpdateRanges() { this.ranges = []; } addUpdateRange(s, c) { this.ranges.push([s, c]); } }
   class Mat { constructor(o) { Object.assign(this, o); } dispose() {} }
   class Mesh { constructor(g, m) { this.geometry = g; this.material = m; } }
   class Scene { constructor() { this.children = []; } add(m) { this.children.push(m); } }
   const T = { Vector3: V3, BufferGeometry: Geo, BufferAttribute: Attr, ShaderMaterial: Mat, Mesh, Scene, DynamicDrawUsage: 35048, AdditiveBlending: 2, NormalBlending: 1, DoubleSide: 2 };
-  const tracers = createTracers(T, {});
+  const tracers = createTracers(T, { muzzle: () => new V3(0, 1.5, 0) });
   assert.equal(tracers.active, true, 'custom mode from localStorage');
   const draws = [];
   const renderer = { toneMapping: 4, outputColorSpace: 'srgb', autoClear: true, target: null, getRenderTarget() { return this.target; }, render(scene) { draws.push(scene.children[0].geometry.drawRange.count); } };
-  const camera = { matrixWorld: { elements: new Array(16).fill(0) } };
+  const camera = { matrixWorld: { elements: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1.6, 0, 1] } };
   tracers.frame({ enabled: true, time: 0 });
   tracers.render(renderer, camera);
   assert.deepEqual(draws, [0], 'one empty warm draw on the first frame');
@@ -155,5 +172,15 @@ test('custom tracers: warm draw on the first active frame, again only after a to
   assert.deepEqual(draws, [0, 0], 'tone mapping change re-warms');
   renderer.target = { uuid: 'rt-1' }; tracers.frame({ enabled: true, time: 0.03 }); tracers.render(renderer, camera);
   assert.deepEqual(draws, [0, 0, 0], 'target change re-warms');
+  // A live trail still draws as before: 6 indices, position/colour ranges updated.
+  tracers.shoot({ source: 'player', weapon: 'vandal', at: 0.03, seed: 1, origin: { x: 0, y: 1.6, z: 0 }, direction: { x: 0, y: 0, z: -1 }, hitPoint: { x: 0, y: 1.5, z: -40 } });
+  tracers.frame({ enabled: true, time: 0.05 }); tracers.render(renderer, camera);
+  assert.deepEqual(draws, [0, 0, 0, 6], 'one live trail = 6 indices');
+  assert.equal(tracers.stats().drawn, 1);
+  const [pos, col] = made; // position, color4 (created in that order)
+  assert.deepEqual([pos.ranges, pos.needsUpdate, col.ranges, col.needsUpdate], [[[0, 12]], true, [[0, 16]], true]);
+  assert.ok(Number.isFinite(pos.array[0]) && pos.array.slice(0, 12).some((v) => v !== 0), 'trail vertices written');
+  tracers.frame({ enabled: true, time: 0.5 }); tracers.render(renderer, camera);
+  assert.deepEqual(draws, [0, 0, 0, 6], 'expired trail and nothing changed: no draw');
   tracers.dispose?.();
 });

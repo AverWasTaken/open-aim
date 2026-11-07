@@ -86,9 +86,10 @@ To start the bot patch over: `git checkout` the three mods files, delete both mo
   instead of `setTimeout(0)` every 500 triangles; the result is identical (tested).
 - `app/mods/aim-tracers/renderer.mjs`: custom tracers do one empty draw on the first active frame
   so their program compiles before the first shot.
-- Tests: `npm run test:graphics-perf` (scripts/test-graphics-perf.mjs). Live numbers (new programs
-  on the first shot, textures per retry, retry time; hp software WebGL, relative only) come from
-  `open-aim-hq/graphics-tools/hp-perf.mjs` via `perf-session.sh`.
+- Tests: `npm run test:graphics-perf` (scripts/test-graphics-perf.mjs). Live check in a test copy
+  over CDP: hook `WebGL2RenderingContext.prototype.shaderSource` and count fragment shaders
+  compiled between the first shot's click and the next frames (should be 0), and read
+  `renderer.info.memory.textures` (`__aimMapLighting.renderer`) after each retry (should stay flat).
 
 ## Spot scores (rank-biased spots)
 

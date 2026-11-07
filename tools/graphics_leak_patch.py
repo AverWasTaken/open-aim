@@ -4,8 +4,9 @@ Render-only (no sim, replay or RNG change). Patches both copies of each bundle.
 
 1. `BiMsX6Xn.js`: the map environment map is made by `aL()` with PMREMGenerator
    `fromEquirectangular()`, which returns a render target; only its `.texture` was kept, and the
-   lighting rig's `dispose()` freed just that texture, so the target (framebuffer + depth buffer)
-   leaked once per drill start/retry. The texture now keeps its target as `__aimRT`, and
+   lighting rig's `dispose()` called `dispose()` on that texture alone, which frees nothing on the
+   GPU for a render-target texture, so the target (texture + framebuffer + depth buffer) leaked
+   once per drill start/retry. The texture now keeps its target as `__aimRT`, and
    `dispose()` frees the target first, then the texture. Only `scene.environment` holds the
    texture besides the rig, and the rig is disposed when the scene is replaced.
 2. `CnrSARj_.js`: actor removal in the actor renderer `Uf` (`M=`, used by `clear()` and when an
