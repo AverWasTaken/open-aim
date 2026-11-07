@@ -6,64 +6,107 @@
   if (window.__aimRoundHud) return;
   window.__aimRoundHud = true;
 
+  // Colours come from theme-esports.css (main.js loads it on every page but Studio); each var has
+  // its value as a fallback in case the theme is missing.
   const css = `
-#aim-round-hud { position: fixed; inset: 0; pointer-events: none; z-index: 2147483000; font-family: "DIN Next", "Bahnschrift", "Segoe UI", system-ui, sans-serif; color: #eef1f5; }
+#aim-round-hud { position: fixed; inset: 0; pointer-events: none; z-index: 2147483000; font-family: var(--es-head, "Bahnschrift", "Segoe UI", sans-serif); color: var(--es-text, #f4f5f7); }
 #aim-round-hud[hidden] { display: none; }
 .arh-top { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: stretch; gap: 0; filter: drop-shadow(0 2px 6px rgba(0,0,0,.55)); }
 .arh-team { min-width: 92px; padding: 6px 12px; background: rgba(14,18,24,.82); display: flex; flex-direction: column; justify-content: center; gap: 4px; }
-.arh-team.us { border-left: 3px solid #20e0b4; align-items: flex-end; }
-.arh-team.them { border-right: 3px solid #ff4655; align-items: flex-start; }
-.arh-team b { font-size: 10px; letter-spacing: .18em; color: #9aa3b2; font-weight: 600; }
+.arh-team.us { border-left: 3px solid var(--es-green, #4ade80); align-items: flex-end; }
+.arh-team.them { border-right: 3px solid var(--es-red, #ff4655); align-items: flex-start; }
+.arh-team b { font-size: 11px; letter-spacing: .14em; color: var(--es-muted, #9aa1ae); font-weight: 600; }
 .arh-pips { display: flex; gap: 4px; }
-.arh-pip { width: 10px; height: 14px; border-radius: 2px; background: #ff4655; }
-.arh-team.us .arh-pip { background: #20e0b4; }
+.arh-pip { width: 10px; height: 14px; border-radius: 0; background: var(--es-red, #ff4655); }
+.arh-team.us .arh-pip { background: var(--es-green, #4ade80); }
 .arh-pip.dead { background: rgba(255,255,255,.14); }
 .arh-clock { min-width: 120px; padding: 4px 16px; background: rgba(8,10,14,.9); text-align: center; display: flex; flex-direction: column; justify-content: center; }
-.arh-clock small { font-size: 10px; letter-spacing: .2em; color: #9aa3b2; font-weight: 600; }
+.arh-clock small { font-size: 11px; letter-spacing: .14em; color: var(--es-muted, #9aa1ae); font-weight: 600; }
 .arh-clock span { font-size: 30px; line-height: 1.05; font-weight: 700; font-variant-numeric: tabular-nums; }
-.arh-clock.spike span { color: #ff4655; }
+.arh-clock.spike span { color: var(--es-red, #ff4655); }
 .arh-clock.spike.late span { animation: arh-pulse .5s ease-in-out infinite alternate; }
+/* #ffd166 = the style guide's "warn" status colour; theme-esports.css has no var for it. */
 .arh-clock.barrier span { color: #ffd166; }
 @keyframes arh-pulse { from { opacity: 1; } to { opacity: .55; } }
-.arh-spike { position: absolute; top: 76px; left: 50%; transform: translateX(-50%); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: #ffb4ba; text-shadow: 0 1px 3px #000; }
-.arh-hint { position: absolute; left: 50%; top: 62%; transform: translateX(-50%); padding: 7px 16px; background: rgba(10,12,16,.72); border-radius: 3px; font-size: 15px; letter-spacing: .04em; white-space: nowrap; }
-.arh-hint kbd { display: inline-block; min-width: 20px; margin: 0 3px; padding: 0 5px; border: 1px solid #5a6272; border-bottom-width: 2px; border-radius: 3px; background: #1a1e26; font: 700 13px/20px inherit; text-align: center; }
+.arh-spike { position: absolute; top: 76px; left: 50%; transform: translateX(-50%); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--es-red-2, #ff6b77); text-shadow: 0 1px 3px #000; white-space: nowrap; }
+.arh-hint { position: absolute; left: 50%; top: 62%; transform: translateX(-50%); padding: 7px 16px; background: rgba(10,12,16,.72); border-radius: 0; font-size: 15px; letter-spacing: .04em; white-space: nowrap; }
+.arh-hint kbd { display: inline-block; min-width: 20px; margin: 0 3px; padding: 0 5px; border: 1px solid var(--es-line-2, #343b4a); border-bottom-width: 2px; border-radius: 0; background: var(--es-raised, #171b23); font: 700 13px/20px inherit; text-align: center; }
 .arh-bar { position: absolute; left: 50%; top: 56%; width: 300px; transform: translateX(-50%); }
-.arh-bar small { display: block; margin-bottom: 5px; text-align: center; font-size: 11px; letter-spacing: .2em; font-weight: 700; }
-.arh-track { position: relative; height: 8px; background: rgba(255,255,255,.14); border-radius: 4px; overflow: hidden; }
-.arh-fill { position: absolute; inset: 0 auto 0 0; width: 0; background: #ff4655; }
-.arh-bar.defuse .arh-fill { background: #20e0b4; }
-.arh-bar.enemy small { color: #ffb4ba; }
-.arh-bar.enemy .arh-fill { background: #ff4655; }
-.arh-mark { position: absolute; top: -3px; bottom: -3px; left: 50%; width: 2px; background: #fff; opacity: .8; }
+.arh-bar small { display: block; margin-bottom: 5px; text-align: center; font-size: 11px; letter-spacing: .14em; font-weight: 700; }
+.arh-track { position: relative; height: 8px; background: rgba(255,255,255,.14); border-radius: 0; overflow: hidden; }
+.arh-fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--es-red, #ff4655); }
+.arh-bar.defuse .arh-fill { background: var(--es-green, #4ade80); }
+.arh-bar.enemy small { color: var(--es-red-2, #ff6b77); }
+.arh-bar.enemy .arh-fill { background: var(--es-red, #ff4655); }
+.arh-mark { position: absolute; top: -3px; bottom: -3px; left: 50%; width: 2px; background: var(--es-text, #f4f5f7); opacity: .8; }
+/* Spike detonation: a full-screen flash (white core, orange edge; effect colours, no theme var). */
+.arh-flash { position: absolute; inset: 0; opacity: 0; background: radial-gradient(circle at 50% 50%, rgba(255,255,255,.95) 0%, rgba(255,220,160,.9) 35%, rgba(255,140,40,.75) 70%, rgba(255,90,30,.6) 100%); }
 .arh-banner { position: absolute; left: 0; right: 0; top: 30%; text-align: center; padding: 18px 0 20px; background: linear-gradient(90deg, transparent, rgba(10,12,16,.86) 25%, rgba(10,12,16,.86) 75%, transparent); }
-.arh-banner b { display: block; font-size: 54px; line-height: 1; letter-spacing: .14em; font-weight: 800; }
-.arh-banner.win b { color: #20e0b4; }
-.arh-banner.loss b { color: #ff4655; }
-.arh-banner span { display: block; margin-top: 8px; font-size: 16px; letter-spacing: .16em; text-transform: uppercase; color: #c9cfd9; }
-.arh-dead { position: absolute; left: 50%; top: 40%; transform: translateX(-50%); font-size: 18px; letter-spacing: .12em; text-transform: uppercase; color: #ffb4ba; text-shadow: 0 1px 4px #000; }
+.arh-banner b { display: block; font-size: 54px; line-height: 1; letter-spacing: .14em; font-weight: 800; font-stretch: 75%; }
+.arh-banner.win b { color: var(--es-green, #4ade80); }
+.arh-banner.loss b { color: var(--es-red, #ff4655); }
+.arh-banner span { display: block; margin-top: 8px; font-size: 15px; letter-spacing: .12em; text-transform: uppercase; color: var(--es-soft, #d6d9df); }
+.arh-dead { position: absolute; left: 50%; top: 40%; transform: translateX(-50%); font-size: 18px; letter-spacing: .12em; text-transform: uppercase; color: var(--es-red-2, #ff6b77); text-shadow: 0 1px 4px #000; white-space: nowrap; }
+/* While a round scene is loaded (html.aim-round-on, set below from window.__aimRoundOn): */
+/* the game's own score / hit-rate chips sit under the round HUD's top bar, so hide them; */
+html.aim-round-on .al-hud-top { display: none !important; }
+/* the game's scene brief card keeps its title, description and Start / Back buttons but drops the
+   parts made for player-made scenes (kicker, author, play count, specs, rules, seed). */
+html.aim-round-on .al-scene-brief-head,
+html.aim-round-on .al-scene-brief-author,
+html.aim-round-on .al-scene-brief hr,
+html.aim-round-on .al-scene-brief-specs,
+html.aim-round-on .al-scene-brief-note,
+html.aim-round-on .al-scene-brief-says > .al-start-kicker,
+html.aim-round-on .al-scene-brief-foot { display: none !important; }
+/* The game clamps the description to 3 lines (-webkit-line-clamp); the round text needs all of it. */
+html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block; -webkit-line-clamp: unset; overflow: visible; }
 `;
   const root = document.createElement("div");
   root.id = "aim-round-hud";
   root.hidden = true;
   root.innerHTML = `<div class="arh-top"><div class="arh-team us"><b>YOU</b><div class="arh-pips" data-us></div></div><div class="arh-clock"><small></small><span></span></div><div class="arh-team them"><b>ENEMY</b><div class="arh-pips" data-them></div></div></div>
 <div class="arh-spike"></div><div class="arh-bar" hidden><small></small><div class="arh-track"><div class="arh-fill"></div><div class="arh-mark" hidden></div></div></div>
-<div class="arh-hint" hidden></div><div class="arh-dead" hidden>You died — spike planted</div><div class="arh-banner" hidden><b></b><span></span></div>`;
+<div class="arh-hint" hidden></div><div class="arh-dead" hidden>You died. Spike planted.</div><div class="arh-flash" hidden></div><div class="arh-banner" hidden><b></b><span></span></div>`;
   const $ = (s) => root.querySelector(s);
   const el = {
     us: $("[data-us]"), them: $("[data-them]"), clock: $(".arh-clock"), clockLabel: $(".arh-clock small"), clockText: $(".arh-clock span"),
     spike: $(".arh-spike"), bar: $(".arh-bar"), barLabel: $(".arh-bar small"), fill: $(".arh-fill"), mark: $(".arh-mark"),
-    hint: $(".arh-hint"), dead: $(".arh-dead"), banner: $(".arh-banner"), bannerTitle: $(".arh-banner b"), bannerText: $(".arh-banner span"),
+    hint: $(".arh-hint"), dead: $(".arh-dead"), flash: $(".arh-flash"), banner: $(".arh-banner"), bannerTitle: $(".arh-banner b"), bannerText: $(".arh-banner span"),
   };
+  // The stylesheet goes in right away (not only when a round runs): its html.aim-round-on rules
+  // restyle the game's brief card before the round starts.
+  function addCss() {
+    if (document.getElementById("aim-round-hud-css") || !document.head) return;
+    const s = document.createElement("style");
+    s.id = "aim-round-hud-css";
+    s.textContent = css;
+    document.head.appendChild(s);
+  }
   function mount() {
-    if (!document.getElementById("aim-round-hud-css")) {
-      const s = document.createElement("style");
-      s.id = "aim-round-hud-css";
-      s.textContent = css;
-      document.head.appendChild(s);
-    }
+    addCss();
     if (!root.isConnected) document.body.appendChild(root);
   }
+  addCss();
+
+  // ---------- round scene loaded: html.aim-round-on ----------
+  // The play page sets window.__aimRoundOn when a run starts (true for round scenes, false for
+  // every other drill) and clears it when the run is disposed (tools/round_patch.py). That happens
+  // before the brief card shows, while window.__aimRound is still null, so the property is wrapped
+  // here to switch the class at the same moment. The poll below is a backup.
+  const setOnClass = (on) => { try { document.documentElement.classList.toggle("aim-round-on", !!on); } catch {} };
+  try {
+    const d = Object.getOwnPropertyDescriptor(window, "__aimRoundOn");
+    if (!d || d.configurable) {
+      let value = d ? (d.get ? d.get.call(window) : d.value) : undefined;
+      Object.defineProperty(window, "__aimRoundOn", {
+        configurable: true, enumerable: true,
+        get() { return d?.get ? d.get.call(window) : value; },
+        set(v) { if (d?.set) d.set.call(window, v); else value = v; setOnClass(v); },
+      });
+    }
+  } catch {}
+  setOnClass(window.__aimRoundOn);
 
   // ---------- sound ----------
   // Through the app's UI audio bus when there is one (window.__aimAudio.bus.ui: master volume and
@@ -93,6 +136,10 @@
 
   // ---------- state ----------
   let last = null, nextBeep = 0, nextDefuseBeep = 0, endShownFor = null, seenTick = -1, seenAt = 0;
+  // Detonation: the screen flash starts at flashAt and fades over FLASH_SEC; the end banner waits
+  // until bannerAt so it doesn't cover the flash. Other round ends show the banner at once.
+  const FLASH_SEC = 0.6, BANNER_DELAY = 0.6;
+  let flashAt = null, bannerAt = 0;
   const fmt = (s) => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
   function pips(box, total, alive) {
     if (box.childElementCount !== total) { box.textContent = ""; for (let i = 0; i < total; i++) { const p = document.createElement("i"); p.className = "arh-pip"; box.appendChild(p); } }
@@ -108,7 +155,7 @@
     el.clock.classList.toggle("late", spike && r.timeLeft <= 10);
     el.clock.classList.toggle("barrier", r.phase === "barrier");
     el.clockLabel.textContent = r.phase === "barrier" ? "BARRIER" : spike ? "SPIKE" : r.phase === "ended" ? "ROUND OVER" : "ROUND";
-    el.clockText.textContent = r.phase === "ended" ? "—" : fmt(r.timeLeft);
+    el.clockText.textContent = r.phase === "ended" ? "0:00" : fmt(r.timeLeft);
     const s = r.spike || {};
     const botDefusing = r.phase === "planted" && !!r.botDefusing;
     el.spike.textContent = r.phase === "ended" ? "" : botDefusing ? "Spike being defused" : s.planted ? `Spike planted${s.planted.site ? " · " + s.planted.site : ""}` : r.carrying ? "You carry the spike" : s.dropped ? "Spike dropped" : "";
@@ -138,9 +185,8 @@
     if (hint && el.hint.innerHTML !== hint) el.hint.innerHTML = hint;
     el.dead.hidden = !(r.phase === "planted" && !r.playerAlive);
 
-    // End banner.
+    // End banner (shown below, after the end-of-round check sets bannerAt).
     const ended = r.phase === "ended";
-    el.banner.hidden = !ended;
     if (ended) {
       el.banner.classList.toggle("win", !!r.win);
       el.banner.classList.toggle("loss", !r.win);
@@ -154,11 +200,15 @@
       if (last.phase !== "planted" && r.phase === "planted") { beep(880, 0.09); setTimeout(() => beep(1320, 0.12), 110); nextBeep = now + 1; }
       if (ended && endShownFor !== r.tick && last.phase !== "ended") {
         endShownFor = r.tick;
-        if (r.reason === "detonated") beep(70, 0.9, 0.3, "sawtooth");
+        if (r.reason === "detonated") { beep(70, 0.9, 0.3, "sawtooth"); flashAt = now; bannerAt = now + BANNER_DELAY; }
         else if (r.reason === "defused" && r.win) { beep(660, 0.1); setTimeout(() => beep(990, 0.18), 120); }
         else beep(r.win ? 784 : 220, 0.3, 0.16, "triangle");
       }
     }
+    el.banner.hidden = !ended || now < bannerAt;
+    const fk = flashAt === null ? 1 : (now - flashAt) / FLASH_SEC;
+    el.flash.hidden = !ended || fk >= 1;
+    if (!el.flash.hidden) el.flash.style.opacity = (0.85 * (1 - fk) * (1 - fk)).toFixed(3);
     // No beeps while the game is paused (the sim tick stops moving).
     if (r.tick !== seenTick) { seenTick = r.tick; seenAt = now; }
     const paused = now - seenAt > 0.25;
@@ -174,7 +224,7 @@
   function frame() {
     raf = 0;
     const r = window.__aimRound;
-    if (!window.__aimRoundOn || !r || r.done) { root.hidden = true; last = null; return; }
+    if (!window.__aimRoundOn || !r || r.done) { root.hidden = true; last = null; flashAt = null; bannerAt = 0; return; }
     mount();
     root.hidden = false;
     // Paused (pointer unlocked): the sim stops, so the view stops changing; keep showing it.
@@ -182,5 +232,8 @@
     raf = requestAnimationFrame(frame);
   }
   // Cheap check for a round starting; the frame loop only runs during a round.
-  setInterval(() => { if (!raf && window.__aimRoundOn && window.__aimRound && !window.__aimRound.done) raf = requestAnimationFrame(frame); }, 250);
+  setInterval(() => {
+    setOnClass(window.__aimRoundOn);
+    if (!raf && window.__aimRoundOn && window.__aimRound && !window.__aimRound.done) raf = requestAnimationFrame(frame);
+  }, 250);
 })();

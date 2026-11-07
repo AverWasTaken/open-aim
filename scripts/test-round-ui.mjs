@@ -1,13 +1,15 @@
 // Round mode shell scripts in node with a tiny fake DOM: app/round-panel.js (nav prefetch, Start
 // launches synchronously when the nav is cached and waits only for a running fetch) and
 // app/round-hud.js (an enemy defusing your spike: text, bar, beep pattern; no success chirp when
-// the attacker loses to a defuse).
+// the attacker loses to a defuse; html.aim-round-on follows window.__aimRoundOn at once; the
+// detonation screen flash and the delayed end banner), the style rules both files follow
+// (theme vars, no em dashes) and the detonation blast in app/mods/aim-rounds/round-visual.mjs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const src = (f) => fs.readFileSync(path.join(root, 'app', f), 'utf-8');
@@ -103,14 +105,14 @@ test('round panel: Start launches inside the click when the nav is cached or kno
 });
 
 // ---------------------------------------------------------------- HUD
-function hud() {
+function hud(pre = {}) {
   const tones = [];
   let interval = null, raf = null, now = 0;
   class Node { connect(n) { return n; } }
   const audio = class { constructor() { this.currentTime = 0; this.state = 'running'; this.destination = new Node(); }
     createOscillator() { const o = new Node(); o.frequency = {}; o.start = () => tones.push({ at: now, f: o.frequency.value, type: o.type }); o.stop = () => {}; return o; }
     createGain() { const g = new Node(); g.gain = { setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} }; return g; } };
-  const ctx = context({ AudioContext: audio, setInterval: (f) => { interval = f; }, requestAnimationFrame: (f) => { raf = f; return 1; }, performance: { now: () => now * 1000 } });
+  const ctx = context({ AudioContext: audio, setInterval: (f) => { interval = f; }, requestAnimationFrame: (f) => { raf = f; return 1; }, performance: { now: () => now * 1000 }, ...pre });
   vm.runInContext(src('round-hud.js'), ctx);
   const root = ctx.document.body;
   const el = () => root.children[0];
@@ -122,7 +124,8 @@ function hud() {
     // Fire due timeouts (second beep of a pair).
     const due = ctx.timers.splice(0); for (const x of due) x.f();
   };
-  return { ctx, tones, show, el };
+  const tick = () => interval(); // the 250 ms poll
+  return { ctx, tones, show, el, tick };
 }
 const base = { map: 'ascent', side: 'attack', timeLeft: 30, spikeSec: 45, plant: 0, defuse: 0, checkpoint: false, holding: null, zone: null, near: false, carrying: false, spike: { carrier: null, dropped: null, planted: { x: 0, y: 0, z: 0, site: 'A' } }, enemiesAlive: 5, enemyCount: 5, playerAlive: true, winner: null, reason: null, win: null, done: false };
 
@@ -160,6 +163,8 @@ test('round HUD: defused as the attacker = loss tone, no success chirp; as the d
     assert.equal(fs_.includes(990) || fs_.includes(660), chirp, `win ${win}: ${fs_}`);
     if (!win) assert.ok(fs_.includes(220), 'loss tone');
     assert.equal(h.el().querySelector('.arh-banner b').textContent, win ? 'ROUND WON' : 'ROUND LOST');
+    assert.equal(h.el().querySelector('.arh-banner').hidden, false, 'defuse: banner at once');
+    assert.equal(h.el().querySelector('.arh-flash').hidden, true, 'defuse: no screen flash');
   }
 });
 
@@ -173,4 +178,105 @@ test('round HUD: beeps go through window.__aimAudio.bus.ui when present', () => 
   h.show({ ...base, phase: 'live', tick: 1, spike: { carrier: 'player', dropped: null, planted: null } }, 0);
   h.show({ ...base, phase: 'planted', tick: 2 }, 0.1);
   assert.ok(used.length > 0, 'oscillators created on the bus context');
+});
+
+test('round HUD: html.aim-round-on follows window.__aimRoundOn synchronously (setter), keeps a value set before load', () => {
+  const h = hud();
+  const html = h.ctx.document.documentElement;
+  assert.equal(html.classList.contains('aim-round-on'), false);
+  h.ctx.__aimRoundOn = true; // set from outside the vm, like the play page does
+  assert.equal(html.classList.contains('aim-round-on'), true, 'on with no tick');
+  assert.equal(h.ctx.__aimRoundOn, true, 'getter returns the value');
+  h.ctx.__aimRoundOn = false;
+  assert.equal(html.classList.contains('aim-round-on'), false, 'off with no tick');
+  // A round already on when the script loads (page reload mid-run).
+  const h2 = hud({ __aimRoundOn: true });
+  assert.equal(h2.ctx.document.documentElement.classList.contains('aim-round-on'), true);
+  assert.equal(h2.ctx.__aimRoundOn, true);
+  // Poll backup: the class is put back if something else changed it.
+  h2.ctx.document.documentElement.classList.remove('aim-round-on');
+  h2.tick();
+  assert.equal(h2.ctx.document.documentElement.classList.contains('aim-round-on'), true);
+  // The stylesheet (chip hide + brief card rules) is added at load, before any round frame.
+  const css = h.ctx.document.head.children.map((c) => c.textContent).join('\n');
+  assert.match(css, /html\.aim-round-on \.al-hud-top \{ display: none !important; \}/);
+  for (const sel of ['.al-scene-brief-head', '.al-scene-brief-author', '.al-scene-brief hr', '.al-scene-brief-specs', '.al-scene-brief-note', '.al-scene-brief-says > .al-start-kicker']) assert.ok(css.includes('html.aim-round-on ' + sel), sel);
+  assert.ok(!css.includes('.al-scene-brief-overlay'), 'the card itself stays (Start / Back)');
+  // The game's 3-line clamp on the description is lifted for rounds.
+  assert.match(css, /html\.aim-round-on \.al-scene-brief-says p \{[^}]*-webkit-line-clamp: unset;[^}]*overflow: visible;/);
+});
+
+test('round HUD: detonation = screen flash at once, end banner 0.6 s later; both reset for the next round', () => {
+  const h = hud();
+  const planted = { ...base, phase: 'planted', timeLeft: 0.1 };
+  const boom = { ...base, phase: 'ended', timeLeft: 0, reason: 'detonated', winner: 'attack', win: true };
+  h.show({ ...planted, tick: 1 }, 10);
+  const root = h.el();
+  const flash = root.querySelector('.arh-flash'), banner = root.querySelector('.arh-banner');
+  assert.equal(flash.hidden, true);
+  h.show({ ...boom, tick: 2 }, 10.02);
+  assert.equal(flash.hidden, false, 'flash on the end frame');
+  assert.equal(banner.hidden, true, 'banner waits');
+  assert.equal(root.querySelector('.arh-clock span').textContent, '0:00');
+  h.show({ ...boom, tick: 2 }, 10.12);
+  const o1 = Number(flash.style.opacity);
+  assert.equal(flash.hidden, false);
+  assert.ok(o1 > 0.4 && o1 <= 0.85, `opacity at +0.1 s: ${o1}`);
+  h.show({ ...boom, tick: 2 }, 10.5);
+  assert.ok(Number(flash.style.opacity) < o1, 'fades');
+  assert.equal(banner.hidden, true, 'banner still hidden before +0.6 s');
+  h.show({ ...boom, tick: 2 }, 10.7);
+  assert.equal(banner.hidden, false, 'banner after +0.6 s');
+  assert.equal(flash.hidden, true, 'flash over');
+  assert.equal(root.querySelector('.arh-banner b').textContent, 'ROUND WON');
+  // Run over (done) -> HUD hides and forgets the flash; the next round starts clean.
+  h.show({ ...boom, tick: 3, done: true }, 12);
+  assert.equal(root.hidden, true);
+  h.show({ ...planted, tick: 10 }, 20);
+  h.show({ ...base, phase: 'ended', tick: 11, reason: 'eliminated', winner: 'attack', win: true }, 20.05);
+  assert.equal(flash.hidden, true, 'no flash for other ends');
+  assert.equal(banner.hidden, false, 'other ends: banner at once');
+});
+
+test('round UI style: theme vars (raw hex only as var fallbacks), no em dashes, es-tool-primary Start', () => {
+  for (const f of ['round-hud.js', 'round-panel.js']) {
+    const code = src(f);
+    const rest = code.replace(/var\(--es-[a-z0-9-]+, [^()]*(\([^()]*\))?[^()]*\)/g, 'VAR');
+    const hex = [...rest.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map((m) => m[0].toLowerCase());
+    assert.deepEqual(hex.filter((x) => !['#ffd166', '#000'].includes(x)), [], `${f}: raw colours`);
+    assert.ok(!code.includes('—'), `${f}: em dash`);
+    assert.ok(!/border-radius: [1-9]/.test(code), `${f}: rounded corners`);
+  }
+  const panel = src('round-panel.js');
+  assert.ok(panel.includes('class="aim-round-start es-tool-primary"'));
+  assert.match(panel, /\.es-tool\.aim-round button:focus-visible \{ outline: 2px solid var\(--es-red, #ff4655\); outline-offset: 2px; \}/);
+  assert.ok(!/button\.aim-round-start \{[^}]*background/.test(panel), 'Start look comes from .es-tool-primary');
+  assert.match(src('round-hud.js'), /You died\. Spike planted\./);
+});
+
+test('round visual: detonation blast draws over walls (no depth test, render order 999) and fades front-loaded', async () => {
+  const { createRoundVisual } = await import(pathToFileURL(path.join(root, 'app', 'mods', 'aim-rounds', 'round-visual.mjs')).href);
+  class V3 { constructor() { this.x = 0; this.y = 0; this.z = 0; } set(x, y, z) { Object.assign(this, { x, y, z }); return this; } copy(o) { return this.set(o.x, o.y, o.z); } setScalar(s) { return this.set(s, s, s); } }
+  class Obj { constructor() { this.children = []; this.position = new V3(); this.rotation = new V3(); this.scale = new V3(); this.visible = true; } add(...c) { this.children.push(...c); } remove(c) { this.children = this.children.filter((x) => x !== c); } updateMatrixWorld() {} }
+  class G { dispose() {} }
+  const THREE = { Mesh: class extends Obj { constructor(g, m) { super(); this.geometry = g; this.material = m; } }, Group: Obj, PlaneGeometry: G, SphereGeometry: G, BoxGeometry: G, CylinderGeometry: G, MeshBasicMaterial: class extends G { constructor(o) { super(); Object.assign(this, o); } }, DoubleSide: 2 };
+  const scene = new Obj();
+  const v = createRoundVisual(THREE, scene, { barriers: [] });
+  const blast = scene.children[0].children.find((m) => m.material?.depthTest === false);
+  assert.ok(blast, 'blast mesh with depthTest false');
+  assert.equal(blast.renderOrder, 999);
+  const at = { x: 1, y: 2, z: 3 };
+  const boom = { phase: 'ended', reason: 'detonated', spike: { planted: at } };
+  v.update(boom, 5);
+  const o0 = blast.material.opacity;
+  assert.ok(blast.visible && o0 >= 0.45 && o0 <= 0.55, `start opacity ${o0}`);
+  v.update(boom, 5.4);
+  const s1 = blast.scale.x, o1 = blast.material.opacity;
+  v.update(boom, 5.8);
+  assert.ok(Math.abs(blast.scale.x - 35) < 1e-6, 'full radius at 0.8 s');
+  assert.ok(s1 > 25, `grows fast (ease-out): ${s1}`);
+  assert.ok(o1 < o0 * 0.6, `fades early: ${o1}`);
+  v.update(boom, 6.5);
+  assert.equal(blast.visible, false, 'gone after 1.4 s');
+  v.dispose();
 });

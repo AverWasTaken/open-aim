@@ -87,6 +87,18 @@ test('round codes: only known maps/sides/weapons/barrier times', () => {
   assert.equal(roundScene(MODS, 'd43f842fb33e4d46'), null);
 });
 
+test('generated scene: brief card text (name, description with map, side, weapon, barrier, goal, keys)', () => {
+  const env = roundScene(MODS, 'round-ascent-attack-operator-10');
+  assert.equal(env.name, 'Round: Ascent (Attack)');
+  assert.equal(env.description, [
+    'Ascent · Attack · Operator · 10 s barrier.',
+    'Plant the spike. Defenders hold the sites.',
+    'Enter: start · Hold 4: plant · Esc: menu',
+  ].join('\n'));
+  assert.ok(!/[—–]/.test(env.name + env.description), 'no dashes');
+  assert.match(roundScene(MODS, 'round-ascent-attack-vandal-20').description, /^Ascent · Attack · Vandal · 20 s barrier\./);
+});
+
 test('generated scene: envelope, rules.round, 5 kept spawners after prep, no respawn', () => {
   const env = roundScene(MODS, 'round-ascent-attack-operator-10');
   assert.equal(env.shareCode, 'round-ascent-attack-operator-10');

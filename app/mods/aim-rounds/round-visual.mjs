@@ -59,9 +59,11 @@ export function createRoundVisual(THREE, scene, cfg) {
   spike.visible = false;
   root.add(spike);
 
-  // Detonation flash.
-  const blastMat = mat({ color: 0xffa040, transparent: true, opacity: 0.5, depthWrite: false, side: DoubleSide });
+  // Detonation flash: drawn over everything (no depth test, last in order) so walls between you and
+  // the spike don't hide it. Starts at half opacity because round-hud.js also flashes the screen.
+  const blastMat = mat({ color: 0xffa040, transparent: true, opacity: 0.5, depthWrite: false, depthTest: false, side: DoubleSide });
   const blast = new Mesh(geo(new SphereGeometry(1, 32, 16)), blastMat);
+  blast.renderOrder = 999;
   blast.visible = false;
   root.add(blast);
   let blastAt = null;
@@ -86,11 +88,13 @@ export function createRoundVisual(THREE, scene, cfg) {
       } else light.visible = glow.visible = !!s.planted;
       if (view.reason === 'detonated' && s.planted) {
         if (blastAt === null) blastAt = now;
-        const k = Math.min(1, (now - blastAt) / 1.4);
+        // Grows to the 35 m blast radius in 0.8 s (ease-out); fades over 1.4 s, most of it early.
+        const t = now - blastAt;
+        const g = Math.min(1, t / 0.8), k = Math.min(1, t / 1.4);
         blast.visible = k < 1;
         blast.position.set(s.planted.x, s.planted.y, s.planted.z);
-        blast.scale.setScalar(1 + 34 * k);
-        blastMat.opacity = 0.55 * (1 - k);
+        blast.scale.setScalar(1 + 34 * (1 - (1 - g) ** 3));
+        blastMat.opacity = 0.5 * (1 - k) ** 2;
       } else { blast.visible = false; blastAt = null; }
       root.updateMatrixWorld(true);
     },
