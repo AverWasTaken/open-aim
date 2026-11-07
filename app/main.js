@@ -112,6 +112,10 @@ const ROUND_HUD_JS = fs.readFileSync(path.join(__dirname, "round-hud.js"), "utf-
 const VALORANT_IMPORT_JS = ["valorant-import.js", "valorant-import-ui.js"]
   .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
 const VALORANT_IMPORT_CSS = fs.readFileSync(path.join(__dirname, "valorant-import.css"), "utf-8");
+// Routines: chained drills with a summary (training-routines-core.js holds the logic and data).
+const TRAINING_ROUTINES_JS = ["training-routines-core.js", "training-routines.js"]
+  .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
+const TRAINING_ROUTINES_CSS = fs.readFileSync(path.join(__dirname, "training-routines.css"), "utf-8");
 
 // The Studio (studio/ folder, served at /studio/) replaces the site's own scenario editor:
 // /aim/studio redirects there. studio-launch.js lets the Studio start a drill in the lobby.
@@ -144,6 +148,7 @@ const UI_SCRIPTS = [
   ["STUDIO LAUNCH", STUDIO_LAUNCH_JS],
   ["SHOT GRAPH", SHOT_GRAPH_JS],
   ["VALORANT IMPORT", VALORANT_IMPORT_JS],
+  ["TRAINING ROUTINES", TRAINING_ROUTINES_JS],
 ];
 // The startup screen goes in on its own, straight away (see createWindow).
 const STARTUP_SCREEN_RUN = `try {
@@ -539,6 +544,7 @@ function createWindow(url) {
       win.webContents.insertCSS(THEME_CSS),
       win.webContents.insertCSS(OFFLINE_CSS),
       win.webContents.insertCSS(VALORANT_IMPORT_CSS),
+      win.webContents.insertCSS(TRAINING_ROUTINES_CSS),
       win.webContents.mainFrame.executeJavaScript(STARTUP_SCREEN_RUN).catch((err) => console.log(`STARTUP SCREEN: ${err}`)),
     ]).catch(() => {}).finally(show);
     win.webContents.executeJavaScript(UI_SCRIPT_BATCH).catch((err) => console.log(`UI SCRIPTS: ${err}`));
