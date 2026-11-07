@@ -5,9 +5,12 @@
 // and Iron..Radiant (localStorage "aim-enemy-rank", read by the game when a round starts,
 // tools/bot_patch.py). The last pick per drill is kept in "aim-rank-picks" and shown on its card.
 // Drill info comes from /aim/drill-variants.json (main.js), keyed by every code of a drill.
+// The card chip is a button: it opens the same picker in pick-only mode (saves the pick for that
+// drill, starts nothing, leaves the global "aim-enemy-rank" alone). Also callable as
+// window.__aimRankPicker.openFor(code).
 (() => {
   if (window.__aimRankPicker) return;
-  window.__aimRankPicker = true;
+  const api = (window.__aimRankPicker = {});
   const RANK_KEY = "aim-enemy-rank";
   const PICKS_KEY = "aim-rank-picks";
   const FAV_KEY = "aim-offline-favorites-v1";
@@ -112,7 +115,9 @@
     if (!open) return;
     removeEventListener("keydown", open.onKey, true);
     open.shade.remove();
+    const back = open.returnFocus;
     open = null;
+    if (back?.isConnected) back.focus({ preventScroll: true });
   }
 
   function tile(value, label, sub, icon) {
@@ -126,16 +131,19 @@
   }
   const rankImg = (id) => (id ? `<img src="/aim-ranks/${id}.png" alt="" draggable="false">` : NONE_ICON);
 
-  function openPicker(group, item, go) {
+  // opts.pickOnly: the card chip. A choice is saved for this drill and nothing starts.
+  function openPicker(group, item, go, opts = {}) {
     close();
+    const pickOnly = !!opts.pickOnly;
     const def = defaultRank(group);
     const shade = document.createElement("div");
     shade.className = "es-tool-shade aim-pick-shade";
     shade.innerHTML = `<section class="es-tool aim-pick" role="dialog" aria-modal="true" aria-label="Pick enemy rank">
-      <header class="es-tool-head"><div><h2></h2><p>Pick who you face. Enter plays your last pick, Esc cancels.</p></div>
+      <header class="es-tool-head"><div><h2></h2><p></p></div>
       <button type="button" class="es-tool-x" aria-label="Close">✕</button></header>
       <div class="es-tool-body" role="radiogroup" aria-label="Enemy rank"><div class="aim-pick-top"></div><div class="aim-pick-grid"></div><p class="aim-pick-hint" hidden>Low ranks stand on common spots, high ranks use off-angles.</p><p class="aim-pick-note" role="status"></p></div></section>`;
     shade.querySelector("h2").textContent = group.title || item.name || "Drill";
+    shade.querySelector(".es-tool-head p").textContent = pickOnly ? "Pick who you face. Enter saves, Esc cancels." : "Pick who you face. Enter plays your last pick, Esc cancels.";
     const top = shade.querySelector(".aim-pick-top");
     const grid = shade.querySelector(".aim-pick-grid");
     const note = shade.querySelector(".aim-pick-note");
@@ -168,6 +176,7 @@
       close();
       savePick(group, v);
       schedule();
+      if (pickOnly) return;
       if (v === "none") {
         setRank(null);
         go(item.shareCode === group.easy.shareCode ? item : group.easy);
@@ -218,7 +227,7 @@
     };
     addEventListener("keydown", onKey, true);
     document.body.appendChild(shade);
-    open = { shade, onKey };
+    open = { shade, onKey, returnFocus: opts.returnFocus || null };
     const first = tiles.find((t) => t.dataset.pick === current) || tiles[0];
     mark(first);
     first.focus({ preventScroll: true });
@@ -310,18 +319,43 @@
       const c = chipFor(group);
       if (chip && chip.dataset.key === c.key) continue;
       if (!chip) {
-        chip = document.createElement("span");
+        chip = document.createElement("button");
+        chip.type = "button";
         chip.className = "aim-rank-chip";
+        chip.addEventListener("click", onChip);
         const host = card.querySelector(".al-wk-body") || card;
         host.append(chip);
       }
       chip.dataset.key = c.key;
       if (c.rank) chip.dataset.rank = c.rank;
       else delete chip.dataset.rank;
-      chip.title = "Enemy rank you picked last for this drill";
+      chip.title = "Enemy rank for this drill. Click to change.";
       chip.innerHTML = c.html;
+      chip.setAttribute("aria-label", c.key === "pick" ? "Pick enemy rank" : `Enemy rank: ${chip.textContent}. Change`);
     }
   }
+  function onChip(e) {
+    const card = e.currentTarget.closest(".al-wk-card[data-share-code]");
+    if (!card) return;
+    // The card itself starts nothing on click, but keep the click to the chip anyway.
+    e.preventDefault();
+    e.stopPropagation();
+    const name = card.querySelector("h3")?.textContent.trim() || "";
+    api.openFor(card.dataset.shareCode, { name, returnFocus: e.currentTarget });
+  }
+  // Pick-only picker for one drill. Returns false when the drill has no bots that shoot back.
+  api.openFor = (code, { name = "", returnFocus = null } = {}) => {
+    const show = () => {
+      const group = variants?.[code];
+      if (!group || open) return false;
+      openPicker(group, { shareCode: code, name }, null, { pickOnly: true, returnFocus });
+      return true;
+    };
+    if (variants) return show();
+    load()?.then(show);
+    return false;
+  };
+
   let queued = false;
   function schedule() {
     if (queued) return;

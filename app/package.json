@@ -20,7 +20,8 @@
     "test:round": "node --test ../scripts/test-round.mjs ../scripts/test-round-sim.mjs ../scripts/test-round-nav.mjs ../scripts/test-round-bots.mjs ../scripts/test-round-bots-parity.mjs ../scripts/test-round-ui.mjs",
     "test:feelsens": "node --test ../scripts/test-feel-sens.cjs",
     "test:result": "node --test ../scripts/test-ux-result.mjs",
-    "test:words": "node --test ../scripts/test-ux-words.mjs"
+    "test:words": "node --test ../scripts/test-ux-words.mjs",
+    "test:cards": "node --test ../scripts/test-ux-cards.mjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
