@@ -34,7 +34,7 @@ const FAKE_POINTER_LOCK = `(() => {
 })();`;
 
 // Testing only: AIM_HEADLESS=1 renders off screen. No window appears, nothing takes the
-// mouse or goes fullscreen, and the process runs at below-normal priority so test copies
+// mouse or goes fullscreen, its sound is muted, and the process runs at below-normal priority so test copies
 // don't slow the desktop down. Drive it through --remote-debugging-port (CDP screenshots work).
 const HEADLESS = process.env.AIM_HEADLESS === "1";
 if (HEADLESS) {
@@ -516,6 +516,8 @@ function createWindow(url) {
   });
   if (HEADLESS) {
     win.webContents.setFrameRate(60);
+    // Test copies stay silent: the audio graph still runs, nothing reaches the speakers.
+    win.webContents.setAudioMuted(true);
   } else {
     win.maximize();
     // Fullscreen like a game, unless the player left it with F11 last time.
@@ -549,7 +551,7 @@ function createWindow(url) {
 
   win.webContents.on("before-input-event", (event, input) => {
     if (input.type !== "keyDown") return;
-    if (input.key === "F11") {
+    if (input.key === "F11" && !HEADLESS) {
       const on = !win.isFullScreen();
       win.setFullScreen(on);
       shellSettings.fullscreen = on;
@@ -588,6 +590,7 @@ function createWindow(url) {
 
 // Game fullscreen requests (from preload.js) become window fullscreen; F11 leaves it.
 ipcMain.on("aim:fullscreen", (event) => {
+  if (HEADLESS) return; // test copies stay 1280x720 off screen
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win && !win.isFullScreen()) win.setFullScreen(true);
 });
