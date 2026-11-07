@@ -148,7 +148,9 @@ test('aim-hit: dot flag for ball/grid hits, not when a bot is hit too', () => {
   assert.equal(h.events[1].detail.dot, false);
 });
 
-test('a throwing listener never escapes into the game loop', () => {
+// Browsers report listener errors without throwing them back to dispatchEvent; the catch is for
+// bad input (and any dispatch that does throw).
+test('bad input or a throwing dispatch never escapes into the game loop', () => {
   const h = helpers({ onEvent() { throw new Error('listener'); } });
   assert.doesNotThrow(() => h.__aimEmitHits([shot({ hitActorId: 1, hitPart: 'body' })], Ae));
   assert.doesNotThrow(() => h.__aimEmitHud({ score: 1, hits: 1, shots: 1 }, { headshots: 0, humanoidHits: 0 }));
@@ -306,12 +308,13 @@ test('ux-hud: kills text and when the line shows', () => {
 });
 
 function page() {
-  const hud = fakeEl('div', { offsetHeight: 720, getBoundingClientRect: () => ({ top: 100, bottom: 820, height: 720 }) });
+  const reads = { n: 0 };
+  const hud = fakeEl('div', { offsetHeight: 720, getBoundingClientRect: () => (reads.n++, { top: 100, bottom: 820, height: 720 }) });
   const chip = fakeEl('div', { getBoundingClientRect: () => ({ top: 118, bottom: 180, height: 62 }) });
   hud.querySelector = (sel) => (sel === '.al-hud-top .al-hud-chip' ? chip : null);
   const wrap = fakeEl('div');
   const cross = fakeEl('div', { parentElement: wrap });
-  return { '.al-hud': hud, '.al-center-crosshair': cross, hud, wrap };
+  return { '.al-hud': hud, '.al-center-crosshair': cross, hud, wrap, reads };
 }
 
 test('ux-hud: marker only while running, one frame per batch, head/kill classes', () => {
@@ -347,14 +350,29 @@ test('ux-hud: marker only while running, one frame per batch, head/kill classes'
 test('ux-hud: kills line under the chips on bot drills, hidden on ball drills, in Round and when paused', () => {
   const p = page();
   const h = loadHud({ page: p });
+  // The game's run reset sends the first aim-hud before the phase turns "running".
+  h.fire('aim-hud', { kills: 0, total: 10, headshots: 0, humanoidHits: 0, score: 0, hits: 0, shots: 0 });
   h.fire('aim-round-phase', { phase: 'running', previous: 'idle' });
-  h.fire('aim-hud', { kills: 2, total: 10, headshots: 1, humanoidHits: 2, score: 300, hits: 2, shots: 3 });
   h.flush();
   const line = p.hud.children.find((c) => c.className === 'ux-hud-kills');
   assert.ok(line);
-  assert.equal(line.textContent, 'Kills 2/10 · HS 50%');
+  assert.equal(line.textContent, 'Kills 0/10 · HS -', 'shows from the start of the run');
   assert.equal(line.hidden, false);
   assert.equal(line.style.top, '86px'); // chip bottom 180 - hud top 100 + 6
+  h.fire('aim-hud', { kills: 2, total: 10, headshots: 1, humanoidHits: 2, score: 300, hits: 2, shots: 3 });
+  h.flush();
+  assert.equal(line.textContent, 'Kills 2/10 · HS 50%');
+  // Stat changes that don't change the line (score, coverage...) cost no layout reads.
+  const readsBefore = p.reads.n;
+  h.fire('aim-hud', { kills: 2, total: 10, headshots: 1, humanoidHits: 2, score: 350, hits: 2, shots: 4 });
+  h.flush();
+  h.fire('aim-hud', { kills: 3, total: 10, headshots: 1, humanoidHits: 3, score: 450, hits: 3, shots: 5 });
+  h.flush();
+  assert.equal(p.reads.n, readsBefore, 'placed once, text updates only');
+  assert.equal(line.textContent, 'Kills 3/10 · HS 33%');
+  h.fire('resize');
+  h.flush();
+  assert.equal(p.reads.n, readsBefore + 1, 'a resize places it again');
   h.fire('aim-round-phase', { phase: 'paused', previous: 'running' });
   h.flush();
   assert.equal(line.hidden, true);
@@ -364,12 +382,14 @@ test('ux-hud: kills line under the chips on bot drills, hidden on ball drills, i
   h.fire('aim-round-phase', { phase: 'result', previous: 'running' });
   h.flush();
   assert.equal(line.hidden, true);
+  // Next run is a ball drill: its reset aim-hud comes first, then "running".
+  h.fire('aim-hud', { kills: 0, total: null, headshots: 0, humanoidHits: 0, score: 0, hits: 0, shots: 0 });
   h.fire('aim-round-phase', { phase: 'running', previous: 'idle' });
   h.flush();
-  assert.equal(line.hidden, true, 'a new run hides the old numbers until its first aim-hud');
+  assert.equal(line.hidden, true, 'ball drill');
   h.fire('aim-hud', { kills: 30, total: null, headshots: 0, humanoidHits: 0, score: 900, hits: 30, shots: 31 });
   h.flush();
-  assert.equal(line.hidden, true, 'ball drill');
+  assert.equal(line.hidden, true, 'ball drill with dot kills');
   const r = loadHud({ page: { ...page(), roundClass: true } });
   r.fire('aim-round-phase', { phase: 'running', previous: 'idle' });
   r.fire('aim-hud', { kills: 2, total: 10, headshots: 1, humanoidHits: 2 });

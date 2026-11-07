@@ -38,6 +38,7 @@
   let marker = null;
   let markerAnim = null;
   let kills = null;
+  let placed = false; // kills line top computed for the current layout
 
   const roundOn = () => document.documentElement.classList.contains("aim-round-on") || !!window.__aimRoundOn;
   const live = () => phase === "running";
@@ -49,7 +50,7 @@
     style.textContent = `
 .ux-hitmarker{position:absolute;left:50%;top:50%;width:0;height:0;pointer-events:none;opacity:0;z-index:2;
  color:var(--es-text,#f4f5f7);--ux-hm-gap:5px;--ux-hm-len:6px;--ux-hm-w:2px;filter:drop-shadow(0 0 1px rgba(0,0,0,.9))}
-.ux-hitmarker.is-head{color:var(--es-warn,#ffd166)}
+.ux-hitmarker.is-head{color:#ffd166}
 .ux-hitmarker.is-kill{--ux-hm-gap:7px;--ux-hm-len:9px;--ux-hm-w:3px}
 .ux-hitmarker i{position:absolute;left:calc(var(--ux-hm-w)/-2);top:calc(-1*(var(--ux-hm-gap) + var(--ux-hm-len)));
  width:var(--ux-hm-w);height:var(--ux-hm-len);background:currentColor;
@@ -107,14 +108,23 @@
       kills.className = "ux-hud-kills";
       kills.dataset.role = "ux-hud-kills";
     }
-    if (kills.parentElement !== host) host.append(kills);
-    kills.textContent = killsText(hud);
-    // Just under the stat box chips (read when the line changes, not every frame).
-    const box = host.getBoundingClientRect();
-    const chip = host.querySelector(".al-hud-top .al-hud-chip") || host.querySelector(".al-hud-top");
-    const scale = host.offsetHeight > 0 ? box.height / host.offsetHeight : 1;
-    const bottom = chip ? chip.getBoundingClientRect().bottom : 0;
-    kills.style.top = `${Math.round((bottom > box.top ? (bottom - box.top) / (scale || 1) : 72) + 6)}px`;
+    const text = killsText(hud);
+    if (kills.parentElement === host && placed && !kills.hidden && kills.textContent === text) return;
+    if (kills.parentElement !== host) {
+      host.append(kills);
+      placed = false;
+    }
+    // Just under the stat box chips. Rects are read before any write, and only when the line is
+    // first placed or the window was resized, not on every stat change.
+    if (!placed) {
+      const box = host.getBoundingClientRect();
+      const chip = host.querySelector(".al-hud-top .al-hud-chip") || host.querySelector(".al-hud-top");
+      const scale = host.offsetHeight > 0 ? box.height / host.offsetHeight : 1;
+      const bottom = chip ? chip.getBoundingClientRect().bottom : 0;
+      kills.style.top = `${Math.round((bottom > box.top ? (bottom - box.top) / (scale || 1) : 72) + 6)}px`;
+      placed = bottom > box.top;
+    }
+    if (kills.textContent !== text) kills.textContent = text;
     kills.hidden = false;
   }
 
@@ -147,11 +157,16 @@
     hudDirty = true;
     schedule();
   });
+  window.addEventListener("resize", () => {
+    placed = false;
+    hudDirty = true;
+    schedule();
+  });
   window.addEventListener("aim-round-phase", (e) => {
     const d = (e && e.detail) || {};
     phase = d.phase || null;
-    // A new run (not a resume from the Tab menu): forget the last run's numbers.
-    if (phase === "running" && d.previous !== "running" && d.previous !== "paused") hud = null;
+    // No reset on a new run: the game's run reset (To) sends a fresh aim-hud before "running".
+    if (phase !== "running" && phase !== "paused") placed = false;
     if (!live()) {
       hit = null;
       hideMarker();
@@ -209,7 +224,7 @@
     queued = true;
     requestAnimationFrame(() => {
       queued = false;
-      addRow();
+      if (!live()) addRow(); // no settings page during a run; skip the lookups on HUD updates
     });
   };
   if (typeof window.__aimWatchPage === "function") window.__aimWatchPage(watch, { childList: true, subtree: true });

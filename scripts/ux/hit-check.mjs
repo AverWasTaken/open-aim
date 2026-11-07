@@ -3,7 +3,8 @@
 // Node built-ins only. Prints one JSON line per step and a final summary; screenshots go to outDir.
 // Order (one app start): settings switch off -> ball drill (switch off = no marker, then on;
 // dot hits; no kills line) -> result -> Watch replay plays with no aim-hit -> bot drill (synthetic
-// marker, real shots with head/kill flags, kills line, hidden when paused).
+// marker, real shots with head/kill flags, kills line from the start, hidden when paused) ->
+// Round (if time is left): no kills line. Each step prints pass: true/false.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -11,9 +12,10 @@ const [port = '9438', outDir = '/tmp/ux-hit-check'] = process.argv.slice(2);
 fs.mkdirSync(outDir, { recursive: true });
 const BALL = 'd43f842fb33e4d46'; // Micro tiles (spheres, 60 s)
 const BOT = '406d6e47ebc89bc3'; // Head-level micro (humanoids, 60 s)
+const ROUND = 'round-ascent-attack-vandal-20';
 const DEADLINE = Date.now() + 9 * 60 * 1000;
 const results = {};
-const log = (step, data) => { results[step] = data; console.log(JSON.stringify({ step, ...data })); };
+const log = (step, data, pass) => { results[step] = { ...data, pass }; console.log(JSON.stringify({ step, pass, ...data })); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const list = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
@@ -90,7 +92,7 @@ async function startDrill(code, tag) {
     await enter();
     running = await waitFor(`__hc.phases.at(-1)==='running'&&!!document.pointerLockElement`, 6000, 500);
   }
-  log(`${tag}-start`, { launched: ok, ready, running });
+  log(`${tag}-start`, { launched: ok, ready, running }, running);
   return running;
 }
 async function toLobby() {
@@ -115,7 +117,7 @@ async function realShots(tag, n, head) {
   }
   await ev(UNFREEZE);
   const hits = await ev(`__hc.hits.slice(${before})`);
-  log(`${tag}-real-shots`, { tries, hits, screenshot: frozenShot });
+  log(`${tag}-real-shots`, { tries, hits, screenshot: frozenShot }, hits.length > 0);
   return hits;
 }
 
@@ -124,7 +126,8 @@ try {
   [W, H] = vp;
   const lobby = await waitFor(`!document.querySelector('.es-startup')&&!!document.querySelector('.hall-root')&&typeof window.__aimLaunchScene==='function'`, 120000, 2000);
   await ev(`(localStorage.setItem('aim-valorant-import-hide-startup-v1','1'),document.querySelector('.es-tool-shade .es-tool-x')?.click(),1)`);
-  log('boot', { lobby, viewport: vp, hooks: await ev(HOOKS), uxHud: await ev('typeof window.__aimUxHud?.killsText') });
+  const uxHud = await ev('typeof window.__aimUxHud?.killsText');
+  log('boot', { lobby, viewport: vp, hooks: await ev(HOOKS), uxHud }, lobby && uxHud === 'function');
 
   // (e) Settings switch.
   await ev(`(()=>{[...document.querySelectorAll('.hall-tab')].find(t=>/Settings/i.test(t.textContent))?.click();return 1})()`);
@@ -138,17 +141,21 @@ try {
   await ev(`(document.querySelector('[data-setting="uxHitMarker"] input')?.click(),1)`);
   await sleep(300);
   const rowOff = await ev(`(()=>{const r=document.querySelector('[data-setting="uxHitMarker"]');return r&&{on:r.classList.contains('is-on'),checked:r.querySelector('input').checked,stored:localStorage.getItem('aim-ux-hitmarker')}})()`);
-  log('settings', { rowOk, rowOn, rowOff, screenshots: [rowShot, await shot('settings-row-off')] });
+  log('settings', { rowOk, rowOn, rowOff, screenshots: [rowShot, await shot('settings-row-off')] },
+    !!rowOn?.on && rowOn.prev === 'hitBursts' && rowOff && !rowOff.on && rowOff.stored === 'off');
 
   // Ball drill.
   if (await startDrill(BALL, 'ball')) {
     const offSynth = await ev(SYNTH({ head: false, kill: false, dot: false }));
     await ev(UNFREEZE);
     await ev(`(window.__aimUxHud.setMarker(true),1)`);
-    log('ball-switch-off', { marker: offSynth, stored: await ev(`localStorage.getItem('aim-ux-hitmarker')`) });
+    const stored = await ev(`localStorage.getItem('aim-ux-hitmarker')`);
+    log('ball-switch-off', { marker: offSynth, stored }, !offSynth || offSynth.anims === 0);
     const hits = await realShots('ball', 5, false);
-    log('ball-kills-line', { kills: await ev(KILLS), lastHud: await ev('__hc.huds.at(-1)'), screenshot: await shot('ball-running') });
-    log('ball-dot', { allDot: hits.length > 0 && hits.every((h) => h.dot), n: hits.length });
+    const ballKills = await ev(KILLS);
+    log('ball-kills-line', { kills: ballKills, lastHud: await ev('__hc.huds.at(-1)'), screenshot: await shot('ball-running') }, !ballKills || ballKills.hidden);
+    const allDot = hits.length > 0 && hits.every((h) => h.dot && h.kill !== undefined);
+    log('ball-dot', { allDot, n: hits.length }, allDot);
     const ended = await waitFor(`__hc.phases.at(-1)==='result'`, 80000, 2000);
     await sleep(1500);
     const watch = await ev(`(()=>{const b=document.querySelector('.al-replay-watch-btn');b&&b.click();return !!b})()`);
@@ -159,33 +166,60 @@ try {
     await sleep(8000);
     const scrub1 = await ev(`+(document.querySelector('.al-replay-scrub')?.value??-1)`);
     const hitsAfter = await ev('__hc.hits.length');
-    log('replay', { ended, watch, player, scrub: [scrub0, scrub1], aimHitDuringReplay: hitsAfter - hitsBefore, screenshot: await shot('replay-playing') });
-    await ev(`(document.querySelector('.al-rv-close')?.click(),1)`);
+    log('replay', { ended, watch, player, scrub: [scrub0, scrub1], aimHitDuringReplay: hitsAfter - hitsBefore, screenshot: await shot('replay-playing') },
+      !!player && scrub1 > scrub0 && hitsAfter === hitsBefore);
+    await ev(`(document.querySelector('.al-replay-library-close')?.click(),1)`);
     await sleep(800);
   }
-  log('ball-exit', { lobby: await toLobby() });
+  const ballLobby = await toLobby();
+  log('ball-exit', { lobby: ballLobby }, ballLobby);
 
   // Bot drill.
   if (await startDrill(BOT, 'bot')) {
+    // The run reset sends aim-hud before "running": the line should be up right away.
+    // With a target total it reads "Kills 0/N · HS -"; endless drills (total null) wait for the first bot hit.
+    const early = await ev(KILLS), firstHud = await ev('__hc.huds.at(-1)');
+    log('bot-kills-line-start', { kills: early, firstHud },
+      firstHud?.total != null ? !!early && !early.hidden && /^Kills 0\/\d+ · HS -$/.test(early.text) : !early || early.hidden);
     const synth = await ev(SYNTH({ head: true, kill: true, dot: false }));
-    log('bot-marker-synthetic', { marker: synth, screenshot: await shot('bot-marker-synthetic') });
+    log('bot-marker-synthetic', { marker: synth, screenshot: await shot('bot-marker-synthetic') },
+      !!synth && synth.inWrap && synth.anims > 0 && /is-head/.test(synth.cls) && /is-kill/.test(synth.cls) && synth.opacity === '1');
     await ev(UNFREEZE);
     const body = await ev(SYNTH({ head: false, kill: false, dot: false }));
-    log('bot-marker-body', { marker: body, screenshot: await shot('bot-marker-body') });
+    log('bot-marker-body', { marker: body, screenshot: await shot('bot-marker-body') },
+      !!body && body.anims > 0 && !/is-head|is-kill/.test(body.cls));
     await ev(UNFREEZE);
     const hits = await realShots('bot', 6, true);
-    log('bot-flags', { n: hits.length, heads: hits.filter((h) => h.head).length, kills: hits.filter((h) => h.kill).length, dots: hits.filter((h) => h.dot).length });
+    const flags = { n: hits.length, heads: hits.filter((h) => h.head).length, kills: hits.filter((h) => h.kill).length, dots: hits.filter((h) => h.dot).length };
+    log('bot-flags', flags, flags.n > 0 && flags.heads > 0 && flags.kills > 0 && flags.dots === 0);
     await sleep(600);
-    log('bot-kills-line', { kills: await ev(KILLS), lastHud: await ev('__hc.huds.at(-1)'), screenshot: await shot('bot-kills-line') });
+    const botKills = await ev(KILLS);
+    log('bot-kills-line', { kills: botKills, lastHud: await ev('__hc.huds.at(-1)'), screenshot: await shot('bot-kills-line') },
+      !!botKills && !botKills.hidden && /^Kills [1-9]\d*(\/\d+)? · HS \d+%$/.test(botKills.text) && botKills.lineTop >= (botKills.chipBottom ?? 0));
     await ev('document.exitPointerLock()');
     await waitFor(`__hc.phases.at(-1)==='paused'`, 8000, 500);
     await sleep(500);
-    log('bot-paused', { kills: await ev(KILLS), screenshot: await shot('bot-paused') });
+    const paused = await ev(KILLS);
+    log('bot-paused', { kills: paused, screenshot: await shot('bot-paused') }, !paused || paused.hidden);
   }
-  log('bot-exit', { lobby: await toLobby() });
+  const botLobby = await toLobby();
+  log('bot-exit', { lobby: botLobby }, botLobby);
+
+  // Round (slow to load): only if enough time is left.
+  if (DEADLINE - Date.now() > 170000) {
+    if (await startDrill(ROUND, 'round')) {
+      await sleep(1500);
+      const rk = await ev(KILLS);
+      log('round-kills-line', { kills: rk, roundOn: await ev('!!window.__aimRoundOn'), screenshot: await shot('round-running') }, !rk || rk.hidden);
+      await ev('document.exitPointerLock()');
+      await waitFor(`__hc.phases.at(-1)==='paused'`, 8000, 500);
+    }
+    log('round-exit', { lobby: await toLobby() }, true);
+  } else log('round-skipped', { reason: 'not enough time left in the 10 min app window' }, null);
 } catch (err) {
   log('error', { message: String(err && err.stack || err) });
 } finally {
-  console.log(JSON.stringify({ step: 'summary', outDir, steps: Object.keys(results) }));
+  const failed = Object.entries(results).filter(([, r]) => r.pass === false).map(([k]) => k);
+  console.log(JSON.stringify({ step: 'summary', outDir, steps: Object.keys(results), failed }));
   ws.close();
 }
