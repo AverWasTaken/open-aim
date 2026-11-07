@@ -160,28 +160,26 @@ const SHOT_LOOP_TO = 'xe.kind==="shot"&&(window.__aimShot?.(xe),Kt.push(xe.tick*
 const ROUTE_LOOP_FROM = "const ce=hs(de);for(const xe of Cn)";
 const ROUTE_LOOP_TO = "const ce=hs(de);window.__aimTick?.(ce);for(const xe of Cn)";
 
-// The site's English translator garbles some Vietnamese strings. Serve a thin
-// wrapper in its place that applies translations.js first; the original module
-// is still served unchanged under ORIGINAL_TRANSLATOR.
+// The site's English translator is machine translated. Serve a thin wrapper in its
+// place that first adds english-fixes.js (Chinese) and translations.js (Vietnamese)
+// to its dictionary; the original module is still served unchanged under
+// ORIGINAL_TRANSLATOR.
 const TRANSLATOR = "/_assets/r20261021-1/i18n/translate-en.mjs";
 const ORIGINAL_TRANSLATOR = "/_assets/r20261021-1/i18n/translate-en.original.mjs";
 const TRANSLATOR_WRAPPER = `import dictionary from './en.dict.mjs';
 import { translateText as base } from './translate-en.original.mjs';
 export * from './translate-en.original.mjs';
-// english-fixes.js: proper English replacing the dictionary's machine translations
-// (the dictionary object is shared with the translator, which reads it lazily).
+// english-fixes.js: proper English replacing the dictionary's machine translations;
+// translations.js: English for the Vietnamese strings. Both are plain dictionary
+// entries (no key overlap), so whole strings match exactly and drill names and
+// descriptions (localizeMetadata) get them too. The dictionary object is shared with
+// the translator, which reads it lazily.
 Object.assign(dictionary, ${JSON.stringify(require("./english-fixes"))});
-const EXTRA = ${JSON.stringify(require("./translations"))};
-const KEYS = Object.keys(EXTRA).sort((a, b) => b.length - a.length);
-const VN = /[Ã Ã¡áº¡áº£Ã£Ã¢áº§áº¥áº­áº©áº«Äƒáº±áº¯áº·áº³áºµÃ¨Ã©áº¹áº»áº½Ãªá»áº¿á»‡á»ƒá»…Ã¬Ã­á»‹á»‰Ä©Ã²Ã³á»á»ÃµÃ´á»“á»‘á»™á»•á»—Æ¡á»á»›á»£á»Ÿá»¡Ã¹Ãºá»¥á»§Å©Æ°á»«á»©á»±á»­á»¯á»³Ã½á»µá»·á»¹Ä‘]/i;
+Object.assign(dictionary, ${JSON.stringify(require("./translations"))});
 ${process.env.AIM_TRLOG ? "window.__trlog = new Map(); // AIM_TRLOG=1 (testing): records source -> English pairs shown" : ""}
 export function translateText(value) {
-  const source = value;
-  if (typeof value === 'string' && VN.test(value)) {
-    for (const key of KEYS) if (value.includes(key)) value = value.split(key).join(EXTRA[key]);
-  }
   const result = base(value);
-  if (window.__trlog && typeof source === 'string' && result !== source) window.__trlog.set(source.trim(), result.trim());
+  if (window.__trlog && typeof value === 'string' && result !== value) window.__trlog.set(value.trim(), result.trim());
   return result;
 }
 `;
