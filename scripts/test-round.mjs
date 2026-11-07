@@ -683,3 +683,292 @@ test('shell files are wired into main.js and the build', () => {
   assert.ok(pkg.build.extraResources.some((e) => e.from === 'mods'), 'mods (aim-rounds) ship as extra resources');
   assert.match(read('app', 'lobby-bar.js'), /Round \(beta\)/);
 });
+
+// ---------------------------------------------------------------- R3 S2: attack plan, bot carrier / drop / pickup / plant (defense side)
+// Pure node: hand-built io.bots ({id, spawnerId, alive, x, y, z, defusing, planting}); the real bots
+// publish spawnerId / planting from R3 step S3 on.
+const { createHash } = await import('node:crypto');
+const SPAWNERS = ['round-spawn-1', 'round-spawn-2', 'round-spawn-3', 'round-spawn-4', 'round-spawn-5'];
+const defDoc = (attackData = null) => {
+  const d = buildDoc(data, { side: 'defense', weapon: 'vandal', barrierSec: 20 });
+  if (attackData) d.rules.round.attackData = attackData;
+  return d;
+};
+// sha256 (first 16 hex) of JSON.stringify(roundPrepare(doc, seed)), seeds 1..20, computed on 1d040e8
+// (before R3): the attack doc of round-ascent-attack-vandal-20, and the defense doc (buildDoc, no
+// attackData) with rules.round.attack deleted.
+const FROZEN_PREPARE = {
+  attack: ['0a7382415e8b8a27', '326759ed4bd2eb0a', '5a2c67e679348198', 'c030352a142aea93', '4a06ddaff7f86fc0', '5fefcbe7368622cc', '8b24c23f07728e9b', 'ddcd183327472202', '7bba2c922402d7b8', '516b69d97a093379',
+    'efa2ea8a29bc972b', '6c2a5ea308e9b3ea', 'afd8212ffdda8975', 'd158e63b3d4d4271', 'c82104713f0e0502', '634b7ccfbe80a8f3', 'eeb122c2822d1afd', 'd2dbfd1bba6e01fe', '7c4792e5510d9027', '931406121cac768e'],
+  defense: ['238952ef37dc2568', '44410f22d07cab0c', 'c4ec0a789ce91868', 'f4e2722f52eb70fe', 'f4e2722f52eb70fe', '7c3bbebd448b44af', 'c4ec0a789ce91868', '44410f22d07cab0c', '44410f22d07cab0c', '7c3bbebd448b44af',
+    'f4e2722f52eb70fe', '7c3bbebd448b44af', '44410f22d07cab0c', '238952ef37dc2568', '7c3bbebd448b44af', '7c3bbebd448b44af', 'f4e2722f52eb70fe', '238952ef37dc2568', 'f4e2722f52eb70fe', '44410f22d07cab0c'],
+};
+const PLANT_A = data.attack.plant.A[0]; // in zone A, 1 m+ from its edge
+const OFF_SITE = { x: -60, y: 4, z: -60 };  // A Main, outside every zone
+// 5 attacker bots, ids 1..5 in spawner order, at the attacker spawn; over[id] overrides fields.
+const atkBots = (cfg, over = {}) => SPAWNERS.map((s, k) => {
+  const p = cfg.spawns.attack[k];
+  return { id: k + 1, spawnerId: s, alive: true, x: p.x, y: p.y, z: p.z, defusing: 0, planting: 0, ...(over[k + 1] || {}) };
+});
+const at = (p, o = {}) => ({ x: p.x, y: p.y, z: p.z, ...o });
+function makeDefense({ seed = 1, attackData = data.attack, over = {} } = {}) {
+  const doc = core.roundPrepare(defDoc(attackData), seed);
+  const cfg = { ...doc.rules.round, ...over };
+  const st = core.roundCreate(cfg, TS);
+  const ps = cfg.spawns.defense[0];
+  const player = { x: ps.x, y: ps.y, z: ps.z, yaw: 0, speed: 0, grounded: true, health: 100 };
+  const r = { doc, cfg, st, player, tick: 0 };
+  r.step = (bots, { kills = 0, hold = {} } = {}) => {
+    const ev = core.roundStep(cfg, r.st, { tick: ++r.tick, tickSec: TS, player: { ...player }, kills, hold, bots });
+    assert.notEqual(typeof core.roundView(cfg, r.st, TS).spike.carrier, 'number', 'the view never shows which bot carries the spike');
+    return ev;
+  };
+  r.run = (n, bots, o) => { let ev = []; for (let i = 0; i < n; i++) ev = ev.concat(r.step(typeof bots === 'function' ? bots(i) : bots, o)); return ev; };
+  r.toLive = (bots) => r.run(sec(20) - r.tick, bots);
+  return r;
+}
+const dview = (r) => core.roundView(r.cfg, r.st, TS);
+// A seed whose planned carrier is not round-spawn-1 (so it has a higher id than bot 1).
+const SEED = Array.from({ length: 50 }, (_, i) => i + 1).find((s) => core.roundPrepare(defDoc(data.attack), s).rules.round.attack.carrierSpawner !== 'round-spawn-1');
+const carrierId = (r) => SPAWNERS.indexOf(r.cfg.attack.carrierSpawner) + 1;
+
+test('R3 roundPrepare: attack side, defense spawns and spawners byte-identical to before (seeds 1-20); attack data adds no draws', () => {
+  const atk = JSON.parse(roundScene(MODS, 'round-ascent-attack-vandal-20').doc);
+  const h = (o) => createHash('sha256').update(JSON.stringify(o)).digest('hex').slice(0, 16);
+  for (let s = 1; s <= 20; s++) {
+    const a = core.roundPrepare(atk, s);
+    assert.equal(h(a), FROZEN_PREPARE.attack[s - 1], `attack seed ${s}`);
+    assert.equal('attack' in a.rules.round, false, 'no plan on the attack side');
+    const d = core.roundPrepare(defDoc(), s);
+    assert.ok(d.rules.round.attack, 'defense side has a plan');
+    delete d.rules.round.attack;
+    assert.equal(h(d), FROZEN_PREPARE.defense[s - 1], `defense seed ${s}`);
+    const w = core.roundPrepare(defDoc(data.attack), s);
+    assert.deepEqual(w.playerSpawn, d.playerSpawn, 'attackData does not move the player spawn');
+    assert.deepEqual(w.spawners, d.spawners, 'attackData does not change the spawners');
+  }
+});
+
+test('R3 attack plan: site, carrier spawner, routes, lurker, gather time; deterministic; same draws without attackData', () => {
+  const sites = new Set(); let lurk = 0, noLurk = 0;
+  for (let s = 1; s <= 60; s++) {
+    const a = core.roundPrepare(defDoc(data.attack), s).rules.round.attack;
+    assert.deepEqual(core.roundPrepare(defDoc(data.attack), s).rules.round.attack, a, 'same seed, same plan');
+    assert.ok(['A', 'B'].includes(a.site)); sites.add(a.site);
+    assert.ok(SPAWNERS.includes(a.carrierSpawner));
+    assert.deepEqual(Object.keys(a.routeBySpawner).sort(), SPAWNERS);
+    const names = data.attack.routes[a.site].map((q) => q.name), main = a.routeBySpawner[a.carrierSpawner];
+    assert.ok(names.includes(main), 'carrier on one of the site routes');
+    for (const id of SPAWNERS) assert.equal(a.routeBySpawner[id], id === a.lurker ? names.find((n) => n !== main) : main, `${id} route`);
+    if (a.lurker === null) noLurk++; else { lurk++; assert.ok(SPAWNERS.includes(a.lurker) && a.lurker !== a.carrierSpawner, 'lurker is a non-carrier'); }
+    assert.ok(a.gatherSec >= 5 && a.gatherSec <= 20, `gatherSec ${a.gatherSec}`);
+    const b = core.roundPrepare(defDoc(), s).rules.round.attack;
+    assert.deepEqual({ ...b, routeBySpawner: null }, { ...a, routeBySpawner: null }, 'without attackData: same site / carrier / lurker / gather');
+    assert.ok(Object.values(b.routeBySpawner).every((v) => v === null), 'no routes without attackData');
+  }
+  assert.equal(sites.size, 2, 'both sites get picked');
+  assert.ok(lurk > 0 && noLurk > 0, `lurker sometimes (${lurk} of 60)`);
+  // prepared docs pass through unchanged
+  const p = core.roundPrepare(defDoc(data.attack), 3);
+  assert.equal(core.roundPrepare(p, 9), p);
+});
+
+test('R3 bot carrier election: the planned spawner beats a lower id; else the lowest living id once all spawned or live', () => {
+  const r = makeDefense({ seed: SEED }), c = carrierId(r), all = atkBots(r.cfg);
+  assert.ok(c > 1);
+  assert.equal(r.st.spike.carrier, null, 'no carrier before the bots exist');
+  r.step(all.filter((b) => b.id !== c).slice(0, 2));
+  assert.equal(r.st.spike.carrier, null, 'barrier phase, planned carrier not spawned yet, not all spawned: wait');
+  r.step(all);
+  assert.equal(r.st.spike.carrier, c, 'planned carrier beats a lower id');
+  assert.deepEqual(r.st.carrierAt, at(all[c - 1]));
+  const v = dview(r);
+  assert.equal(v.spike.carrier, null); assert.equal(v.carrying, false); assert.equal('carrierAt' in v, false);
+  // keeps it while alive (election doesn't re-run)
+  r.run(10, atkBots(r.cfg, { 1: { x: all[0].x + 0.1 } }));
+  assert.equal(r.st.spike.carrier, c);
+
+  // the planned carrier is dead when the bots spawn: lowest living id (bot 1 dead too -> 2, unless 2 is planned)
+  const r2 = makeDefense({ seed: SEED });
+  r2.step(atkBots(r2.cfg, { [c]: { alive: false }, 1: { alive: false } }));
+  assert.equal(r2.st.spike.carrier, c === 2 ? 3 : 2);
+
+  // the planned carrier never spawns: 4 bots wait through the barrier phase, then the lowest at live
+  const r3 = makeDefense({ seed: SEED }), four = all.filter((b) => b.id !== c);
+  r3.run(sec(20) - 1, four);
+  assert.equal(r3.st.spike.carrier, null);
+  r3.step(four);
+  assert.equal(r3.st.phase, 'live');
+  assert.equal(r3.st.spike.carrier, 1);
+
+  // no plan (cfg.attack missing): lowest living id once all 5 are in io.bots
+  const r4 = makeDefense({ seed: SEED, over: { attack: undefined } });
+  r4.step(all.slice(1));
+  assert.equal(r4.st.spike.carrier, null);
+  r4.step(all);
+  assert.equal(r4.st.spike.carrier, 1);
+});
+
+// A live defense round whose carrier stands on the A plant spot.
+function carrierOnSite(seed = SEED) {
+  const r = makeDefense({ seed }), c = carrierId(r);
+  r.toLive(atkBots(r.cfg));
+  assert.equal(r.st.phase, 'live'); assert.equal(r.st.spike.carrier, c);
+  r.bots = (o = {}, others = {}) => atkBots(r.cfg, { ...others, [c]: { ...at(PLANT_A), planting: 1, ...o } });
+  return { r, c };
+}
+
+test('R3 bot plant: counts only live, alive, planting = 1, in a zone; 4 s plants at the bot, roundPlant (bot), carrier cleared', () => {
+  const r = makeDefense({ seed: SEED }), c = carrierId(r);
+  // barrier phase: planting in the zone does nothing
+  r.run(sec(1), atkBots(r.cfg, { [c]: { ...at(PLANT_A), planting: 1 } }));
+  assert.equal(r.st.botPlant, 0);
+  r.toLive(atkBots(r.cfg));
+  const bots = (o) => atkBots(r.cfg, { [c]: { ...at(PLANT_A), planting: 1, ...o } });
+  r.run(10, bots({ planting: 0 }));
+  assert.equal(r.st.botPlant, 0, 'not while planting = 0');
+  r.run(10, bots({ planting: undefined }));
+  assert.equal(r.st.botPlant, 0, 'a bot without the planting field never plants');
+  r.run(10, bots({ ...at(OFF_SITE) }));
+  assert.equal(r.st.botPlant, 0, 'not outside a zone');
+  r.run(10, atkBots(r.cfg, { [c === 1 ? 2 : 1]: { ...at(PLANT_A), planting: 1 } }));
+  assert.equal(r.st.botPlant, 0, 'a non-carrier planting does nothing');
+  r.run(sec(1), bots());
+  assert.equal(r.st.botPlant, sec(1));
+  let v = dview(r);
+  assert.equal(v.botPlanting, true); assert.equal(v.plant, 0, 'view.plant stays the player\'s'); assert.equal(v.holding, null);
+  r.step(bots({ ...at(OFF_SITE) }));
+  assert.equal(r.st.botPlant, 0, 'leaving the zone resets it');
+  assert.equal(dview(r).botPlanting, false);
+  const ev = r.run(sec(4) - 1, bots());
+  assert.equal(r.st.phase, 'live');
+  const last = r.step(bots({ x: PLANT_A.x + 0.2 }));
+  assert.deepEqual([...ev, ...last].filter((e) => e.kind === 'roundPlant'), [{ kind: 'roundPlant', site: 'A', bot: true }]);
+  assert.equal(r.st.phase, 'planted'); assert.equal(r.st.plantTick, r.tick);
+  assert.deepEqual(r.st.spike.planted, { x: PLANT_A.x + 0.2, y: PLANT_A.y, z: PLANT_A.z, site: 'A' });
+  assert.equal(r.st.spike.carrier, null); assert.equal(r.st.carrierAt, null); assert.equal(r.st.botPlant, 0);
+  v = dview(r);
+  assert.equal(v.botPlanting, false); assert.equal(v.phase, 'planted');
+  assert.deepEqual(v.spike, { carrier: null, dropped: null, planted: r.st.spike.planted });
+  // no second plant, no re-election after the plant
+  r.run(10, bots());
+  assert.equal(r.st.spike.carrier, null); assert.equal(r.st.botPlant, 0);
+});
+
+test('R3 carrier death drops the spike at its io.bots position and resets the plant; a missing carrier drops at carrierAt', () => {
+  const { r, c } = carrierOnSite();
+  r.run(sec(2), r.bots());
+  assert.equal(r.st.botPlant, sec(2));
+  r.step(r.bots({ alive: false, x: PLANT_A.x + 0.3 }), { kills: 1 });
+  assert.equal(r.st.spike.carrier, null);
+  assert.deepEqual(r.st.spike.dropped, { x: PLANT_A.x + 0.3, y: PLANT_A.y, z: PLANT_A.z });
+  assert.equal(r.st.botPlant, 0); assert.equal(r.st.carrierAt, null);
+  assert.equal(dview(r).botPlanting, false);
+  assert.deepEqual(dview(r).spike.dropped, r.st.spike.dropped);
+
+  const m = carrierOnSite().r;
+  m.run(5, m.bots({ x: PLANT_A.x - 0.4 }));
+  assert.deepEqual(m.st.carrierAt, at(PLANT_A, { x: PLANT_A.x - 0.4 }), 'carrierAt follows the live carrier');
+  m.step(atkBots(m.cfg).filter((b) => b.id !== c));
+  assert.deepEqual(m.st.spike.dropped, at(PLANT_A, { x: PLANT_A.x - 0.4 }), 'missing from io.bots: dropped at carrierAt');
+  assert.equal(m.st.spike.carrier, null);
+});
+
+test('R3 pickup: lowest living id within pickupRadius (xz) and |dy| < 2; on the drop tick too; the new carrier plants from the next tick', () => {
+  const { r, c } = carrierOnSite();
+  const d = { x: PLANT_A.x, y: PLANT_A.y, z: PLANT_A.z };
+  r.step(r.bots({ alive: false }), { kills: 1 });
+  assert.deepEqual(r.st.spike.dropped, d);
+  const others = SPAWNERS.map((_, k) => k + 1).filter((id) => id !== c);   // 4 living bots, ascending
+  const [a, b, e, f] = others;
+  const near = {
+    [c]: { ...at(d), alive: false },                              // dead, right on it
+    [a]: { ...at(d, { x: d.x + 1.6 }) },                          // 1.6 m: outside
+    [b]: { ...at(d, { x: d.x + 0.3, y: d.y + 2.2 }) },            // |dy| >= 2
+    [e]: { ...at(d, { x: d.x + 1.0, z: d.z + 1.0 }) },            // 1.41 m: inside
+    [f]: { ...at(d, { x: d.x - 0.5 }) },                          // 0.5 m: inside
+  };
+  r.step(atkBots(r.cfg, near));
+  assert.equal(r.st.spike.carrier, e, 'lowest id inside the radius');
+  assert.equal(r.st.spike.dropped, null);
+  assert.deepEqual(r.st.carrierAt, at(near[e]));
+  assert.equal(r.st.botPlant, 0);
+
+  // pickup on the drop tick; the new carrier's planting counts from the next tick
+  const q = carrierOnSite();
+  q.r.run(sec(1), q.r.bots());
+  const n = q.c === 1 ? 2 : 1;
+  q.r.step(q.r.bots({ alive: false }, { [n]: { ...at(PLANT_A, { x: PLANT_A.x + 0.5 }), planting: 1 } }), { kills: 1 });
+  assert.equal(q.r.st.spike.carrier, n, 'picked up on the drop tick');
+  assert.equal(q.r.st.spike.dropped, null);
+  assert.equal(q.r.st.botPlant, 0, 'not on the pickup tick');
+  q.r.step(q.r.bots({ alive: false }, { [n]: { ...at(PLANT_A, { x: PLANT_A.x + 0.5 }), planting: 1 } }));
+  assert.equal(q.r.st.botPlant, 1, 'from the next tick');
+});
+
+test('R3 same tick: a bot plant on the timeout tick counts; a planter killed on its last tick plants nothing; plant + player death = died', () => {
+  // timeout tick
+  const t = carrierOnSite();
+  t.r.run(sec(100) - sec(4), t.r.bots({ planting: 0 }));
+  assert.equal(t.r.st.phase, 'live');
+  const ev = t.r.run(sec(4), t.r.bots());
+  assert.equal(t.r.tick - t.r.st.liveTick, sec(100), 'the plant finished on the round timer\'s last tick');
+  assert.equal(t.r.st.phase, 'planted');
+  assert.equal(ev.some((e) => e.kind === 'roundEnd'), false, 'no timeout');
+
+  // killed on the finishing tick
+  const k = carrierOnSite();
+  k.r.run(sec(4) - 1, k.r.bots());
+  const ev2 = k.r.step(k.r.bots({ alive: false }), { kills: 1 });
+  assert.equal(ev2.some((e) => e.kind === 'roundPlant'), false);
+  assert.equal(k.r.st.phase, 'live');
+  assert.deepEqual(k.r.st.spike.dropped, at(PLANT_A));
+
+  // the plant completes on the tick the player dies
+  const p = carrierOnSite();
+  p.r.run(sec(4) - 1, p.r.bots());
+  p.r.player.health = 0;
+  const ev3 = p.r.step(p.r.bots());
+  assert.deepEqual(ev3.map((e) => e.kind), ['roundPlant', 'roundEnd']);
+  assert.equal(p.r.st.winner, 'attack'); assert.equal(p.r.st.reason, 'died');
+});
+
+test('R3 the defending player defuses a bot plant (from the next tick), ROUND WON "defused"', () => {
+  const { r } = carrierOnSite();
+  r.run(sec(4), r.bots());
+  assert.equal(r.st.phase, 'planted');
+  Object.assign(r.player, { x: PLANT_A.x + 0.3, y: PLANT_A.y, z: PLANT_A.z });
+  const ev = r.run(sec(7), r.bots({ planting: 0 }), { hold: { use: true } });
+  assert.equal(r.st.phase, 'ended');
+  assert.equal(r.st.winner, 'defense'); assert.equal(r.st.reason, 'defused');
+  assert.deepEqual(ev.filter((e) => e.kind === 'roundEnd'), [{ kind: 'roundEnd', winner: 'defense', reason: 'defused', win: true }]);
+});
+
+test('R3 attack side ignores spawnerId / planting in io.bots', () => {
+  const r = makeRound();
+  const bots = (cfg) => atkBots(cfg, { 1: { ...at(PLANT_A), planting: 1 }, 2: { ...at(PLANT_A), planting: 1, spawnerId: 'round-A-1' } });
+  let tick = 0;
+  for (let i = 0; i < sec(20) + sec(5); i++) core.roundStep(r.cfg, r.st, { tick: ++tick, tickSec: TS, player: { ...r.player }, kills: 0, hold: {}, bots: bots(r.cfg) });
+  assert.equal(r.st.phase, 'live');
+  assert.equal(r.st.spike.carrier, 'player');
+  assert.equal(r.st.botPlant, 0); assert.equal(r.st.carrierAt, null);
+  assert.equal(core.roundView(r.cfg, r.st, TS).spike.carrier, 'player');
+});
+
+test('R3 save -> step -> restore mid-plant (carrierAt set) matches a straight run', () => {
+  const ioAt = (r, i) => ({ bots: i === 40 ? r.bots({ alive: false }) : i > 40 ? atkBots(r.cfg, { [carrierId(r)]: { alive: false }, [carrierId(r) === 1 ? 2 : 1]: { ...at(PLANT_A), planting: 1 } }) : r.bots() });
+  const a = carrierOnSite().r, b = carrierOnSite().r;
+  a.run(sec(1), a.bots()); b.run(sec(1), b.bots());
+  assert.ok(b.st.carrierAt && b.st.botPlant > 0);
+  for (let i = 0; i < 80; i++) {
+    a.step(ioAt(a, i).bots, { kills: i === 40 ? 1 : 0 });
+    if (i % 7 === 3) {
+      const saved = core.roundClone(b.st), t0 = b.tick;
+      b.step(atkBots(b.cfg, { [carrierId(b)]: { alive: false } }), { kills: 1 });   // a different future
+      b.st = saved; b.tick = t0;
+    }
+    b.step(ioAt(b, i).bots, { kills: i === 40 ? 1 : 0 });
+    assert.deepEqual(b.st, a.st, `tick ${i}`);
+  }
+  assert.ok(a.st.spike.carrier !== null && a.st.botPlant > 0, 'dropped, picked up, planting again');
+});
