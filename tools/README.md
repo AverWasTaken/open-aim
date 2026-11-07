@@ -53,6 +53,12 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 10. `spotvary_patch.py` (needs `spotbias_patch.py`; refuses to run twice: it looks for `aimSpotApply`)
 11. `peekmove_patch.py` (needs `spotvary_patch.py`; refuses to run twice: it looks for `aimPeekUpdate`)
 12. `round_patch.py` (after `peekmove_patch.py`; refuses to run twice: it looks for `/aim-rounds/round-core.mjs`). It keeps each copy's own line ends.
+13. `graphics_warm_patch.py` (OkAdunfX; refuses to run twice: it looks for `/* graphics-warm */`).
+14. `graphics_leak_patch.py` (BiMsX6Xn + CnrSARj_; a marker `/* graphics-leak */` per file: a file
+    that already has it is skipped, a half-patched one is an error, all patched = refuses to run).
+    Both graphics perf scripts are independent of the other graphics scripts (`graphics_fx_patch.py`,
+    `graphics_holes_patch.py`, `graphics_botfx_patch.py`) and give the same bytes in either order.
+    Both keep each copy's own line ends and take `--mods <dir>` to patch a scratch copy.
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
@@ -67,6 +73,22 @@ either order. `app/main.js` also patches `OkAdunfX.js` while serving it (`SHOT_L
 
 To start the bot patch over: `git checkout` the three mods files, delete both mods
 `C_VPDXvn.js` copies, then run `python -I tools/bot_patch.py`.
+
+## Graphics perf (first-shot stall, texture leaks, retry time)
+
+- `graphics_warm_patch.py`: the muzzle-flash renderer's one-time shader warm-up (`B()` in
+  OkAdunfX) also draws its light/tone composite passes into the real output target (1x1 scissor,
+  zero output), so the first shot no longer compiles 1-2 programs. It re-arms when tone mapping,
+  output colour space or the target change (Enhanced/Original switch).
+- `graphics_leak_patch.py`: frees the map environment map's PMREM render target (BiMsX6Xn) and
+  each removed bot's skeleton bone texture (CnrSARj_), which leaked on every retry.
+- `app/mods/aim-ui/bot-visibility.mjs`: the occlusion build yields every ~8 ms (MessageChannel)
+  instead of `setTimeout(0)` every 500 triangles; the result is identical (tested).
+- `app/mods/aim-tracers/renderer.mjs`: custom tracers do one empty draw on the first active frame
+  so their program compiles before the first shot.
+- Tests: `npm run test:graphics-perf` (scripts/test-graphics-perf.mjs). Live numbers (new programs
+  on the first shot, textures per retry, retry time; hp software WebGL, relative only) come from
+  `open-aim-hq/graphics-tools/hp-perf.mjs` via `perf-session.sh`.
 
 ## Spot scores (rank-biased spots)
 

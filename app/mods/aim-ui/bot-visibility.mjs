@@ -3,6 +3,9 @@
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
 const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const now=()=>globalThis.performance?.now?.()??Date.now();
+// Yield to the event loop without setTimeout's 4 ms clamp on nested timers (setTimeout fallback).
+const yieldTask=()=>new Promise(r=>{if(typeof MessageChannel!=='function'){setTimeout(r,0);return;}const c=new MessageChannel();c.port1.onmessage=()=>{c.port1.close();r()};c.port2.postMessage(0)});
 const opaque=m=>m&&!m.transparent&&m.opacity===1&&!(m.alphaTest>0)&&!m.alphaMap&&m.depthWrite!==false&&m.depthTest!==false&&!m.polygonOffset&&!m.clippingPlanes?.length&&!m.wireframe&&m.visible!==false;
 function shown(object){for(let o=object;o;o=o.parent)if(!o.visible)return false;return true;}
 export function triangleHidesBox(t,eye,center,radius){
@@ -34,7 +37,8 @@ function hit(t,eye,dir,max){
 function bounds(items){const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];for(const t of items)for(let i=0;i<3;i++){min[i]=Math.min(min[i],t.min[i]);max[i]=Math.max(max[i],t.max[i])}return {min,max};}
 function tree(items,ordered=false){if(!items.length)return null;const box=bounds(items);if(items.length<=12)return {...box,items};let axis=0;for(let i=1;i<3;i++)if(box.max[i]-box.min[i]>box.max[axis]-box.min[axis])axis=i;if(!ordered)items.sort((a,b)=>(a.min[axis]+a.max[axis])-(b.min[axis]+b.max[axis]));const mid=items.length>>1;return {...box,left:tree(items.slice(0,mid),ordered),right:tree(items.slice(mid),ordered)};}
 function intersects(node,eye,dir,max){let lo=0,hi=max;for(let i=0;i<3;i++){if(Math.abs(dir[i])<1e-12){if(eye[i]<node.min[i]||eye[i]>node.max[i])return false;continue;}let a=(node.min[i]-eye[i])/dir[i],b=(node.max[i]-eye[i])/dir[i];if(a>b)[a,b]=[b,a];lo=Math.max(lo,a);hi=Math.min(hi,b);if(lo>hi)return false;}return true;}
-export function createBotVisibility({allowBuild=false}={}){
+// sliceMs: the build runs in slices of about this long between yields (results don't depend on it).
+export function createBotVisibility({allowBuild=false,sliceMs=8}={}){
  let generation=0,root=null,bvh=null,records=[],cache=new WeakMap(),owners=new WeakMap(),ownerChecks=new WeakMap(),frame=0,budget=0,eye=[0,0,0],forward=[0,0,-1],near=0,layerMask=1,stats={triangles:0,hidden:0,tests:0,queries:0,ready:false};
  async function setMap(map){
   if(map===root)return;
@@ -47,7 +51,7 @@ export function createBotVisibility({allowBuild=false}={}){
   }
   // Keep owner ordinals independent of eligibility, so old candidate lists stay safe.
   map.updateMatrixWorld(true);const meshes=[];map.traverse(o=>{if(o.isMesh&&!o.isBatchedMesh&&!Array.isArray(o.material))meshes.push(o)});
-  const triangles=[];let processed=0;
+  const triangles=[];let processed=0,slice=now();
   for(let ownerIndex=0;ownerIndex<meshes.length;ownerIndex++){
    const mesh=meshes[ownerIndex];if(!opaque(mesh.material)||!shown(mesh)||(selected&&!selected.has(ownerIndex)))continue;
    const geometry=mesh.geometry,position=geometry.attributes.position,index=geometry.index;if(!position)continue;
@@ -65,7 +69,7 @@ export function createBotVisibility({allowBuild=false}={}){
      const n=cross(sub(points[1],points[0]),sub(points[2],points[0]));
      // Small triangles cannot usually cover the generously expanded actor bound.
      if(dot(n,n)>=16){const min=[0,1,2].map(i=>Math.min(...points.map(p=>p[i]))),max=[0,1,2].map(i=>Math.max(...points.map(p=>p[i])));triangles.push({points,min,max,side:mesh.material.side,owner:mesh,material:mesh.material,record:[ownerIndex,instanceId,j]});records.push([ownerIndex,instanceId,j])}
-     if(++processed%(selected?500:12000)===0){await new Promise(r=>setTimeout(r,0));if(token!==generation)return;}
+     if((++processed&255)===0&&now()-slice>=sliceMs){await yieldTask();if(token!==generation)return;slice=now();}
     }
    }
   }
