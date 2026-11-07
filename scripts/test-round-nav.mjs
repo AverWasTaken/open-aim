@@ -4,8 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseRoundNav, writeRoundNav, reverseEdges } from "../app/mods/aim-rounds/round-nav.mjs";
-import { terrainSources } from "../tools/round_terrain.mjs";
+import { terrainSources, loadTerrain, terrainCacheFile } from "../tools/round_terrain.mjs";
 import { TYPES, nodeIndex, nearestNode, flood } from "../tools/round_navlib.mjs";
+import { inputsHash } from "../tools/round_navdata.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const HAVE_SITE = fs.existsSync(path.join(root, "site", "aim-maps", "ascent.collision.json"));
@@ -49,6 +50,11 @@ test("ascent.nav.bin graph is sane", () => {
     { stepUp: h.bake.stepUp, jumpUp: h.bake.jumpUp, maxDrop: h.bake.maxDrop, runSpeed: h.bake.runSpeed, gravity: h.bake.gravity, jumpSeconds: h.bake.jumpSeconds },
     { stepUp: 0.5, jumpUp: 1.1, maxDrop: 4.5, runSpeed: 6.75, gravity: 24.456521739, jumpSeconds: 0.45 });
   assert.ok(h.bake.runs.length === 2 && h.bake.runs.every((r) => !r.truncated), "no truncated Vv run");
+  // The graph is grown from each team's first spawn: moving one needs a full bake.
+  for (const r of h.bake.runs) {
+    const p = data.spawns[r.team][0];
+    assert.deepEqual(r.start, { x: p.x, y: p.y, z: p.z }, `${r.team} spawn moved since the bake: rerun node tools/round_nav.mjs (full bake)`);
+  }
   assert.equal(h.cell, 0.5);
   for (let i = 0; i < g.count; i++) {
     assert.ok(g.edgeStart[i + 1] >= g.edgeStart[i]);
@@ -82,5 +88,97 @@ test("ascent.nav.bin graph is sane", () => {
     assert.ok(c >= 0, `site ${s.id} centre on the graph`);
     assert.notEqual(fa[c], -2, `attackers reach site ${s.id}`);
     assert.notEqual(fdw[c], -2, `defenders reach site ${s.id} on walk+drop edges`);
+  }
+});
+
+test("nav header data was derived from the current ascent.json", () => {
+  const h = nav.header;
+  assert.equal(h.inputs.file, "app/mods/aim-rounds/ascent.json");
+  assert.equal(h.inputs.sha256, inputsHash(data), "spawns/barriers/sites/setups/retake changed: rerun node tools/round_nav.mjs --reuse (a full bake without --reuse if the first spawn of a team moved)");
+  // round_author's seal check ran on this graph.
+  assert.deepEqual(data.authoring.seal.nav, { file: "app/mods/aim-rounds/ascent.nav.bin", nodes: nav.count, edges: nav.edgeCount });
+  for (const team of ["attack", "defense"]) for (const mode of ["walk", "all"]) {
+    assert.deepEqual(data.authoring.seal[team][mode].leaks, [], `${team} ${mode} leaks`);
+    assert.ok(data.authoring.seal[team][mode].nodes > 1000);
+  }
+});
+
+test("setups: facing, walk reachability, and enough walkable spots for every split", () => {
+  const hs = nav.header.setups, deg = Math.PI / 180;
+  const names = Object.values(data.setups.defense).flat().map((s) => s.name);
+  assert.deepEqual(Object.keys(hs).sort(), [...names].sort());
+  for (const [group, list] of Object.entries(data.setups.defense)) for (const s of list) {
+    const h = hs[s.name];
+    assert.equal(h.group, group);
+    if (!h.walk) continue;
+    assert.ok(h.node >= 0 && h.node < nav.count, `${s.name} node`);
+    assert.ok(Math.hypot(nav.x[h.node] - s.x, nav.z[h.node] - s.z) <= 0.5 && Math.abs(nav.y[h.node] - s.y) <= 0.3, `${s.name} node near the spot`);
+    assert.ok(Number.isFinite(h.face) && Math.abs(h.face) <= Math.PI, `${s.name} face`);
+    if (h.face2 !== null) {
+      let d = Math.abs(h.face2 - h.face) % (2 * Math.PI); if (d > Math.PI) d = 2 * Math.PI - d;
+      assert.ok(d >= 40 * deg - 1e-3, `${s.name} face2 at least 40 deg from face`);
+    }
+    // face points at the node it was picked from (sim convention atan2(dx, dz))
+    const f = h.faceNode;
+    assert.ok(Math.abs(Math.atan2(nav.x[f] - s.x, nav.z[f] - s.z) - h.face) < 1e-3, `${s.name} face matches faceNode`);
+    assert.ok(Math.hypot(nav.x[f] - s.x, nav.z[f] - s.z) <= 30, `${s.name} face target within 30 m`);
+    assert.ok(h.spawnT > 0 && h.spawnT < 20, `${s.name} reached from the defender spawn in ${h.spawnT} s`);
+  }
+  // "B site front" stands on a ledge defenders can't walk to.
+  assert.equal(hs["B site front"].walk, false);
+  // Every split must find enough walkable setups in each group.
+  const groups = Object.keys(data.setups.defense);
+  groups.forEach((group, k) => {
+    const need = Math.max(...data.setups.splits.map((sp) => sp[k]));
+    const have = data.setups.defense[group].filter((s) => hs[s.name].walk).length;
+    assert.ok(have >= need, `group ${group}: ${have} walkable setups, a split needs ${need}`);
+  });
+});
+
+test("retake staging points are hidden, reachable and 2.5-4 s from the site", () => {
+  const st = nav.header.staging;
+  assert.deepEqual(Object.keys(data.retake).sort(), ["A", "B"]);
+  for (const [site, list] of Object.entries(data.retake)) {
+    assert.equal(list.length, 2, `${site}: 2 staging points`);
+    list.forEach((p, k) => {
+      const h = st[site][k];
+      assert.equal(h.name, p.name);
+      assert.ok(h.node >= 0, `${p.name} on the graph`);
+      assert.ok(h.reach, `${p.name} reachable from the defender spawn on walk + drop edges`);
+      assert.ok(h.t >= 2.5 && h.t <= 4, `${p.name} ${h.t} s from site ${site}`);
+      assert.ok(h.hidden, `${p.name} hidden from the site centre`);
+      // outside the plant zone
+      const z = data.sites.find((s) => s.id === site).zone;
+      assert.ok(!(p.x >= z[0][0] && p.x <= z[2][0] && p.z >= z[0][1] && p.z <= z[2][1]), `${p.name} outside the plant zone`);
+    });
+    const [a, b] = list;
+    assert.ok(Math.hypot(a.x - b.x, a.z - b.z) >= 5, `${site} staging points apart`);
+  }
+});
+
+test("plant zones: almost every spike spot has a defender-walkable node in defuse range", () => {
+  const H = nodeIndex(nav);
+  for (const s of data.sites) {
+    const z = nav.header.zones[s.id];
+    assert.ok(z.samples > 300, `zone ${s.id} spike spots`);
+    assert.ok(z.noDefuseNode >= 0 && z.noDefuseNode <= 0.02, `zone ${s.id} no-defuse fraction ${z.noDefuseNode}`);
+    assert.equal(z.bad.length, Math.round(z.noDefuseNode * z.samples));
+    const g = nav.header.siteGoals[s.id];
+    assert.ok(g.node >= 0 && Math.hypot(g.x - s.center.x, g.z - s.center.z) <= 1.6, `site ${s.id} goal node`);
+    assert.equal(nearestNode(nav, H, g.x, g.z, 0.05), g.node);
+  }
+});
+
+// loadTerrain is the base of the bake and of the bots' real-collision tests. Decoding the map cold
+// takes ~30 s, so this only runs when a bake already left the triangle cache in %TEMP%.
+const HAVE_CACHE = HAVE_SITE && fs.existsSync(terrainCacheFile("ascent", root));
+test("loadTerrain: the game's pawn collision has the floor where the nav says", { skip: !HAVE_CACHE && "no terrain cache (run node tools/round_nav.mjs once)" }, async () => {
+  const T = await loadTerrain("ascent", { root });
+  assert.ok(T.pawnTris.length / 9 > 1e6 && T.projectileTris.length / 9 > 1e6);
+  const H = nodeIndex(nav);
+  for (const p of [data.spawns.defense[0], data.spawns.attack[0]]) {
+    const n = nearestNode(nav, H, p.x, p.z, 0.5, p.y, 0.6);
+    const top = nav.y[n] + 1.5, t = T.ray(T.pawn, [nav.x[n], top, nav.z[n]], [0, -1, 0], 5);
+    assert.ok(t > 0 && Math.abs(top - t - nav.y[n]) < 0.05, `floor under node ${n}`);
   }
 });

@@ -1,6 +1,7 @@
 // Round mode nav graph bake: app/mods/aim-rounds/<map>.nav.bin from the map's real collision.
 //
-//   node tools/round_nav.mjs [--map ascent] [--reuse]
+//   node tools/round_nav.mjs [--map ascent] [--reuse] [--plot <dir>] [--report <file.json>]
+//   node tools/round_nav.mjs [--map ascent] --candidates <site>   (list retake staging candidates)
 //
 // Runs the game's own nav builder Vv (lifted at runtime from OkAdunfX.js, with its BVH helpers
 // from BiMsX6Xn.js) on the pawn collision from tools/round_terrain.mjs, from the attacker spawn
@@ -12,7 +13,13 @@
 // Fails if a run is truncated, a spawn is off the graph, or the spawns can't reach each other.
 //
 // Takes ~2-3 minutes and one CPU core; it lowers its own priority to below normal.
-// --reuse keeps the graph of the existing nav.bin and only rewrites the header (derived data).
+// --reuse keeps the graph of the existing nav.bin and only rewrites the header (derived data):
+// run it after editing spawns / setups / retake points / barriers / sites in round_author.mjs
+// (1-2 minutes: sight rays against the projectile collision).
+// The header also carries data that needs real sight rays (tools/round_navdata.mjs): per setup
+// facing, walk reachability and node; retake staging checks; plant-zone defuse coverage.
+// --plot writes PNGs (setups with facing arrows, staging, zones) into <dir>; --report writes the
+// travel-time report as JSON.
 // The header records sha256 of the collision inputs; scripts/test-round-nav.mjs fails when they
 // change, then re-run this tool (the triangle cache in %TEMP% is keyed by the same hashes).
 import fs from 'node:fs';
@@ -22,6 +29,7 @@ import vm from 'node:vm';
 import { ROOT, loadTerrain, fnSrc, constSrc, importAlias, mapFile } from './round_terrain.mjs';
 import { parseRoundNav, writeRoundNav } from '../app/mods/aim-rounds/round-nav.mjs';
 import { TYPES, nodeIndex, nearestNode, flood } from './round_navlib.mjs';
+import { deriveHeader, travelReport, plots, inputsHash, stagingCandidates } from './round_navdata.mjs';
 
 try { os.setPriority(os.constants.priority.PRIORITY_BELOW_NORMAL); } catch { /* not allowed: run anyway */ }
 
@@ -29,11 +37,14 @@ const args = process.argv.slice(2);
 const opt = (k, d = null) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d; };
 const MAP = opt('--map', 'ascent');
 const REUSE = args.includes('--reuse');
+const PLOT = opt('--plot');
+const REPORT = opt('--report');
+const CANDIDATES = opt('--candidates');
 const DATA = path.join(ROOT, 'app', 'mods', 'aim-rounds', `${MAP}.json`);
 const OUT = path.join(ROOT, 'app', 'mods', 'aim-rounds', `${MAP}.nav.bin`);
 const JS = path.join(ROOT, 'app', 'mods', 'next', 'js');
 
-export const BAKE = { stepUp: 0.5, jumpUp: 1.1, maxDrop: 4.5, runSpeed: 6.75, gravity: 24.456521739, jumpSeconds: 0.45, maxNodes: 5e6 };
+const BAKE = { stepUp: 0.5, jumpUp: 1.1, maxDrop: 4.5, runSpeed: 6.75, gravity: 24.456521739, jumpSeconds: 0.45, maxNodes: 5e6 };
 // Known-good graph sizes (the M1 seal check graph); a different count fails the bake.
 const EXPECT = { ascent: { count: 21746, edgeCount: 161371 } };
 
@@ -125,10 +136,33 @@ function checkGraph(g) {
   return errs;
 }
 
+const deg = (a) => (a === null ? '-' : `${Math.round(a * 180 / Math.PI)}`);
+function printDerived(g, h) {
+  log('setups (face/face2 in degrees, sim convention atan2(dx, dz)):');
+  for (const [name, s] of Object.entries(h.setups)) log(`  ${s.group.padEnd(4)} ${name.padEnd(20)} node ${String(s.node).padStart(6)} walk ${String(s.walk).padEnd(5)} face ${deg(s.face).padStart(5)} face2 ${deg(s.face2).padStart(5)} spawn->setup ${s.spawnT ?? '-'} s`);
+  for (const [id, list] of Object.entries(h.staging)) for (const st of list) log(`  staging ${id} ${st.name.padEnd(10)} node ${st.node} t ${st.t} s hidden ${st.hidden} (body ${st.los.body}, head ${st.los.head}) reach ${st.reach}`);
+  for (const [id, z] of Object.entries(h.zones)) log(`  zone ${id}: ${z.samples} spike spots, no defuse node at ${(z.noDefuseNode * 100).toFixed(2)}%`);
+}
+function printTravel(r) {
+  log('travel (s, run speed): defender spawn -> setup (min..max over the 5 spawns, barriers up)');
+  for (const [n, s] of Object.entries(r.setups)) log(`  ${n.padEnd(20)} ${s.min ?? '-'}..${s.max ?? '-'}${s.walk ? '' : '  (walk:false)'}`);
+  log('attacker spawn -> attacker barrier (min..max over the 5 spawns; all edges | walk+drop)');
+  for (const [id, b] of Object.entries(r.barriers)) log(`  ${id.padEnd(11)} ${b.all[0]}..${b.all[1]} | ${b.walkDrop[0]}..${b.walkDrop[1]}`);
+  for (const [id, s] of Object.entries(r.sites)) log(`  site ${id}: worst setup ${s.worstSetup} ${s.t} s + 7 s defuse = ${s.plusDefuse} s (of 45); defender spawn -> site ${r.spawnToSite[id]} s`);
+}
+
 async function main() {
   const t0 = Date.now();
   const T = await loadTerrain(MAP, { log });
   if (!T) throw new Error(`no map files for ${MAP} in site/aim-maps`);
+  if (CANDIDATES) {
+    const g = parseRoundNav(fs.readFileSync(OUT));
+    for (const q of stagingCandidates(g, T, data, CANDIDATES)) {
+      log(`entry ${q.entry.join(',')} (${q.count} candidates):`);
+      for (const k of q.best) log(`  [${k.x}, ${k.y}, ${k.z}]  t ${k.t} s  detour ${k.detour} s  node ${k.node}`);
+    }
+    return;
+  }
   let graph, header;
   if (REUSE) {
     const old = parseRoundNav(fs.readFileSync(OUT));
@@ -149,14 +183,26 @@ async function main() {
   const errs = checkGraph(g);
   if (errs.length) throw new Error('nav check failed:\n  ' + errs.join('\n  '));
   const S = T.sources;
+  const t1 = Date.now();
+  const derived = deriveHeader(g, T, data);
+  log(`derived setups / staging / zones in ${((Date.now() - t1) / 1000).toFixed(1)} s`);
   const full = {
     map: MAP, ...header,
     source: { file: S.collision.file, sha256: S.collision.sha256, glb: { file: S.glb.file, sha256: S.glb.sha256 }, worker: { file: S.worker.file, sha256: S.worker.sha256 } },
     tool: 'tools/round_nav.mjs',
+    inputs: { file: path.relative(ROOT, DATA).split(path.sep).join('/'), sha256: inputsHash(data) },
+    ...derived,
   };
   const bin = writeRoundNav(graph, full);
   fs.writeFileSync(OUT, bin);
   const tc = [0, 0, 0, 0]; for (const t of g.edgeType) tc[t]++;
+  printDerived(g, full);
+  if (REPORT || PLOT) {
+    const rep = travelReport(g, data, full);
+    printTravel(rep);
+    if (REPORT) { fs.writeFileSync(REPORT, JSON.stringify({ map: MAP, setups: full.setups, staging: full.staging, zones: full.zones, siteGoals: full.siteGoals, travel: rep }, null, 1)); log(`report: ${REPORT}`); }
+    if (PLOT) { fs.mkdirSync(PLOT, { recursive: true }); for (const f of plots(g, data, full, PLOT, MAP)) log(`plot: ${f}`); }
+  }
   log(`wrote ${path.relative(ROOT, OUT)}: ${g.count} nodes, ${g.edgeCount} edges (walk/drop/jump/gap ${tc.join('/')}), ${(bin.length / 1048576).toFixed(2)} MB, ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 }
 

@@ -208,12 +208,19 @@ export function terrainSources(map, root = ROOT) {
   return Object.fromEntries(Object.entries(files).map(([k, f]) => [k, { file: rel(f), path: f, sha256: fileSha(f) }]));
 }
 
+// Cache file for the current inputs (null when the map files are missing).
+export function terrainCacheFile(map, root = ROOT, src = terrainSources(map, root)) {
+  if (!src) return null;
+  const bundle = fs.readFileSync(path.join(JS(root), 'BiMsX6Xn.js'));
+  const key = sha256([src.collision.sha256, src.glb.sha256, src.worker.sha256, sha256(bundle)].join('|')).slice(0, 16);
+  return path.join(CACHE_DIR, `${map}-${key}.bin`);
+}
+
 export async function loadTerrain(map, { root = ROOT, cache = true, log = () => {} } = {}) {
   const src = terrainSources(map, root);
   if (!src) return null;
   const lib = gameLib(root);
-  const key = sha256([src.collision.sha256, src.glb.sha256, src.worker.sha256, sha256(lib.bundle)].join('|')).slice(0, 16);
-  const cacheFile = path.join(CACHE_DIR, `${map}-${key}.bin`);
+  const cacheFile = terrainCacheFile(map, root, src);
   let tris = cache && fs.existsSync(cacheFile) ? readCache(cacheFile) : null;
   const t0 = Date.now();
   if (tris) log(`terrain ${map}: cached triangles ${cacheFile}`);
