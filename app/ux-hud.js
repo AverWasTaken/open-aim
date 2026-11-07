@@ -166,7 +166,7 @@
     const d = (e && e.detail) || {};
     phase = d.phase || null;
     // No reset on a new run: the game's run reset (To) sends a fresh aim-hud before "running".
-    if (phase !== "running" && phase !== "paused") placed = false;
+    if (phase !== "paused") placed = false; // measure again on each start or resume
     if (!live()) {
       hit = null;
       hideMarker();
@@ -224,7 +224,7 @@
     queued = true;
     requestAnimationFrame(() => {
       queued = false;
-      if (!live()) addRow(); // no settings page during a run; skip the lookups on HUD updates
+      addRow();
     });
   };
   if (typeof window.__aimWatchPage === "function") window.__aimWatchPage(watch, { childList: true, subtree: true });
