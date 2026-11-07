@@ -11,19 +11,26 @@ copies before anything is written.
 Adds two globals in the lobby (hall) setup scope, right after the training layer's exit is wired
 (`const yt=G7();yt.setExit(di);`):
 
-- window.__aimLaunchWorkshop(item) -> true/false
+- window.__aimLaunchWorkshop(item | shareCode) -> true/false
   Starts a drill exactly like clicking it in the lobby: wl(item) goes through window.__aimPlayGate
-  (rank picker), the loading screen, Qa(code, "workshop", brief) and the workshop history refresh,
-  so the run is saved to al-workshop-runs-v1 and 'aim-local-result' fires at the end.
-  (window.__aimLaunchScene from round_patch.py launches with source "plaza" and no workshop brief,
-  so nothing is saved; it stays for Round mode.)
-  item needs the catalogue fields wl() reads: shareCode, mapId, name, type, description,
-  parSeconds. Returns false (does nothing) without a string shareCode.
+  (rank picker), the loading screen and Qa(code, "workshop", brief), so the run counts as a
+  workshop run: eligible scoring, onWorkshopRound -> pushRun (al-workshop-runs-v1) and the
+  workshop history. (window.__aimLaunchScene from round_patch.py launches with source "plaza":
+  'aim-local-result' still fires but with eligible:false and nothing is saved; it stays for
+  Round mode.)
+  The item is completed from the lobby catalogue with si(code, item) (like the history tab's own
+  Play, Sc()), so a bare share code or a partial item works; the caller's description is kept.
+  Returns false and does nothing when: no string shareCode; the code has no known type (not in
+  the catalogue and no item.type); a drill is open or loading (l.value / yt.view.open; the layer
+  loads its scene only on mount, so a launch on top of an open drill would not reload it).
+  true means the launch started; with the rank picker gate the player can still cancel, so
+  callers wait for the window 'aim-local-scene' event to know the drill really started.
 - window.__aimLeaveTraining() -> true/false
-  Closes the open training layer the same way its own Back button does (di(): Studio return
-  if pending, layer close, exit fullscreen, scene cleared). Returns false if no drill is open.
-  A routine's "Next drill" calls this, waits for the lobby, then __aimLaunchWorkshop: the layer
-  loads its scene only on mount, so launching while a result screen is open would not reload.
+  Closes the open (or loading) drill the same way its own Back does (di(): Studio return if
+  pending, layer close, exit fullscreen, scene cleared; the layer's unmount hook releases pointer
+  lock). Returns false if no drill is open or loading. A routine's "Next drill" calls this, waits
+  for the lobby, then __aimLaunchWorkshop.
+scripts/test-training-hooks.mjs checks both hooks are present in both copies.
 """
 import os
 import sys
@@ -39,9 +46,11 @@ MARKER = b"__aimLaunchWorkshop"
 
 ANCHOR = b"const yt=G7();yt.setExit(di);"
 PATCH = (ANCHOR
-         + b"window.__aimLaunchWorkshop=function(R){if(!R||typeof R.shareCode!==\"string\"||!R.shareCode)return!1;"
-           b"wl(R);return!0};"
-           b"window.__aimLeaveTraining=function(){if(!l.value)return!1;di();return!0};")
+         + b"window.__aimLaunchWorkshop=function(R){if(typeof R===\"string\")R={shareCode:R};"
+           b"if(!R||typeof R.shareCode!==\"string\"||!R.shareCode||l.value||yt.view.open)return!1;"
+           b"const it=si(R.shareCode,R)||(R.type?R:null);if(!it)return!1;"
+           b"wl(it===R?R:{...it,description:R.description??it.description});return!0};"
+           b"window.__aimLeaveTraining=function(){if(!l.value&&!yt.view.open)return!1;di();return!0};")
 
 paths = [os.path.join(MODS, d, NAME) for d in DIRS]
 raws = [open(p, "rb").read() for p in paths]

@@ -17,7 +17,11 @@
     "test:variants": "node --test ../scripts/test-drill-variants.cjs",
     "test:spots": "node --test ../scripts/test-spot-bias.cjs",
     "test:vary": "node --test ../scripts/test-spot-vary.cjs",
-    "test:round": "node --test ../scripts/test-round.mjs ../scripts/test-round-sim.mjs",
+    "test:round": "node --test ../scripts/test-round.mjs ../scripts/test-round-sim.mjs ../scripts/test-round-nav.mjs",
+    "test:training-hooks": "node --test ../scripts/test-training-hooks.mjs",
+    "test:training": "node --test ../scripts/test-training-scenarios.mjs",
+    "test:progress": "node --test ../scripts/test-training-progress.cjs",
+    "test:feelsens": "node --test ../scripts/test-feel-sens.cjs",
     "test:routines": "node --test ../scripts/test-training-routines.cjs"
   },
   "build": {
@@ -66,6 +70,9 @@
       "fan-audio.js",
       "sniper-scopes.js",
       "advanced-tracers.js",
+      "training-progress-core.js",
+      "training-progress.js",
+      "training-progress.css",
       "training-routines-core.js",
       "training-routines.js",
       "training-routines.css"
