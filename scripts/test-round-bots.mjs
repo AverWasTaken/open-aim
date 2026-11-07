@@ -278,3 +278,18 @@ test('real sim: a bot with roundDefusing = 1 at the spike defuses it through io.
   assert.equal(r.reason, 'defused');
   assert.equal(r.win, false);
 });
+
+test('real sim, Human-like bots: the reaction at the barrier drop is a first sighting (no 0.7x re-peek discount)', { skip }, () => {
+  // Iron reaction [0.9, 1.1]; the Human-like roll never goes below 0.9 x 0.9 s (a re-peek: x0.7).
+  for (const seed of [3, 4, 5, 6]) {
+    const s = sim.c(botDoc({ dist: 15, barrierSec: 2 }), { sensitivity: 1, zoomSensitivity: 1, seed, bots: 'human', enemyRank: 'iron' });
+    let live = -1;
+    const ev = play(s, TPS * 2 - 4);
+    const st = s.saveState();
+    assert.ok(st.actors.every((a) => a.roundHoldFire === 1 && a.behavior.shooter.peeked === false && a.behavior.shooter.lastSeenTick === s.tick), 'barrier: seen, flag on, not "peeked"');
+    ev.push(...play(s, TPS * 3, IDLE, (q) => { if (live < 0 && q.snapshot().round.phase === 'live') live = q.tick; }));
+    const shot = ev.find((e) => e.kind === 'enemyShot');
+    assert.ok(shot && live > 0, `seed ${seed}: a shot after the drop`);
+    assert.ok(shot.at - live >= Math.floor(0.81 * TPS), `seed ${seed}: first shot ${shot.at - live} ticks after the drop`);
+  }
+});

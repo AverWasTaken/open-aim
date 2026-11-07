@@ -20,7 +20,8 @@
   // globalThis.__aimRoundNav[map] (ArrayBuffer). Fetched when this script loads and again when the
   // panel opens, so Start can launch right inside the click (the game's fullscreen request needs a
   // user action) and restarts / Play again find it. Start waits only when the fetch is still
-  // running. A missing or bad file is remembered (the bots then stand on their setup spots).
+  // running. A missing or bad file is fetched again only when the panel opens (Start doesn't wait
+  // for it; the bots then stand on their setup spots).
   const navState = {}; // map -> "ok" | "missing" | Promise (fetch running)
   function prefetchNav(map) {
     const cache = (globalThis.__aimRoundNav ??= {});

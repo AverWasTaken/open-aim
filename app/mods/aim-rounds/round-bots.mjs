@@ -26,6 +26,11 @@
 //            'ended', tick, liveTick, plantTick, spike.planted {x,y,z,site}, defuse, checkpoint,
 //            defuser (bot id or null), playerAlive, … READ ONLY for bots.
 //   bots   = aimRoundBotList entries (below) or null during init.
+// Other ctx keys roundBot can use (all already there, no patch): ctx.tick, ctx.elapsed,
+//   ctx.profile (runSpeed, eyeHeightStand, …), ctx.target.eye / ctx.target.canSee(pos) (the
+//   player), ctx.enemyRank (rank id string, absent for "Default"), ctx.botMode (1 = Human-like
+//   bots), ctx.speedScale (hit slow; absent = 1), ctx.ground(x, z, y, up, down) -> floor y | null
+//   (only for ground movers when the scene has collision; never during init).
 // ctx.round.bots entry: { id, spawnerId, alive, x, y, z, mode, defusing (0|1), seenTick }
 //   seenTick = the bot's shooter lastSeenTick (the shooter runs before roundBot in the template, so
 //   "sees the player this tick" inside roundBotUpdate is actor.behavior.shooter.lastSeenTick ===
@@ -38,7 +43,9 @@
 //                             the shooter). round-core only counts a defuse from io.bots.
 //   actor.roundHoldFire  0|1  set by roundBot to 1 during the barrier phase: the shooter re-rolls
 //                             its reaction time every tick it sees the player, so it starts when the
-//                             barriers drop.
+//                             barriers drop. roundBot also clears behavior.shooter.peeked on those
+//                             ticks, so the roll at the drop is a first sighting (Human-like bots
+//                             would otherwise take it as a quick re-peek, 0.7x).
 // Behaviour state actor.behavior.roundBot: FLAT numbers only (the sim's save copies behaviour state
 //   one level deep; nested objects would be shared between saves). It is also the il state (never
 //   nest il state), so these names are reserved for il: index, speed, finished, air, vy, jy, jb,
@@ -47,7 +54,9 @@
 //   and no mutable shared state between bots lives here (coordination goes through ctx.round.bots).
 // Randomness: actor.rng only (per actor, saved/restored by the sim). Never Math.random.
 // Nav: globalThis.__aimRoundNav[map] = ArrayBuffer of <map>.nav.bin (app/round-panel.js prefetches
-//   it; node tests set it). Missing/bad nav -> the fallback below (M1 static bots).
+//   it; node tests set it). Missing/bad nav -> the fallback below (M1 static bots). Decide nav vs
+//   fallback ONCE per bot in roundBotInit and keep it in the flat state (a nav that arrives mid-run
+//   must not switch a running round; a fetch can finish late on a cold first launch).
 //
 // v0 (B1): only the fallback: init puts the bot on its setup spot, every tick it faces the player
 // and is snapped to the floor once; roundHoldFire during the barrier. B2 adds movement.
@@ -89,6 +98,7 @@ export function roundBotUpdate(cfg, actor, ctx, dt, il) {
   if (!st) return;
   if (!actor.alive) { actor.roundDefusing = 0; actor.roundHoldFire = 0; return; }
   actor.roundHoldFire = holdFire(ctx);
+  if (actor.roundHoldFire === 1 && actor.behavior.shooter) actor.behavior.shooter.peeked = false;
   if (st.snap === 1 && typeof ctx.ground === 'function') {
     const p = actor.position;
     const g = ctx.ground(p.x, p.z, p.y, 2.5, 4); // the spawn snap's reach (BiMsX6Xn db: up 2.5, down 4)
