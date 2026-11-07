@@ -484,6 +484,30 @@ test('B2 update drives il like lN: [here, target, next] + finish run + index 1 w
   assert.equal(calls.length, 1); assert.equal(calls[0].opts.brake, true); assert.equal(a.roundHoldFire, 0);
 });
 
+test('B2 stuck: a bot that makes no progress re-plans every 2 s, then stands where it is (no teleport, no more il calls)', () => {
+  useNav();
+  const { a, ctx, st } = initBot('Market');
+  const p0 = { ...a.position };
+  let calls = 0;
+  const replanAt = [];
+  for (let i = 0; i < TPS * 9; i++) {
+    ctx.tick++; ctx.elapsed = ctx.tick / TPS; ctx.round.state.phase = 'barrier';
+    const before = st.replans;
+    bots.roundBotUpdate({}, a, ctx, 1 / TPS, () => { calls++; }); // il that never moves the bot
+    if (st.replans > before) replanAt.push(ctx.elapsed - st.goT);
+    if (st.mode === I.MODE.stuck) break;
+  }
+  assert.equal(st.replans, 3);
+  assert.equal(st.mode, I.MODE.stuck);
+  assert.equal(replanAt.length, 3);
+  replanAt.forEach((t, k) => assert.ok(Math.abs(t - 2 * (k + 1)) < 0.05, `re-plan ${k + 1} at ${t.toFixed(3)} s`));
+  const n = calls;
+  for (let i = 0; i < TPS * 2; i++) { ctx.tick++; ctx.elapsed = ctx.tick / TPS; ctx.round.state.phase = 'live'; bots.roundBotUpdate({}, a, ctx, 1 / TPS, () => { calls++; }); }
+  assert.equal(calls, n, 'stuck: no il calls');
+  assert.deepEqual(a.position, p0, 'never teleported');
+  assert.equal(st.speed, 0);
+});
+
 // A flat-ground run with the real Ascent nav and per-tick checks. Returns per-bot results.
 function runFlat(doc, seed, ticks, { each = null, extra = {} } = {}) {
   const N = useNav(), g = N.g, H = navlib.nodeIndex(g), s = ascentSim(doc, seed, extra), res = new Map();
@@ -526,6 +550,8 @@ function checkWalk(results, { barrierSec, label }) {
     assert.equal(r.b.replans, 0, `${tag}: re-plans`);
     if (barrierSec) assert.ok(r.b.arrived === 1 && r.b.arriveT < barrierSec, `${tag}: arrived at ${r.b.arriveT}`);
   }
+  const still = results.filter((r) => r.b.mode === I.MODE.hold || r.b.mode === I.MODE.wait);
+  for (const a of still) for (const b of still) if (a.id < b.id) assert.ok(Math.hypot(a.p.x - b.p.x, a.p.z - b.p.z) >= 0.8, `${label}: ${a.name} and ${b.name} stand within 0.8 m`);
 }
 
 test('B2 flat Ascent, 20 s barrier: every setup reached before the drop; per tick on the nav floor, inside the seal, never across a barrier, no teleport, turn rate capped; holds its angle', { skip }, () => {
@@ -575,8 +601,11 @@ test('B2 flat: same seed with cold and warm nav caches -> identical run (events,
   assert.ok(a === b, 'cold and warm runs differ');
 });
 
-test('B2 flat: in the barrier phase bots that see the player keep walking and hold fire; after the drop they brake on combatHold, face the player and shoot; then walk on to their setups', { skip }, () => {
-  const s = ascentSim(ascentDoc({ barrierSec: 2, set: SETS[0] }), 9);
+test('B2 flat, both movement modes: in the barrier phase bots that see the player keep walking and hold fire; after the drop they brake on combatHold, face the player and shoot; then walk on to their setups', { skip }, () => {
+  for (const extra of [{}, { movement: 'game' }]) combatRun(extra);
+});
+function combatRun(extra) {
+  const s = ascentSim(ascentDoc({ barrierSec: 2, set: SETS[0] }), 9, extra);
   for (let i = 0; i < TPS; i++) s.step(IDLE);
   // Put the player in the open 12 m in front of the defender spawn (flat ground: every bot sees them).
   const sp = ASCENT.spawns.defense[0];
@@ -615,7 +644,7 @@ test('B2 flat: in the barrier phase bots that see the player keep walking and ho
   s.restoreState(st);
   for (let i = 0; i < TPS * 18; i++) s.step(IDLE);
   for (const a of s.saveState().actors) if (a.alive) assert.equal(a.behavior.roundBot.mode, I.MODE.hold, `${a.spawnerId} reached its setup`);
-});
+}
 
 // A test-only setup just past def-mid (attacker side): the bot must wait at the barrier.
 function beyondMid(N) {

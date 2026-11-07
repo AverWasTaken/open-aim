@@ -28,7 +28,8 @@
 //            defuser (bot id or null), playerAlive, … READ ONLY for bots.
 //   bots   = aimRoundBotList entries (below) or null during init.
 // Other ctx keys roundBot can use (all already there, no patch): ctx.tick, ctx.elapsed,
-//   ctx.profile (runSpeed, eyeHeightStand, …), ctx.target.eye / ctx.target.canSee(pos) (the
+//   ctx.profile (the PLAYER's weapon profile: runSpeed 5.4 with rifles, 6.75 melee; eyeHeightStand,
+//   …), ctx.target.eye / ctx.target.canSee(pos) (the
 //   player), ctx.enemyRank (rank id string, absent for "Default"), ctx.botMode (1 = Human-like
 //   bots), ctx.speedScale (hit slow; absent = 1; il applies it itself), ctx.gameMovement (the
 //   "game" movement setting; il then uses the game's acceleration model), ctx.ground(x, z, y, up,
@@ -93,21 +94,27 @@
 // crossing. A drop edge is taken alone (the target is the drop's lower node; il walks off the
 // ledge and falls). il gets [here, target, next] with index reset to 1, so it never reaches the
 // last waypoint of an intermediate target (JU zeroes the speed there whatever `finish` is); only
-// the goal gets [here, goal] with finish 'stop'. Speed = ctx.profile.runSpeed (il applies
+// the goal gets [here, goal] with finish 'stop'. Speed = ctx.profile.runSpeed (= the player's
+// weapon speed, 5.4 with rifles, while edgeCost is seconds at 6.75: arrivals ~1.2 x field; il applies
 // speedScale). On a new target node `stuck` is deleted (else il's auto-jump stays off).
 // Spawn: seeded 0-0.6 s stagger (actor.rng) before the first step.
 // Hold: on the setup, facing header setups[name].face (sim yaw, atan2(dx, dz)); with face2 it
 // switches between the two every seeded 4-8 s. Without a header facing: toward the attacker spawn.
 // Barrier phase: combatHold is ignored (bots keep walking and face where they walk).
 // After the drop: the bot brakes while actor.combatHold === 1 and it is not airborne (as lN), so the
-// shooter (which won't fire while the bot moves) can shoot; it faces the player while it sees them
-// (shooter.lastSeenTick === ctx.tick) or holds combat, and walks on once the shooter lets go.
+// shooter (which won't fire while the bot moves: speed, or moveDeg under "game" movement) can
+// shoot; it faces the player while it sees them (shooter.lastSeenTick === ctx.tick) or holds
+// combat, and walks on once the shooter lets go.
 // Facing turns at most 540 deg/s.
 // Yield: a walking bot brakes for a MOVING bot with a lower id that is within 0.9 m and ahead
 // (60 deg cone, same floor), at most 0.75 s in a row, then ignores yields for 1 s (passes through).
 // Stuck: if the field value at the bot's node hasn't dropped by 0.2 s in 2 s of free walking, it
-// re-finds its node globally (re-plan); after 3 re-plans it stands where it is (mode stuck).
-// Dead: clears its flags; if it died in the air it finishes the fall (il with brake), as lN.
+// re-finds its node globally (re-plan; in the barrier phase only among nodes reachable from its
+// spawn inside the barriers); after 3 re-plans it stands where it is (mode stuck) for the rest of
+// the round (B3 may give it another try). A straight line to its own node that would cross an
+// active barrier is never taken (it stands instead).
+// Dead: clears its flags; if it died in the air it finishes the fall (il with brake), as lN does
+// under "game" movement (here in both modes: lN's default-mode dead bot keeps walking).
 // Flat state (nav mode): nav, mode, snap, spawn, goal, setup, wait, cur, tgt, tx, ty, tz, goT,
 //   arrived, arriveT, fk, best, bestT, replans, yieldT, yieldCd, face, face2, face2On, faceSel,
 //   altT + il's own (index, speed, finished, air, vy, jy, jb, stuck). -1 = none.
@@ -224,11 +231,20 @@ function lineCut(bars, ax, az, ya, bx, bz, yb) {
   return false;
 }
 // The barriers that hold the bots in: the enemy team's (the bots defend when the player attacks).
+// Cached per cfg object (the scene's rules.round never changes during a run), with its cache key.
+let BARS = new WeakMap(), BAR_KEYS = new WeakMap();
 function barriersOf(cfg) {
+  if (cfg && typeof cfg === 'object' && BARS.has(cfg)) return BARS.get(cfg);
   const team = cfg?.side === 'defense' ? 'attack' : 'defense';
-  return (cfg?.barriers ?? []).filter((b) => b && b.team === team && b.a && b.b && finite(b.a.x) && finite(b.a.z) && finite(b.b.x) && finite(b.b.z));
+  const bars = (cfg?.barriers ?? []).filter((b) => b && b.team === team && b.a && b.b && finite(b.a.x) && finite(b.a.z) && finite(b.b.x) && finite(b.b.z));
+  if (cfg && typeof cfg === 'object') BARS.set(cfg, bars);
+  return bars;
 }
-const barKey = (bars) => bars.map((b) => `${b.a.x},${b.a.z},${b.b.x},${b.b.z},${Array.isArray(b.y) ? b.y.join('/') : '*'}`).join(';');
+function barKey(bars) {
+  let k = BAR_KEYS.get(bars);
+  if (k === undefined) { k = bars.map((b) => `${b.a.x},${b.a.z},${b.b.x},${b.b.z},${Array.isArray(b.y) ? b.y.join('/') : '*'}`).join(';'); BAR_KEYS.set(bars, k); }
+  return k;
+}
 // Per-edge cut flags (1 = blocked) for a barrier list; null when there are no barriers.
 function maskFor(N, bars) {
   if (!bars.length) return null;
@@ -344,12 +360,14 @@ function trackNode(N, cur, x, z, mask) {
   }
   return best;
 }
-// Global re-find (init / lost / re-plan): nearest node within r, on the bot's floor when the bot
-// stands on the nav's floors (real collision); xz only otherwise (flat test ground).
-function refindNode(N, x, y, z, r, hint) {
+// Global re-find (lost / re-plan): nearest node within r, on the bot's floor when the bot stands
+// on the nav's floors (real collision), xz only otherwise (flat test ground); only nodes in `ok`
+// (barrier phase: masked-reachable from the bot's spawn, so it never lands beyond a barrier).
+function refindNode(N, x, y, z, r, hint, ok) {
   const onNav = hint >= 0 && Math.abs(N.g.y[hint] - y) < 0.8;
-  const k = onNav ? nearestNode(N, x, z, r, y, 1) : -1;
-  return k >= 0 ? k : nearestNode(N, x, z, r);
+  const pick = (l) => l.find((k) => !ok || ok[k] === 1) ?? -1;
+  const k = onNav ? pick(nodesNear(N, x, z, r, y, 1)) : -1;
+  return k >= 0 ? k : pick(nodesNear(N, x, z, r));
 }
 
 // Straight xz line from (x0, z0) to node k: every 0.5 m cell on it has a node of the same floor
@@ -384,7 +402,10 @@ function pickTarget(N, F, cur, x, z, bars) {
     if (!ok) { if (k === 1 && !cut) best = m; break; }
     best = m; n = m;
   }
-  if (best < 0) best = cur;
+  if (best < 0) {
+    if (bars.length > 0 && lineCut(bars, x, z, y0, g.x[cur], g.z[cur], y0)) return [-1, -1]; // stand
+    best = cur;
+  }
   return [best, best === F.goal ? -1 : F.via[best]];
 }
 
@@ -503,7 +524,8 @@ function navUpdate(actor, ctx, dt, il, st) {
 
   // Node tracking (neighbours only; global re-find when lost).
   st.cur = trackNode(N, st.cur, p.x, p.z, mask);
-  if (dxz(g, st.cur, p.x, p.z) > 1) { const k = refindNode(N, p.x, p.y, p.z, 2.5, st.cur); if (k >= 0) st.cur = k; }
+  const okNodes = mask ? reachFor(N, st.spawn, mask) : null;
+  if (dxz(g, st.cur, p.x, p.z) > 1) { const k = refindNode(N, p.x, p.y, p.z, 2.5, st.cur, okNodes); if (k >= 0) st.cur = k; }
 
   // Field: barrier phase -> masked to the setup, or to the wait node when the setup is beyond a
   // barrier; after the drop -> unmasked to the setup.
@@ -524,6 +546,7 @@ function navUpdate(actor, ctx, dt, il, st) {
   // Walk.
   if (ctx.elapsed < st.goT) { st.bestT = ctx.elapsed; faceIdle(actor, ctx, st, dt, barrier); return; } // spawn stagger
   const [t, t2] = pickTarget(N, F, st.cur, p.x, p.z, bars);
+  if (t < 0) { st.speed = 0; st.bestT = ctx.elapsed; faceIdle(actor, ctx, st, dt, barrier); return; } // never across a barrier
   if (t !== st.tgt) { delete st.stuck; st.tgt = t; }
   st.tx = g.x[t]; st.ty = g.y[t]; st.tz = g.z[t];
   if (t === goal && dxz(g, goal, p.x, p.z) <= 0.02 && (st.speed ?? 0) <= 0.05) { arrive(actor, ctx, st, goal); faceIdle(actor, ctx, st, dt, barrier); return; }
@@ -547,7 +570,7 @@ function navUpdate(actor, ctx, dt, il, st) {
   else if (fv < st.best - STUCK_GAIN) { st.best = fv; st.bestT = ctx.elapsed; }
   else if (st.mode === MODE.walk && ctx.elapsed - st.bestT > STUCK_SEC) {
     st.replans += 1;
-    const k = refindNode(N, p.x, p.y, p.z, 2.5, st.cur);
+    const k = refindNode(N, p.x, p.y, p.z, 2.5, st.cur, okNodes);
     if (k >= 0) st.cur = k;
     st.best = F.dist[st.cur]; st.bestT = ctx.elapsed;
     if (st.replans >= STUCK_MAX) { st.mode = MODE.stuck; st.speed = 0; }
@@ -638,7 +661,7 @@ export function aimRoundIoBots(actors) {
 
 // Test-only access to the module caches and helpers (pure; nothing here runs at import time).
 export const roundBotsInternals = {
-  resetCaches() { NAVS = new WeakMap(); MASK_IDS = new WeakMap(); },
+  resetCaches() { NAVS = new WeakMap(); MASK_IDS = new WeakMap(); BARS = new WeakMap(); BAR_KEYS = new WeakMap(); },
   navFor, maskFor, fieldFor, reachFor, barriersOf, nearestNode, nodesNear, cellHasFloor, lineCut, pickTarget, trackNode,
   MODE, RUN_SPEED, TURN_RATE, YIELD_DIST, YIELD_MAX, STAGGER_SEC,
 };

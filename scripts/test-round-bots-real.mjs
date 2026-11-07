@@ -54,6 +54,8 @@ const segDist = (p, w) => {
   return Math.hypot(p.x - (w.a.x + vx * t), p.z - (w.a.z + vz * t));
 };
 
+const dropEdge = (g, i, j) => { for (let e = g.edgeStart[i]; e < g.edgeStart[i + 1]; e++) if (g.edgeTo[e] === j && g.edgeType[e] === 1) return true; return false; };
+
 // The real round scene (no blocks: Ascent's collision only), kept setups forced to `set`.
 function realDoc({ barrierSec, set }) {
   const doc = buildDoc(ASCENT, { side: 'attack', weapon: 'vandal', barrierSec });
@@ -82,7 +84,7 @@ async function runReal(doc, { seed, extra = {}, ticks, each = null }) {
     if (phase !== 'barrier' && liveTick < 0) liveTick = s.tick;
     for (const a of st.actors) {
       const b = a.behavior.roundBot, p = a.position, q = prev.get(a.id);
-      if (!res.has(a.id)) res.set(a.id, { id: a.id, spawnerId: a.spawnerId, name: doc.rules.round.setupBySpawner[a.spawnerId].name, maxStep: 0, maxFloor: 0, noFloor: 0, offNode: 0, outside: 0, crossed: 0, airTicks: 0, lipTicks: 0, modeAtDrop: -1 });
+      if (!res.has(a.id)) res.set(a.id, { id: a.id, spawnerId: a.spawnerId, name: doc.rules.round.setupBySpawner[a.spawnerId].name, maxStep: 0, maxFloor: 0, noFloor: 0, offNode: 0, outside: 0, crossed: 0, airTicks: 0, modeAtDrop: -1 });
       const r = res.get(a.id);
       r.b = b; r.p = { ...p };
       assert.equal(b.nav, 1, 'nav mode');
@@ -92,10 +94,13 @@ async function runReal(doc, { seed, extra = {}, ticks, each = null }) {
         if (t < 0) r.noFloor++;
         else r.maxFloor = Math.max(r.maxFloor, Math.abs(top - t - p.y));
         // Within 0.36 m xz of a node on its floor (the nav cell is 0.5 m). Exception: on the lip of
-        // a drop (target node well below), where the pawn floor reaches past the last cell: 0.75 m.
-        const lip = b.tgt >= 0 && p.y - g.y[b.tgt] > 0.6;
+        // a drop (its target is the lower end of a drop edge from its node, or its tracked node is
+        // already the lower end while it still stands on top), where the pawn floor reaches past the
+        // last cell: 0.75 m, and never for long (checked in checkRun).
+        const lip = (b.tgt >= 0 && dropEdge(g, b.cur, b.tgt)) || p.y - g.y[b.cur] > 0.6;
         if (!navlib.nodesNear(g, H, p.x, p.z, lip ? 0.75 : 0.36, p.y, 0.6).length) r.offNode++;
-        if (lip) r.lipTicks++;
+        r.lipRun = lip ? (r.lipRun ?? 0) + 1 : 0;
+        r.maxLip = Math.max(r.maxLip ?? 0, r.lipRun);
       }
       if (phase === 'barrier') {
         const k = navlib.nearestNode(g, H, p.x, p.z, 0.75, p.y, b.air === 1 ? 6 : 1);
@@ -124,7 +129,10 @@ function checkRun(res, label) {
     assert.equal(r.b.replans, 0, `${tag}: re-plans`);
     assert.notEqual(r.b.mode, I.MODE.stuck, `${tag}: stuck`);
     if (r.name === 'B site front') assert.ok(SUBST.includes(r.b.goal), `${tag}: substitute node`);
+    assert.ok((r.maxLip ?? 0) <= 0.3 * TPS, `${tag}: ${r.maxLip} ticks in a row on a drop lip (never parks on a ledge)`);
   }
+  const still = res.filter((r) => r.b.mode === I.MODE.hold || r.b.mode === I.MODE.wait);
+  for (const a of still) for (const b of still) if (a.id < b.id) assert.ok(Math.hypot(a.p.x - b.p.x, a.p.z - b.p.z) >= 0.8, `${label}: ${a.name} and ${b.name} stand within 0.8 m`);
 }
 
 const arrivals = [];
