@@ -261,6 +261,8 @@ Want to add a drill to the built-in list? See [docs/scenario-format.md](docs/sce
 The 3D maps come from the [ishoutu aim trainer](https://ishoutu.cn/aim). They are not my
 work and are not covered by this project's MIT license.
 
+Callout names on the maps are Riot's in-game English names, via [valorant-api.com](https://valorant-api.com).
+
 <br>
 
 ---

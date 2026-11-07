@@ -444,6 +444,190 @@
    ]
   ]
  },
+ "retake": {
+  "A": [
+   {
+    "name": "A heaven",
+    "x": -82.83,
+    "y": 8.092,
+    "z": -50.33
+   },
+   {
+    "name": "A tree",
+    "x": -61.33,
+    "y": 4,
+    "z": -46.83
+   }
+  ],
+  "B": [
+   {
+    "name": "B CT",
+    "x": -86.33,
+    "y": 1,
+    "z": 13.17
+   },
+   {
+    "name": "B market",
+    "x": -81.33,
+    "y": 1,
+    "z": 10.17
+   }
+  ]
+ },
+ "attack": {
+  "routes": {
+   "A": [
+    {
+     "name": "A Main",
+     "entry": {
+      "name": "A Main door",
+      "x": -55.33,
+      "y": 4,
+      "z": -59.33
+     },
+     "staging": [
+      {
+       "name": "A Main 1",
+       "x": -47.33,
+       "y": 4,
+       "z": -53.33
+      },
+      {
+       "name": "A Main 2",
+       "x": -45.83,
+       "y": 4,
+       "z": -53.33
+      },
+      {
+       "name": "A Main 3",
+       "x": -47.33,
+       "y": 4,
+       "z": -51.83
+      }
+     ]
+    },
+    {
+     "name": "Mid Cubby",
+     "entry": {
+      "name": "A Tree",
+      "x": -56.83,
+      "y": 4,
+      "z": -40.83
+     },
+     "staging": [
+      {
+       "name": "Mid Cubby 1",
+       "x": -51.33,
+       "y": 4,
+       "z": -33.83
+      },
+      {
+       "name": "Mid Cubby 2",
+       "x": -51.33,
+       "y": 4,
+       "z": -35.33
+      },
+      {
+       "name": "Mid Cubby 3",
+       "x": -49.83,
+       "y": 4,
+       "z": -33.83
+      }
+     ]
+    }
+   ],
+   "B": [
+    {
+     "name": "B Main",
+     "entry": {
+      "name": "B Main door",
+      "x": -63.83,
+      "y": 1,
+      "z": 13.17
+     },
+     "staging": [
+      {
+       "name": "B Main 1",
+       "x": -58.33,
+       "y": 1,
+       "z": 19.67
+      },
+      {
+       "name": "B Main 2",
+       "x": -58.33,
+       "y": 1,
+       "z": 21.17
+      },
+      {
+       "name": "B Main 3",
+       "x": -59.83,
+       "y": 1,
+       "z": 19.67
+      }
+     ]
+    },
+    {
+     "name": "Mid Market",
+     "entry": {
+      "name": "Market",
+      "x": -72.83,
+      "y": 3,
+      "z": -3.83
+     },
+     "staging": [
+      {
+       "name": "Mid Bottom 1",
+       "x": -59.33,
+       "y": 2,
+       "z": -11.33
+      },
+      {
+       "name": "Mid Bottom 2",
+       "x": -60.83,
+       "y": 2,
+       "z": -11.33
+      },
+      {
+       "name": "Mid Bottom 3",
+       "x": -59.33,
+       "y": 2,
+       "z": -9.83
+      }
+     ]
+    }
+   ]
+  },
+  "plant": {
+   "A": [
+    {
+     "name": "A default",
+     "x": -71.83,
+     "y": 5,
+     "z": -60.83
+    },
+    {
+     "name": "A generator",
+     "x": -68.33,
+     "y": 5,
+     "z": -66.33
+    }
+   ],
+   "B": [
+    {
+     "name": "B default",
+     "x": -78.83,
+     "y": -1,
+     "z": 30.17
+    },
+    {
+     "name": "B boathouse",
+     "x": -77.33,
+     "y": -1,
+     "z": 36.17
+    }
+   ]
+  }
+ },
  "authoring": {
   "tool": "tools/round_author.mjs",
   "transform": {
@@ -700,15 +884,40 @@
    }
   },
   "seal": {
+   "nav": {
+    "file": "app/mods/aim-rounds/ascent.nav.bin",
+    "nodes": 21746,
+    "edges": 161371
+   },
    "attack": {
-    "cells": 6612,
+    "nodes": 6375,
     "leaks": [],
-    "unreached": []
+    "unreached": [],
+    "walk": {
+     "nodes": 6297,
+     "leaks": [],
+     "unreached": []
+    },
+    "all": {
+     "nodes": 6375,
+     "leaks": [],
+     "unreached": []
+    }
    },
    "defense": {
-    "cells": 11018,
+    "nodes": 10253,
     "leaks": [],
-    "unreached": []
+    "unreached": [],
+    "walk": {
+     "nodes": 10129,
+     "leaks": [],
+     "unreached": []
+    },
+    "all": {
+     "nodes": 10253,
+     "leaks": [],
+     "unreached": []
+    }
    }
   }
  }

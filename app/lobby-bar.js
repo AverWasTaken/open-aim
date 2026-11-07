@@ -45,21 +45,7 @@
     return bar;
   }
 
-  function syncDiscordContact() {
-    if (!document.querySelector(".hall-bottombar") || document.querySelector(".es-discord-panel")) return;
-    const link = document.createElement("a");
-    link.className = "es-discord-panel";
-    link.href = "https://discord.com/users/1248403329554321480";
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.title = "Report an issue or send feedback to @xwvu on Discord";
-    link.setAttribute("aria-label", "Report an issue or send feedback to @xwvu on Discord");
-    link.innerHTML = '<span class="es-discord-panel-head"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M5 6.5A16 16 0 0 1 9 5l.5 1a12 12 0 0 1 5 0L15 5a16 16 0 0 1 4 1.5c1.4 2.3 2 5.5 1.7 8.5A15 15 0 0 1 16 18l-.8-1.3c.8-.3 1.4-.7 2-1.1-3.4 1.6-7 1.6-10.4 0 .6.4 1.2.8 2 1.1L8 18a15 15 0 0 1-4.7-3C3 12 3.6 8.8 5 6.5Z"/><path d="M8.5 11.5h.01M15.5 11.5h.01" stroke-width="2.8" stroke-linecap="round"/></svg><span>DISCORD SUPPORT</span></span><strong>Report an issue<br>or share feedback</strong><span class="es-discord-panel-action">MESSAGE @xwvu <span aria-hidden="true">↗</span></span>';
-    document.body.appendChild(link);
-  }
-
   function sync() {
-    syncDiscordContact();
     const right = document.querySelector(".hall-topnav > .hall-topnav-right");
     if (!right) return;
     const prev = right.previousElementSibling;

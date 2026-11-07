@@ -33,6 +33,8 @@
 .arh-track { position: relative; height: 8px; background: rgba(255,255,255,.14); border-radius: 4px; overflow: hidden; }
 .arh-fill { position: absolute; inset: 0 auto 0 0; width: 0; background: #ff4655; }
 .arh-bar.defuse .arh-fill { background: #20e0b4; }
+.arh-bar.enemy small { color: #ffb4ba; }
+.arh-bar.enemy .arh-fill { background: #ff4655; }
 .arh-mark { position: absolute; top: -3px; bottom: -3px; left: 50%; width: 2px; background: #fff; opacity: .8; }
 .arh-banner { position: absolute; left: 0; right: 0; top: 30%; text-align: center; padding: 18px 0 20px; background: linear-gradient(90deg, transparent, rgba(10,12,16,.86) 25%, rgba(10,12,16,.86) 75%, transparent); }
 .arh-banner b { display: block; font-size: 54px; line-height: 1; letter-spacing: .14em; font-weight: 800; }
@@ -64,17 +66,25 @@
   }
 
   // ---------- sound ----------
+  // Through the app's UI audio bus when there is one (window.__aimAudio.bus.ui: master volume and
+  // its mixer slider apply), else an own AudioContext.
   let ac = null;
+  function out() {
+    const bus = window.__aimAudio?.bus?.ui;
+    if (bus && bus.context && typeof bus.connect === "function") return { ctx: bus.context, dest: bus };
+    ac ??= new (window.AudioContext || window.webkitAudioContext)();
+    return { ctx: ac, dest: ac.destination };
+  }
   function beep(freq, dur = 0.08, vol = 0.18, type = "square") {
     try {
-      ac ??= new (window.AudioContext || window.webkitAudioContext)();
-      if (ac.state === "suspended") ac.resume().catch(() => {});
-      const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
+      const { ctx, dest } = out();
+      if (ctx.state === "suspended") ctx.resume().catch(() => {});
+      const t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
       o.type = type; o.frequency.value = freq;
       g.gain.setValueAtTime(0, t);
       g.gain.linearRampToValueAtTime(vol, t + 0.005);
       g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      o.connect(g).connect(ac.destination);
+      o.connect(g).connect(dest);
       o.start(t); o.stop(t + dur + 0.02);
     } catch {}
   }
@@ -82,7 +92,7 @@
   const beepGap = (left) => (left > 20 ? 1 : left > 10 ? 0.5 : left > 5 ? 0.25 : 0.12);
 
   // ---------- state ----------
-  let last = null, nextBeep = 0, endShownFor = null, seenTick = -1, seenAt = 0;
+  let last = null, nextBeep = 0, nextDefuseBeep = 0, endShownFor = null, seenTick = -1, seenAt = 0;
   const fmt = (s) => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
   function pips(box, total, alive) {
     if (box.childElementCount !== total) { box.textContent = ""; for (let i = 0; i < total; i++) { const p = document.createElement("i"); p.className = "arh-pip"; box.appendChild(p); } }
@@ -100,16 +110,23 @@
     el.clockLabel.textContent = r.phase === "barrier" ? "BARRIER" : spike ? "SPIKE" : r.phase === "ended" ? "ROUND OVER" : "ROUND";
     el.clockText.textContent = r.phase === "ended" ? "—" : fmt(r.timeLeft);
     const s = r.spike || {};
-    el.spike.textContent = r.phase === "ended" ? "" : s.planted ? `Spike planted${s.planted.site ? " · " + s.planted.site : ""}` : r.carrying ? "You carry the spike" : s.dropped ? "Spike dropped" : "";
+    const botDefusing = r.phase === "planted" && !!r.botDefusing;
+    el.spike.textContent = r.phase === "ended" ? "" : botDefusing ? "Spike being defused" : s.planted ? `Spike planted${s.planted.site ? " · " + s.planted.site : ""}` : r.carrying ? "You carry the spike" : s.dropped ? "Spike dropped" : "";
 
-    // Progress bar.
+    // Progress bar (your plant / defuse, or an enemy defusing your spike).
     const holding = r.holding;
-    el.bar.hidden = !holding;
+    el.bar.hidden = !holding && !botDefusing;
+    el.bar.classList.toggle("enemy", !holding && botDefusing);
     if (holding) {
       el.bar.classList.toggle("defuse", holding === "defuse");
       el.barLabel.textContent = holding === "plant" ? "PLANTING" : "DEFUSING";
       el.fill.style.width = `${Math.min(100, Math.round((holding === "plant" ? r.plant : r.defuse) * 100))}%`;
       el.mark.hidden = holding !== "defuse";
+    } else if (botDefusing) {
+      el.bar.classList.remove("defuse");
+      el.barLabel.textContent = "SPIKE BEING DEFUSED";
+      el.fill.style.width = `${Math.min(100, Math.round(r.defuse * 100))}%`;
+      el.mark.hidden = false;
     }
 
     // Hint.
@@ -138,7 +155,7 @@
       if (ended && endShownFor !== r.tick && last.phase !== "ended") {
         endShownFor = r.tick;
         if (r.reason === "detonated") beep(70, 0.9, 0.3, "sawtooth");
-        else if (r.reason === "defused") { beep(660, 0.1); setTimeout(() => beep(990, 0.18), 120); }
+        else if (r.reason === "defused" && r.win) { beep(660, 0.1); setTimeout(() => beep(990, 0.18), 120); }
         else beep(r.win ? 784 : 220, 0.3, 0.16, "triangle");
       }
     }
@@ -147,6 +164,9 @@
     const paused = now - seenAt > 0.25;
     if (paused) nextBeep = Math.max(nextBeep, now + 0.1);
     if (spike && !paused && now >= nextBeep) { beep(r.timeLeft <= 10 ? 1400 : 1150, 0.06, 0.12); nextBeep = now + beepGap(r.timeLeft); }
+    // An enemy is defusing your spike: two short low beeps every 0.5 s.
+    if (!botDefusing || paused) nextDefuseBeep = Math.max(nextDefuseBeep, now);
+    else if (now >= nextDefuseBeep) { beep(260, 0.05, 0.16, "square"); setTimeout(() => beep(260, 0.05, 0.16, "square"), 90); nextDefuseBeep = now + 0.5; }
     last = { phase: r.phase };
   }
 

@@ -1,6 +1,7 @@
 // Round mode map data (app/mods/aim-rounds/<map>.json), authored from the map files on disk.
 //
 //   node tools/round_author.mjs [--map ascent] [--image <barrier reference png>] [--plot <out.svg>] [--check]
+//                               [--attack-plot <out.png>]
 //
 // Node only, no app or browser. Reads site/aim-maps/<map>.collision.json (pawn collision + the
 // gameplay navmesh and BombsiteMarker volumes) and <map>.minimap.json (callout names + world spots).
@@ -27,15 +28,28 @@
 //     the floor height range sampled from the pawn collision inside the zone.
 //  5. Spawns are a row of 5 points around each team's spawn callout (floor + clearance checked);
 //     defender setup spots are spots of the shipped Ascent drills that lie on the defender side.
+//  6. Retake staging points (where defender bots group up before retaking a planted site) are
+//     authored in RETAKE below; how they were picked is written next to them.
+//  7. Seal check: the real nav graph (app/mods/aim-rounds/<map>.nav.bin, tools/round_nav.mjs) is
+//     flooded from each team's spawns with that team's barriers up, over walk edges only and over
+//     all edges (walk, drop, jump, gap). No callout outside the team's side may be reached.
+//     Needs the nav.bin (committed); it doesn't need the 57 MB pawn bake or any ray.
 //     With --image, every spawn / setup spot is also checked against the picture's colours.
+//  8. Attacker routes, staging points and plant spots (round mode R3) are authored in ATTACK below;
+//     how they were picked is written next to them.
 //
 // --plot writes a top-down SVG (navmesh floor shaded by height, barriers, zones, spawns, setups;
 // with --image the picture is drawn underneath, transformed, for checking by eye — keep that SVG
 // local, the picture isn't ours to ship). --check rebuilds and fails if the stored file differs.
+// --attack-plot writes a top-down PNG of the attacker data from the nav.bin header (header `attack`,
+// so run tools/round_nav.mjs --reuse first): routes, entry waypoints, plant and post-plant spots.
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
+import { parseRoundNav } from '../app/mods/aim-rounds/round-nav.mjs';
+import { TYPES, nodeIndex, nodesNear, nearestNode, flood, barrierMask } from './round_navlib.mjs';
+import { attackPlot } from './round_navdata.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -44,6 +58,7 @@ const MAP = opt('--map', 'ascent');
 const IMAGE = opt('--image');
 const PLOT = opt('--plot');
 const CHECK = args.includes('--check');
+const ATTACK_PLOT = opt('--attack-plot');
 const OUT = path.join(ROOT, 'app', 'mods', 'aim-rounds', `${MAP}.json`);
 
 // ---------------------------------------------------------------- per-map hand input
@@ -104,6 +119,49 @@ const MAPS = {
     },
     // Default defender splits [A, mid, B] (seeded pick at round start).
     SPLITS: [[2, 1, 2], [2, 1, 2], [3, 0, 2], [2, 0, 3], [1, 1, 3], [3, 1, 1]],
+    // Retake staging points, 2 per site (x, floor y, z on the nav graph). Picked by computation on
+    // the real nav graph: nodes 2.5-4 s (walk + drop) from the site centre, reachable from the
+    // defender spawn inside the defender barriers, outside the plant zone, on open floor, and hidden
+    // from 1 m above the site centre (the bots' sight ray to 1.0 and 1.6 m above the node); per
+    // approach the one closest to 3 s with the least detour from the defender's own route
+    // (`node tools/round_nav.mjs --candidates A` lists them; A heaven, A tree and B CT are the top
+    // picks). On Ascent B has a single defender-side doorway, so every low-detour B candidate shares
+    // one entry group (the other groups come in from the back, ~5 s detour); B market is the node on
+    // the route from Mid Market (3.45 s), about 3 m before that route joins the CT one. tools/round_nav.mjs re-checks all four (header `staging`).
+    RETAKE: {
+      A: [[-82.83, 8.09, -50.33, 'A heaven'], [-61.33, 4.0, -46.83, 'A tree']],
+      B: [[-86.33, 1.0, 13.17, 'B CT'], [-81.33, 1.0, 10.17, 'B market']],
+    },
+    // Attacker bot data (round mode R3, the player defends): 2 routes per site, each with 3 staging
+    // points where the attackers group up and an entry waypoint the route passes; 2 plant spots per
+    // site. All picked by computation on the real nav graph (tools/round_navdata.mjs):
+    //  - staging: attackStagingCandidates() around the route's callout spot (A Main, Mid Cubby,
+    //    B Main, Mid Bottom; all neutral in SIDES, never the defender side): open floor, reached from
+    //    all 5 attacker spawns on walk + drop edges; nearest the callout, greedily 1.5 m apart.
+    //  - entry: a node on the bots' shortest walk + drop path from the staging point to the site:
+    //    A Main = the A Main doorway (def-a), Mid Cubby = A Tree (defender side), B Main = the right
+    //    B Main doorway (def-b3; walk + drop paths from B Main into B all use it and come in past
+    //    B CT), Mid Market = Market (defender side; the route stages at Mid Bottom).
+    //  - plant: plantCandidates(): at least 1 m inside the zone, every attacker node within 1 m in
+    //    the zone and defusable, open floor. "default" = the candidate nearest the site goal, the
+    //    second about 6 m away on another part of the site (A: by the generator, B: boathouse side).
+    // tools/round_nav.mjs (--reuse) derives the checks and the post-plant spots (header `attack`).
+    ATTACK: {
+      routes: {
+        A: [
+          { name: 'A Main', entry: [-55.33, 4.0, -59.33, 'A Main door'], staging: [[-47.33, 4.0, -53.33, 'A Main 1'], [-45.83, 4.0, -53.33, 'A Main 2'], [-47.33, 4.0, -51.83, 'A Main 3']] },
+          { name: 'Mid Cubby', entry: [-56.83, 4.0, -40.83, 'A Tree'], staging: [[-51.33, 4.0, -33.83, 'Mid Cubby 1'], [-51.33, 4.0, -35.33, 'Mid Cubby 2'], [-49.83, 4.0, -33.83, 'Mid Cubby 3']] },
+        ],
+        B: [
+          { name: 'B Main', entry: [-63.83, 1.0, 13.17, 'B Main door'], staging: [[-58.33, 1.0, 19.67, 'B Main 1'], [-58.33, 1.0, 21.17, 'B Main 2'], [-59.83, 1.0, 19.67, 'B Main 3']] },
+          { name: 'Mid Market', entry: [-72.83, 3.0, -3.83, 'Market'], staging: [[-59.33, 2.0, -11.33, 'Mid Bottom 1'], [-60.83, 2.0, -11.33, 'Mid Bottom 2'], [-59.33, 2.0, -9.83, 'Mid Bottom 3']] },
+        ],
+      },
+      plant: {
+        A: [[-71.83, 5.0, -60.83, 'A default'], [-68.33, 5.0, -66.33, 'A generator']],
+        B: [[-78.83, -1.07, 30.17, 'B default'], [-77.33, -0.99, 36.17, 'B boathouse']],
+      },
+    },
   },
 };
 const M = MAPS[MAP];
@@ -314,68 +372,69 @@ for (const [group, list] of Object.entries(M.SETUPS)) {
     return { name, x, y: f, z };
   });
 }
+const retake = {};
+for (const [site, list] of Object.entries(M.RETAKE ?? {})) {
+  retake[site] = list.map(([x, y, z, name]) => {
+    const f = floorAt(x, z, y + 1.2);
+    if (f === null || Math.abs(f - y) > 0.6) throw new Error(`retake ${name}: no floor near y=${y} (got ${f})`);
+    return { name, x, y: f, z };
+  });
+}
+// Attacker routes / plant spots (round mode R3): same floor check as the retake points.
+const floored = ([x, y, z, name], what) => {
+  const f = floorAt(x, z, y + 1.2);
+  if (f === null || Math.abs(f - y) > 0.6) throw new Error(`${what} ${name}: no floor near y=${y} (got ${f})`);
+  return { name, x, y: f, z };
+};
+let attack = null;
+if (M.ATTACK) {
+  attack = { routes: {}, plant: {} };
+  for (const [site, list] of Object.entries(M.ATTACK.routes)) {
+    attack.routes[site] = list.map((rt) => ({ name: rt.name, entry: floored(rt.entry, 'attack entry'), staging: rt.staging.map((p) => floored(p, 'attack staging')) }));
+  }
+  for (const [site, list] of Object.entries(M.ATTACK.plant)) attack.plant[site] = list.map((p) => floored(p, 'plant spot'));
+}
 
-// ---------------------------------------------------------------- seal check (navmesh flood)
-// Height field from the navmesh on a 0.5 m grid (several layers per cell). Flood from a team's
-// spawn with that team's barriers up; no neutral callout may be reached, and the team's own
-// callouts must be. Catches a barrier that leaves a side gap or misses a second doorway.
-function segCross(ax, az, bx, bz, cx, cz, dx, dz) {
-  const o = (px, pz, qx, qz, rx, rz) => (qx - px) * (rz - pz) - (qz - pz) * (rx - px);
-  const d1 = o(cx, cz, dx, dz, ax, az), d2 = o(cx, cz, dx, dz, bx, bz), d3 = o(ax, az, bx, bz, cx, cz), d4 = o(ax, az, bx, bz, dx, dz);
-  return d1 * d2 <= 0 && d3 * d4 <= 0 && !(d1 === 0 && d2 === 0);
-}
-const G = 0.5, gx0 = -130, gz0 = -90, NX = Math.ceil(160 / G), NZ = Math.ceil(150 / G);
-const layers = new Map(); // i*NZ+j -> heights
-for (const t of nav) {
-  const [p, q, r] = t; const minX = Math.min(p[0], q[0], r[0]), maxX = Math.max(p[0], q[0], r[0]), minZ = Math.min(p[2], q[2], r[2]), maxZ = Math.max(p[2], q[2], r[2]);
-  const area = (q[0] - p[0]) * (r[2] - p[2]) - (q[2] - p[2]) * (r[0] - p[0]); if (Math.abs(area) < 1e-9) continue;
-  for (let i = Math.ceil((minX - gx0) / G); i <= Math.floor((maxX - gx0) / G); i++) for (let j = Math.ceil((minZ - gz0) / G); j <= Math.floor((maxZ - gz0) / G); j++) {
-    const X = gx0 + i * G, Z = gz0 + j * G;
-    const w0 = ((q[0] - X) * (r[2] - Z) - (q[2] - Z) * (r[0] - X)) / area, w1 = ((r[0] - X) * (p[2] - Z) - (r[2] - Z) * (p[0] - X)) / area, w2 = 1 - w0 - w1;
-    if (w0 < -1e-6 || w1 < -1e-6 || w2 < -1e-6) continue;
-    const y = w0 * p[1] + w1 * q[1] + w2 * r[1], k = i * NZ + j;
-    const l = layers.get(k) ?? []; if (!l.some((h) => Math.abs(h - y) < 0.3)) l.push(y); layers.set(k, l);
-  }
-}
-function cellAt(x, z, y = null) {
-  let best = null;
-  for (let di = -2; di <= 2; di++) for (let dj = -2; dj <= 2; dj++) {
-    const i = Math.round((x - gx0) / G) + di, j = Math.round((z - gz0) / G) + dj, l = layers.get(i * NZ + j); if (!l) continue;
-    for (const h of l) { const d = Math.hypot(di, dj) * G + (y === null ? 0 : Math.abs(h - y)); if (!best || d < best.d) best = { d, key: `${i},${j},${h.toFixed(2)}`, i, j, h }; }
-  }
-  return best;
-}
-function flood(from, walls) {
-  const seen = new Set([from.key]), queue = [[from.i, from.j, from.h]];
-  while (queue.length) {
-    const [i, j, h] = queue.pop();
-    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const l = layers.get((i + di) * NZ + (j + dj)); if (!l) continue;
-      for (const h2 of l) {
-        if (Math.abs(h2 - h) > 0.7) continue;
-        const key = `${i + di},${j + dj},${h2.toFixed(2)}`; if (seen.has(key)) continue;
-        const ax = gx0 + i * G, az = gz0 + j * G, bx = ax + di * G, bz = az + dj * G;
-        if (walls.some((w) => h >= w.y[0] && h <= w.y[1] && segCross(ax, az, bx, bz, w.a.x, w.a.z, w.b.x, w.b.z))) continue;
-        seen.add(key); queue.push([i + di, j + dj, h2]);
-      }
-    }
-  }
-  return seen;
-}
+// ---------------------------------------------------------------- seal check (real nav graph)
+// Flood the baked nav graph from each team's 5 spawns with that team's barriers up (an edge is cut
+// when its xz segment crosses a barrier and either end's floor is inside the barrier's y range),
+// once over walk edges and once over all edges. A callout is reached when a node within 1 m of its
+// spot (on the floor of the nearest node within 4 m) is reached. Any callout outside the team's own
+// side reached = leak = failure. Own callouts not reached are listed (walk-only can miss some).
+const NAV_FILE = path.join(ROOT, 'app', 'mods', 'aim-rounds', `${MAP}.nav.bin`);
 const sealReport = {};
-for (const team of ['attack', 'defense']) {
-  const sp = spawns[team][0], from = cellAt(sp.x, sp.z, sp.y);
-  const reached = flood(from, barriers.filter((b) => b.team === team));
-  const leaks = [], missing = [];
-  for (const [name, cn] of Object.entries(M.CALLOUTS)) {
-    const side = M.SIDES[name]; const c = callout[cn]; if (!c || !side) continue;
-    const cell = cellAt(c[0], c[1]); if (!cell) { missing.push(`${name} (no navmesh)`); continue; }
-    const hit = reached.has(cell.key);
-    if (side === 'neutral' && hit) leaks.push(name);
-    if (side === team && !hit) missing.push(name);
+if (!fs.existsSync(NAV_FILE)) {
+  console.error(`seal check: no ${path.relative(ROOT, NAV_FILE)}; write this file, run node tools/round_nav.mjs, then run this again`);
+  process.exitCode = 1;
+} else {
+  const g = parseRoundNav(fs.readFileSync(NAV_FILE)), H = nodeIndex(g);
+  sealReport.nav = { file: path.relative(ROOT, NAV_FILE).split(path.sep).join('/'), nodes: g.count, edges: g.edgeCount };
+  const sample = (x, z) => {
+    const n = nearestNode(g, H, x, z, 4); if (n < 0) return [];
+    const l = nodesNear(g, H, x, z, 1, g.y[n], 0.6); return l.length ? l : [n];
+  };
+  const spots = Object.entries(M.CALLOUTS).filter(([name]) => M.SIDES[name] && callout[M.CALLOUTS[name]])
+    .map(([name, cn]) => ({ name, side: M.SIDES[name], nodes: sample(...callout[cn]) }));
+  for (const team of ['attack', 'defense']) {
+    const sp = spawns[team].map((p) => nearestNode(g, H, p.x, p.z, 0.75, p.y, 1));
+    if (sp.some((n) => n < 0)) { console.error(`seal check: a ${team} spawn is off the nav graph`); process.exitCode = 1; }
+    const mask = barrierMask(g, barriers.filter((b) => b.team === team));
+    const res = {};
+    for (const [mode, types] of [['walk', TYPES.walk], ['all', TYPES.all]]) {
+      const par = flood(g, sp, { types, mask });
+      let nodes = 0; for (let i = 0; i < g.count; i++) if (par[i] !== -2) nodes++;
+      const leaks = [], unreached = [];
+      for (const c of spots) {
+        const hit = c.nodes.some((i) => par[i] !== -2);
+        if (c.side !== team && hit) leaks.push(c.name);
+        if (c.side === team && !hit) unreached.push(c.name);
+      }
+      res[mode] = { nodes, leaks, unreached };
+    }
+    const leaks = [...new Set([...res.walk.leaks, ...res.all.leaks])];
+    sealReport[team] = { nodes: res.all.nodes, leaks, unreached: res.all.unreached, walk: res.walk, all: res.all };
+    if (leaks.length) { console.error(`seal check: ${team} barriers leak into ${leaks.join(', ')}`); process.exitCode = 1; }
   }
-  sealReport[team] = { cells: reached.size, leaks, unreached: missing };
-  if (leaks.length) { console.error(`seal check: ${team} barriers leak into ${leaks.join(', ')}`); process.exitCode = 1; }
 }
 
 // ---------------------------------------------------------------- optional picture checks
@@ -418,6 +477,12 @@ const data = {
   barriers: barriers.map(({ mark, shift, floors, ...b }) => b),
   sites,
   setups: { defense: setups, splits: M.SPLITS },
+  // Retake staging points per site (defender bots group here before retaking a planted site).
+  retake,
+  // Attacker bots (the player defends): routes per site (name, entry waypoint, staging points) and
+  // plant spots per site. round-scene (R3 step S4) copies it into rules.round.attackData; header `attack` in
+  // <map>.nav.bin holds the checks and the post-plant spots.
+  ...(attack ? { attack } : {}),
   authoring: {
     tool: 'tools/round_author.mjs',
     transform: {
@@ -440,13 +505,21 @@ if (CHECK) {
 }
 console.log(`transform: ${T.metresPerPx.toFixed(3)} m/px, rotation ${T.rotationDeg.toFixed(1)} deg, rms ${rms.toFixed(2)} m over ${keys.length} callouts; dropped ${dropped.join(', ') || 'none'}`);
 for (const b of barriers) console.log(`  ${b.id.padEnd(11)} ${b.name.padEnd(20)} width ${b.width.toFixed(2)} m, moved ${b.shift} m across, floors ${b.floors[0]}..${b.floors[1]}, wall y ${b.y[0]}..${b.y[1]}`);
-for (const [team, r] of Object.entries(sealReport)) console.log(`  seal ${team}: ${r.cells} cells reached, leaks: ${r.leaks.join(', ') || 'none'}, own callouts not reached: ${r.unreached.join(', ') || 'none'}`);
+for (const team of ['attack', 'defense']) {
+  const r = sealReport[team]; if (!r) continue;
+  console.log(`  seal ${team}: walk ${r.walk.nodes} / all edges ${r.all.nodes} nav nodes reached, leaks: ${r.leaks.join(', ') || 'none'}, own callouts not reached: ${r.unreached.join(', ') || 'none'} (walk only: ${r.walk.unreached.join(', ') || 'none'})`);
+}
 for (const s of sites) console.log(`  site ${s.id}: zone x ${s.zone[0][0]}..${s.zone[2][0]} z ${s.zone[0][1]}..${s.zone[2][1]}, floor ${s.y[0]}..${s.y[1]}`);
 if (PLOT) {
   fs.writeFileSync(PLOT, plotSvg());
   const png = PLOT.replace(/[.]svg$/i, '') + '.png';
   fs.writeFileSync(png, plotPng());
   console.log(`plot: ${PLOT} and ${png}`);
+}
+if (ATTACK_PLOT && fs.existsSync(NAV_FILE)) {
+  const g = parseRoundNav(fs.readFileSync(NAV_FILE));
+  if (!g.header.attack) { console.error('attack plot: the nav.bin header has no attack data; run node tools/round_nav.mjs --reuse'); process.exitCode = 1; }
+  else console.log(`attack plot: ${attackPlot(g, data, g.header, ATTACK_PLOT, M.name.toUpperCase())}`);
 }
 
 // ---------------------------------------------------------------- plot
