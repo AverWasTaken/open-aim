@@ -31,7 +31,11 @@
 (() => {
   if (window.__aimShotGraph) return;
   // read-only view for tests and tools: this round's stop entries ({ ms, early })
-  window.__aimShotGraph = { stops: () => (round ? round.stops.map((s) => ({ ...s })) : []) };
+  // and the summary line's text for given entries (no DOM)
+  window.__aimShotGraph = {
+    stops: () => (round ? round.stops.map((s) => ({ ...s })) : []),
+    stopLine: (stops, compact) => stopLine(stops, !!compact),
+  };
 
   const KEY = "es-shot-graph"; // "off" | "graph" | "numbers"
   const STILL = "#ff9d42", MOVING = "#4cb2ff", MOVING_SPRAY = "#2b74c2";
@@ -120,6 +124,7 @@
     if (lastMovingShot >= 0 && stop.cross - lastMovingShot <= EARLY_WINDOW) {
       addStop(-tickMs(Math.max(0, stop.cross - lastMovingShot)) || 0, true);
       stop.used = true;
+      if (round && round.summary) renderSummary(round); // a stop just after the round ended
     }
     lastMovingShot = -1;
   }
@@ -183,7 +188,8 @@
         addStop(-tickMs(Math.max(0, stop.cross - tick)) || 0, true);
       }
     }
-    if (moving && !early && tick !== null) lastMovingShot = tick;
+    // (a moving shot from a stop's own frame that came after it was used is not kept for the next stop)
+    if (moving && !early && tick !== null && (!stop || tick > stop.accurateTick)) lastMovingShot = tick;
     firing[head] = f;
     waitMs[head] = wait;
     movement[head] = total - f;
@@ -462,6 +468,9 @@
         ${stopLine(r.stops, compact)}
         ${compact ? "" : `<p class="es-shotgraph-sum-note">${walked} The map shows your path and a dot where each shot was fired.</p>`}
       </div>`;
+    // the scenario layout has a fixed height: show the stop line whole or not at all
+    const stopEl = compact && panel.querySelector(".es-shotgraph-sum-line.is-stop");
+    if (stopEl && stopEl.offsetTop + stopEl.offsetHeight > panel.clientHeight) stopEl.remove();
     const map = panel.querySelector("canvas");
     map.setAttribute("aria-label", `Map of where you fired: ${still.n} shots still, ${moving.n} while moving`);
     drawMap(map, r, null, mapSize);

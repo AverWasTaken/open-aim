@@ -12,7 +12,7 @@ const vm = require('node:vm');
 const src = fs.readFileSync(path.join(__dirname, '..', 'app', 'shooting-error.js'), 'utf-8');
 const MS = 1000 / 128;
 
-function load() {
+function load({ start = true } = {}) {
   const listeners = {};
   const window = { addEventListener: (name, fn) => { listeners[name] = fn; }, innerHeight: 1000, devicePixelRatio: 1 };
   const document = { querySelector: () => null, querySelectorAll: () => [], hidden: false, body: { appendChild() {} } };
@@ -23,8 +23,10 @@ function load() {
     setInterval: () => 0, setTimeout: () => 0, requestAnimationFrame: () => 0,
   };
   vm.runInNewContext(src, ctx);
-  listeners['aim-round-phase']({ detail: { phase: 'running', previous: 'idle', mapId: 'range' } });
+  const phase = (p, previous) => listeners['aim-round-phase']({ detail: { phase: p, previous, mapId: 'range' } });
+  if (start) phase('running', 'idle');
   return {
+    phase,
     window,
     frame: (tick, meDeg) => window.__aimTick({ tick, player: { position: { x: 0, y: 0, z: 0 }, ...(meDeg === undefined ? {} : { meDeg }) } }),
     shot: (tick, moveDeg) => window.__aimShot({ tick, spreadDeg: 0.25 + moveDeg, firingDeg: 0.25, moveDeg }),
@@ -155,4 +157,40 @@ test('no movement error in the state: nothing recorded', () => {
   const app = load();
   play(app, { to: 400, me: (t) => (t < 200 ? 2.5 : 0), frameMe: () => undefined, shots: [215] });
   assert.deepEqual(app.stops(), []);
+});
+
+test('no round running: nothing recorded; a new round starts empty', () => {
+  const app = load({ start: false });
+  play(app, { to: 400, me: (t) => (t < 200 ? 2.5 : 0), shots: [215] });
+  assert.deepEqual(app.stops(), []);
+  app.phase('running', 'idle');
+  play(app, { from: 400, to: 700, me: (t) => (t < 500 ? 2.5 : 0), shots: [515] });
+  assert.equal(app.stops().length, 1);
+  app.phase('result', 'running');
+  app.phase('idle', 'result');
+  app.phase('running', 'idle'); // Play again
+  assert.deepEqual(app.stops(), []);
+});
+
+test('a moving shot from a stop frame, after that stop was used, is not early for the next stop', () => {
+  const app = load();
+  // moving shot at 190 makes stop 1 (frame 203) early; the moving shot at 200 in that same frame
+  // must not count as early again for stop 2 (moving 204-210, still from 211)
+  play(app, { to: 300, step: 4, me: (t) => (t < 64 ? 0 : t < 201 ? 2.5 : t < 204 ? 0 : t < 211 ? 2.5 : 0), frameMe: (t) => (t < 64 ? 0 : t < 201 ? 2.5 : t < 204 ? 0 : t < 211 ? 2.5 : 0), shots: [190, 200] });
+  const s = app.stops();
+  assert.equal(s.filter((e) => e.early).length, 1, JSON.stringify(s));
+});
+
+test('summary line text', () => {
+  const app = load();
+  const line = (stops, compact) => app.window.__aimShotGraph.stopLine(stops, compact);
+  const text = (html) => html.replace(/<small>.*<\/small>/, '').replace(/<[^>]+>/g, '');
+  assert.equal(line([]), '');
+  assert.equal(text(line([{ ms: 80, early: false }])), 'Stop to shot: median +80 ms · 1 shot');
+  assert.equal(text(line([{ ms: 80, early: false }, { ms: 120, early: false }, { ms: -30, early: true }])), 'Stop to shot: median +100 ms · 2 shots · 1 early');
+  assert.equal(text(line([{ ms: 200, early: false }, { ms: 50, early: false }, { ms: 90, early: false }])), 'Stop to shot: median +90 ms · 3 shots');
+  assert.equal(text(line([{ ms: -10, early: true }, { ms: 0, early: true }])), 'Stop to shot: 2 early');
+  assert.match(line([{ ms: 80, early: false }]), /<small>Time from being accurate again to the shot, after moving\. Early = fired before you were accurate\.<\/small>/);
+  assert.doesNotMatch(line([{ ms: 80, early: false }], true), /<small>/, 'no hint in the scenario layout');
+  assert.doesNotMatch(line([{ ms: 80, early: false }]), /—/, 'no em dash');
 });

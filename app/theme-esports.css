@@ -394,7 +394,7 @@ body.al-training-active .aim-frame-meter { display:block; }
 .es-shotgraph-sum-line { margin: 2px 0 0; color: #b9bfca; }
 .es-shotgraph-sum-line b { display: inline-block; min-width: 58px; font-weight: 700; }
 .es-shotgraph-sum:not(.is-moment) .es-shotgraph-sum-line.is-stop { margin-top: 10px; }
-.es-shotgraph-sum-line small { display: block; margin-top: 2px; color: #9aa1ae; font-size: 12px; }
+.es-shotgraph-sum-line small { display: block; margin-top: 2px; color: var(--es-muted); font-size: 12px; }
 /* narrower windows: icons only (names stay in the tooltip) */
 @media (max-width: 1700px) {
   html[data-aim-local]:not(#es) body .es-bar-btn span { display: none; }
