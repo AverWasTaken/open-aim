@@ -1,5 +1,5 @@
 // W2-E1 app check (readable HUD, Tab menu, loading progress). Runs ON hp against 127.0.0.1:<cdp>:
-//   bash C:/Users/Jacob/open-aim-hq/hp.sh cdp-script 9437 scripts/ux/hud-check.mjs 9437 [outDir]
+//   bash C:/Users/Jacob/open-aim-hq/hp.sh cdp-script 9437 scripts/ux/hud-check.mjs [outDir]
 // Node built-ins only. Writes PNGs + result.json to outDir (default /tmp/ux-hud-check) and prints
 // one RESULT_JSON line. Covers: loading label + % over time (first drill), ball drill HUD + Tab menu,
 // bot drill HUD + Tab menu (+ one 2560x1440 HUD shot), Round mode Tab menu.
