@@ -20,6 +20,7 @@
     "test:round": "node --test ../scripts/test-round.mjs ../scripts/test-round-sim.mjs ../scripts/test-round-nav.mjs ../scripts/test-round-bots.mjs ../scripts/test-round-bots-parity.mjs ../scripts/test-round-ui.mjs",
     "test:feelsens": "node --test ../scripts/test-feel-sens.cjs",
     "test:result": "node --test ../scripts/test-ux-result.mjs",
+    "test:hit": "node --test ../scripts/test-ux-hit.mjs",
     "test:words": "node --test ../scripts/test-ux-words.mjs",
     "test:hud": "node --test ../scripts/test-ux-hud.mjs"
   },
@@ -43,6 +44,7 @@
       "round-panel.js",
       "round-hud.js",
       "ux-keys.js",
+      "ux-hud.js",
       "round-scene.js",
       "drill-variants.js",
       "interface-mode.js",

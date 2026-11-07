@@ -62,6 +62,18 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
     (`0.42s`, no delta), and Target drills get their own result header and back label. The
     English for the new strings is in `app/english-fixes.js` ("ux result screen"). Tests:
     `npm run test:result` (`--mods <dir>` patches another copy). It keeps each copy's own line ends.
+15. `ux_hud_patch.py` (ux; after `ux_result_patch.py` (14), touches no string any other patch uses;
+    renumber at integration if 15 is taken; refuses to run twice: it looks for `__aimEmitHits` in
+    `OkAdunfX.js`). Read-only HUD events for `app/ux-hud.js` (hit marker, kills line). The live tick
+    calls `__aimEmitHits(Ze,Ae)` after the replay recorder `Ou(je,Ze)` and `Cn.push(...Ze)`: one window
+    event `aim-hit` {head, kill, dot, pellets, tick} per player shot that hit (kill = the step had a
+    non-aimBlast kill, on its first hitting shot; dot = a ball/grid target and no bot). The HUD builder
+    `ya()` calls `__aimEmitHud(Z,F)` only when the stat box changed (`Hu` false): `aim-hud` {kills,
+    total (null on respawning drills), headshots, humanoidHits, score, hits, shots}. Listener errors
+    are caught. No sim, RNG, recorder or replay code: `C_VPDXvn.js` imports only BiMsX6Xn,
+    index.uPZ7wDgX, DXHU7cEs, D_iGclxB and CnrSARj_, and only ChJ6FlD4/Hwnlm6zD import OkAdunfX, so
+    saved runs and replays are unchanged. Tests: `npm run test:hit` (`--mods <dir>` patches another
+    copy; includes real sim steps). It keeps each copy's own line ends.
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
