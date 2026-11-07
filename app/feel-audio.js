@@ -430,7 +430,7 @@
   css.textContent = `.aim-audio-mix{display:flex;flex-direction:column;gap:inherit}.aim-audio-mix-check{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.aim-audio-mix-check button{padding:7px 14px;background:#222b36;color:#eee;border:1px solid #48515f;cursor:pointer;font:inherit}.aim-audio-mix-check button:hover:not(:disabled){border-color:#ff4655}.aim-audio-mix-check button:disabled{opacity:.5;cursor:default}.aim-audio-mix-check small{opacity:.75}`;
   document.head.append(css);
   const SLIDERS = [['weapon', 'Weapon', 'Your shots, reload and knife.'], ['enemy', 'Enemy shots', 'Bot gunfire and flashes.'], ['steps', 'Footsteps', 'Yours and the bots’.'], ['hits', 'Hits & kills', 'Hit, headshot, kill and target sounds.'], ['ui', 'Round & UI', 'Round beeps and the sound check.']];
-  const SWITCHES = [['headshot', 'Headshot sound', 'A sharper ding when you hit the head.'], ['killConfirm', 'Kill sound', 'Two short notes when a bot dies.'], ['spatial', '3D enemy sound', 'Hear where bot shots come from.'], ['botSteps', 'Enemy footsteps', 'Hear running bots.']];
+  const SWITCHES = [['headshot', 'Headshot sound', 'A sharper ding when you hit the head.'], ['killConfirm', 'Kill confirm', 'Two short notes when a bot dies (skins with their own kill sound keep it).'], ['spatial', '3D enemy sound', 'Hear where bot shots come from.'], ['botSteps', 'Enemy footsteps', 'Hear running bots.']];
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   let unsubscribeMounted = null;
   function add() {
