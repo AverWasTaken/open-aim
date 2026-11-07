@@ -25,24 +25,28 @@ function hash16(text) {
   return ((a >>> 0).toString(16).padStart(8, "0") + (b >>> 0).toString(16).padStart(8, "0"));
 }
 
-// The enemy bots: one fixed spawner per setup spot (the sim keeps 5 of them per round, see
-// roundPrepare), one actor template with the drills' shooter settings (the Enemy rank setting
-// replaces them, like in every drill), no respawn.
+// The enemy bots: one fixed spawner per setup spot (the sim keeps 5 of them per round and moves
+// the kept ones onto distinct defender spawn points, see roundPrepare), one actor template with the
+// drills' shooter settings (the Enemy rank setting replaces them, like in every drill), the roundBot
+// behaviour (app/mods/aim-rounds/round-bots.mjs: walks from the spawn to the setup spot in
+// setupBySpawner; it also turns the bot, so faceTarget is off), no respawn.
 function buildDoc(data, opts) {
   const side = opts.side;
   const enemyTeam = side === "attack" ? "defense" : "attack";
   const spawners = [];
   const groups = {};
+  const setupBySpawner = {};
   if (enemyTeam === "defense") {
     for (const [group, spots] of Object.entries(data.setups.defense)) {
       groups[group] = [];
       spots.forEach((p, i) => {
         const id = `round-${group}-${i + 1}`;
         groups[group].push(id);
+        setupBySpawner[id] = { name: p.name, group, x: p.x, y: p.y, z: p.z };
         spawners.push({
           id, name: `${group} ${p.name}`, kind: "fixed", actorTemplateId: "round-enemy",
           position: { x: p.x, y: p.y, z: p.z }, size: { x: 0, y: 0, z: 0 },
-          maxAlive: 1, spawnDelay: [0.1, 0.2], faceTarget: true, groundSnap: true,
+          maxAlive: 1, spawnDelay: [0.1, 0.2], faceTarget: false, groundSnap: true,
         });
       });
     }
@@ -55,7 +59,7 @@ function buildDoc(data, opts) {
       spawners.push({
         id, name: `attacker ${i + 1}`, kind: "fixed", actorTemplateId: "round-enemy",
         position: { x: p.x, y: p.y, z: p.z }, size: { x: 0, y: 0, z: 0 },
-        maxAlive: 1, spawnDelay: [0.1, 0.2], faceTarget: true, groundSnap: true,
+        maxAlive: 1, spawnDelay: [0.1, 0.2], faceTarget: false, groundSnap: true,
       });
     });
   }
@@ -68,6 +72,9 @@ function buildDoc(data, opts) {
     barriers: data.barriers.map((b) => ({ id: b.id, team: b.team, a: b.a, b: b.b, y: b.y })),
     sites: data.sites,
     setups: { groups, splits: enemyTeam === "defense" ? data.setups.splits : [[5]], count: 5 },
+    setupBySpawner,
+    ...(enemyTeam === "defense" ? { botStart: "spawn" } : {}),
+    ...(data.retake ? { retake: data.retake } : {}),
   };
   return {
     schemaVersion: 2,
@@ -81,7 +88,9 @@ function buildDoc(data, opts) {
       body: { shape: "humanoid", headSize: 1, bodyWidth: 0.44, bodyHeight: 0, look: "bot", weapon: "vandal" },
       color: "#ff4655",
       behaviors: [
+        // shooter first: roundBot reads what the shooter wrote this tick (lastSeenTick).
         { kind: "shooter", difficulty: "hard", reaction: [0.35, 0.5], cadence: "weapon", aimErrorDeg: 3, maxRangeM: 60, engage: "stop", resumeDelay: [0.4, 0.8] },
+        { kind: "roundBot" },
         { kind: "respawn", delay: [0.4, 0.9], mode: "never" },
       ],
       hitSlow: true,
