@@ -118,7 +118,9 @@ function pageReady() {
 function pageLayoutSig() {
   const bar = document.querySelector(".es-bar");
   const r = (sel) => { const e = document.querySelector(sel); if (!e) return "-"; const b = e.getBoundingClientRect(); return [b.x, b.y, b.width, b.height].map(Math.round).join(","); };
-  return [innerWidth, innerHeight, bar?.dataset.sig, r(".es-bar"), r(".es-bar-quick"), r(".hall-topnav .hall-sens"), r(".es-discord-panel"), r(".al-wk-card"), document.documentElement.scrollWidth].join("|");
+  // A late first-run pop-up closes here and changes the signature, so settle() waits it out.
+  for (const x of document.querySelectorAll(".es-tool-shade .es-tool-x")) x.click();
+  return [innerWidth, innerHeight, !!document.querySelector(".es-tool-shade"), bar?.dataset.sig, r(".es-bar"), r(".es-bar-quick"), r(".hall-topnav .hall-sens"), r(".es-discord-panel"), r(".al-wk-card"), document.documentElement.scrollWidth].join("|");
 }
 
 function pageRafs() {
@@ -320,7 +322,8 @@ let failed = false;
 try {
   await send("Runtime.enable");
   // The hp copy is an offscreen window: emulate focus so Tab and focus rings behave.
-  try { await send("Emulation.setFocusEmulationEnabled", { enabled: true }); } catch {}
+  try { await send("Emulation.setFocusEmulationEnabled", { enabled: true }); }
+  catch (e) { console.error(`focus emulation not available: ${e.message}`); }
   if (!(await waitFor(send, pageStart, 90000))) throw new Error("lobby did not load (startup screen still up or no tabs)");
   for (const size of SIZES) {
     let r;
@@ -334,6 +337,7 @@ try {
   console.error(String(e.stack || e));
 } finally {
   try { await send("Emulation.clearDeviceMetricsOverride"); } catch {}
+  try { await send("Emulation.setFocusEmulationEnabled", { enabled: false }); } catch {}
   ws.close();
 }
 process.exit(failed ? 1 : 0);
