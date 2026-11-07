@@ -28,6 +28,7 @@ Run them from the repository root with Python 3.
 | `round_nav.mjs` | Writes `app/mods/aim-rounds/<map>.nav.bin`, the Round mode nav graph: the game's own nav builder run on the real collision from both spawns (2-3 min, below-normal priority). `--reuse` keeps the graph and only rewrites the header (setup facings, staging and zone checks, which need sight rays; helpers in `round_navdata.mjs`). See [Round mode nav graph](#round-mode-nav-graph). |
 | `round_author.mjs` | Writes `app/mods/aim-rounds/<map>.json` (Round mode map data: spawns, barriers, plant zones, defender setups) from the map files in `site/aim-maps/`, node only. `--plot <file.svg>` draws it (also a `.png`), `--check` fails when the stored file is out of date. See [Round mode data](#round-mode-data). |
 | `maps_callouts.mjs` | Writes `app/mods/aim-maps/<map>.minimap.json` for every map: the game's callout list with Riot's in-game English names ("A Main", "B Boat House") in place of the Chinese ones, from `tools/maps-callouts-en.json`, node only. Only the names change; every spot and every other byte stays as in `site/aim-maps/` (juliett, which only exists in `app/mods/aim-maps/`, is renamed in place). `--check` fails when a file is out of date. See [Callout names](#callout-names). |
+| `maps_previews.mjs` | Writes `app/mods/aim-maps/<map>.preview.png` (our own top-down picture of each map, drawn from its collision data, no Riot art) and `app/mods/aim-maps/maps.json` (the shared map list: id, English name, preview, size and the world -> pixel transform), node only. `--check` fails when a file is out of date. See [Map previews](#map-previews). |
 | `maps_callout_patch.py` | Keeps the space in English callout names ("A Main", not "AMain") in the place line of the workshop cards and the workshop detail: the nearest-callout lookup `$u` in the mods `Dc2Dm9E6.js` (both copies) now removes only whitespace next to a non-ASCII character, so Chinese names give the same text as before. Details in the script's docstring. |
 | `practice_areas.mjs` | Writes `app/mods/aim-practice/areas.json` (Practice mode: per map the areas, i.e. player spawn and bot spots with their checked strafe lanes) from `app/mods/aim-ranks/spot-alts.json` and the shipped pre-aim drills, node only. `--check` fails when the stored file is out of date. See [Practice areas](#practice-areas). |
 | `practice_patch.py` | Practice mode on the play page: no replay recorder for scenes with `rules.practice`, `window.__aimPracticeOn` set while one is loaded, and the HUD shows score and accuracy only (no timer). Edits the mods `OkAdunfX.js` (both copies). Details in the script's docstring. |
@@ -256,6 +257,32 @@ bots, `reSpawner` for strafing ones, as Studio does). After changing spot-alts o
 node tools/practice_areas.mjs          # write app/mods/aim-practice/areas.json
 node tools/practice_areas.mjs --check  # what scripts/test-practice.mjs runs (npm run test:practice)
 ```
+
+## Map previews
+
+The Practice panel shows a top-down picture of the chosen map with your start (arrow, pointing
+where you face) and the bots it will spawn. `maps_previews.mjs` draws those pictures itself; it
+never uses `site/aim-maps/<map>.minimap.png` or the cover/slice art.
+
+- 8 maps: the navmesh in `<map>.collision.json` (highest surface per pixel). rook (Corrode) has no
+  navmesh: the game's pawn floors from `round_terrain.mjs` (lowest floor with 2 m of headroom and
+  no wall through it). Crates and ledges a practice bot stands on are added from the pawn floors.
+- A flood fill from the callouts and the practice spawns drops islands outside the map.
+- 5 flat tones by height (darker = lower), light outline on edges and ledges, transparent background.
+- Same orientation as the in-game minimap (attackers at the bottom): the minimap.json transform plus
+  the rotation table `Gs` and `qs` from `Dc2Dm9E6.js`, lifted at run time.
+
+`maps.json` is one entry per map: `{id, name, preview, size: [w, h], world: {a..f}, mm, pixels}`.
+A world point (x, z) is at pixel `px = a*x + b*z + c`, `py = d*x + e*z + f`. `mm` is the same
+transform in minimap units (`pixel = mm.scale * (qs(x, z) - [mm.u0, mm.v0])`), `pixels` a hash of
+the decoded image. Forward for a yaw is `(-sin yaw, -cos yaw)` in (x, z).
+
+```bash
+node tools/maps_previews.mjs          # write the PNGs + maps.json (~1.5 min the first time: map GLB decode)
+node tools/maps_previews.mjs --check  # what scripts/test-maps-previews.mjs runs (npm run test:maps)
+```
+
+Run it again after changing `areas.json`, a map's collision/minimap files or the tool.
 
 ## Callout names
 
