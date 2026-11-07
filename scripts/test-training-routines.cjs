@@ -53,6 +53,21 @@ test('every routine drill is in the drill list and its length matches its scene'
   assert.ok(!warm.steps.some((s) => /简单|困难/.test(s.name)));
 });
 
+test('the gen-3 drills sit in the routines they fit', () => {
+  const codes = (id) => core.ROUTINES.find((r) => r.id === id).steps.map((s) => s.code);
+  const fromFile = (f) => JSON.parse(fs.readFileSync(path.join(root, 'scenarios', f + '.json'), 'utf-8')).item.shareCode;
+  for (const [id, files] of [
+    ['precision', ['long-range-taps', 'sheriff-one-taps']],
+    ['movement', ['counter-strafe-taps', 'jiggle-peek-duels']],
+    ['holding', ['operator-angle-hold', 'spray-transfer']],
+  ]) for (const f of files) assert.ok(codes(id).includes(fromFile(f)), f + ' in ' + id);
+  for (const r of core.ROUTINES) {
+    assert.equal(new Set(r.steps.map((s) => s.code)).size, r.steps.length, 'no repeats in ' + r.id);
+    const min = core.minutes(r.steps);
+    assert.ok(min >= 5 && min <= 10, r.id + ' takes ' + min + ' min');
+  }
+});
+
 test('missing drills are skipped with a warning, twins resolve to their lobby card', () => {
   const warned = [];
   const r = core.resolve({ id: 'x', name: 'X', steps: [{ code: 'ffffffffffffffff' }, { code: EASY, seconds: 60 }, { code: 'nope' }, { code: OTHER }] }, fakeList, variants, (c) => warned.push(c));

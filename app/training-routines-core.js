@@ -33,7 +33,7 @@
     {
       id: "precision",
       name: "Precision",
-      blurb: "Small flicks, head level and pistol taps at range.",
+      blurb: "Small flicks, head level, long-range taps and Sheriff heads.",
       steps: [
         // Short, exact flicks inside a narrow box.
         { code: "e3c17ccb9f5a1500", seconds: 60 }, // Micro flicks
@@ -41,40 +41,45 @@
         { code: "d43f842fb33e4d46", seconds: 60 }, // Micro tiles
         // Small heads in a tight row at head height.
         { code: "406d6e47ebc89bc3", seconds: 60 }, // Head-level micro
-        // Sheriff with real reloads: every miss costs time.
-        { code: "5d9cb8204613805e", seconds: 60 }, // Drift Reload
-        // Sheriff taps down Haven C Long, against the clock.
+        // Bots 35 to 50 m away: line up the head, first shot counts.
+        { code: "f12ecead87952aa4", seconds: 60 }, // Long-range taps
+        // Sheriff vs strafing bots: wait for the stop, tap the head.
+        { code: "44e40db6736c1916", seconds: 60 }, // Sheriff one-taps
+        // Finish against the clock: Sheriff taps down Haven C Long.
         { code: "8e3c439a53c4dc6b", seconds: 40 }, // Erv's Sheriff 5k in 7 seconds
       ],
     },
     {
       id: "holding",
       name: "Holding angles",
-      blurb: "Hold an angle, react to swings, turn away from flashes.",
+      blurb: "React to swings, hold with the Operator, turn from flashes, spray a stack.",
       steps: [
         // Targets swing past one angle: pure reaction on a hold.
         { code: "5a9e43d609bbb3a3", seconds: 60 }, // Boaster's flick drill (hard)
+        // Operator on a narrow gap: scope in and shoot what crosses.
+        { code: "da695c3c99a7d3cf", seconds: 60 }, // Operator angle hold
         // Hold from Heaven on Split.
         { code: "782614562cd94b22", seconds: 60 }, // Split Heaven hold
-        // Hold A Main and turn away from flashes.
-        { code: "cb2431243b5643fd", seconds: 60 }, // Split A Main hold (updated)
         // Hold A Long while flashers swing and shoot back.
         { code: "112bc51af7b16caf", seconds: 60 }, // Haven A Long: hold vs flashes
+        // A stack runs into your angle: spray through the whole row in one burst.
+        { code: "4f6729c818033962", seconds: 60 }, // Spray transfer
       ],
     },
     {
       id: "movement",
       name: "Movement & peeks",
-      blurb: "Track strafing bots, then clear routes against peekers.",
+      blurb: "Track strafes, shoot on the stop, beat jiggle peeks, then clear a site.",
       steps: [
         // Track short strafes with sharp stops.
         { code: "6bdae48b1990cd16", seconds: 60 }, // Stop-and-go strafer
-        // Track strafes with jumps.
-        { code: "43dd532452d8890e", seconds: 60 }, // Jumping strafer
-        // Three map routes where bots jiggle-peek real angles and shoot back.
+        // Your own movement: strafe, stop, tap; the gun only fires right after you stop.
+        { code: "d522b8584d057391", seconds: 60 }, // Counter-strafe taps
+        // Don't chase the jiggles, hit them when they swing out.
+        { code: "1ee402b08e6fe47b", seconds: 60 }, // Jiggle-peek duels
+        // Two map routes where bots jiggle-peek real angles and shoot back.
         { code: "54d79166b4f48373", seconds: 90 }, // Ascent B retake: peekers
         { code: "61abe15ed0660f15", seconds: 90 }, // Split B Heaven retake: peekers
-        { code: "5268ac892259ed6f", seconds: 90 }, // Haven Garage push: peekers
       ],
     },
   ];

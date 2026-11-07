@@ -19,6 +19,7 @@
   const VARIANTS_URL = "/aim/drill-variants.json";
   const LAUNCH_WAIT_MS = 10000; // no drill opened by then: back to paused
   const LEAVE_WAIT_MS = 10000;
+  const PICKER_GRACE_MS = 4000; // rank picker closed, drill not open by then: cancelled
 
   const store = (s) => ({
     get: (k) => { try { return s().getItem(k); } catch { return null; } },
@@ -117,7 +118,8 @@
       if (document.querySelector(".aim-pick-shade")) { pending.picker = true; pending.at = now; return; }
       if (layerOpen()) { pending.layer = true; if (now - pending.at > 180000) failLaunch(); return; }
       if (pending.layer) { failLaunch(); return; } // the drill was closed before it came up
-      if (pending.picker && now - pending.at > 1500) { failLaunch(); return; } // picker cancelled
+      // Picker gone and no drill opening: it was cancelled (a pick opens the drill at once).
+      if (pending.picker && now - pending.at > PICKER_GRACE_MS) { failLaunch(); return; }
       if (now - pending.at > LAUNCH_WAIT_MS) failLaunch();
     }, 250);
   }
