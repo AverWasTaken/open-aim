@@ -21,6 +21,7 @@ Run them from the repository root with Python 3.
 | `spot_alts.mjs` | Writes `app/mods/aim-ranks/spot-alts.json`: up to 5 checked alternative positions per static spot of every shipped pre-aim drill, and a sideways movement lane per position (ground, ledges, walls, sight lines and spacing tested with the game's own collision and sight test). `--check` re-tests the stored file. Runs against a test copy of the app (rerun steps below). |
 | `peekmove_patch.py` | Pre-aim bots react and move: with Human-like bots and an explicit enemy rank, the static shooting bots of the shipped pre-aim drills walk ADAD along their checked lane once they see you, by rank (`aimPeekRanks` next to `aimBotRanks`; saved in the replay meta as `peekMove` and `spotLane`). Edits the mods `BiMsX6Xn.js`, `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details and the rank table in the script's docstring. |
 | `round_patch.py` | Round mode: the round controller in the sim (barrier phase, spike plant / defuse, outcomes, save/restore), the play page side (held keys, no replay, round end, result text, barrier and spike visuals) and `window.__aimLaunchScene` for the lobby panel. Edits the mods `CnrSARj_.js`, `OkAdunfX.js`, `ChJ6FlD4.js` and `Hwnlm6zD.js` (both copies). Only acts on scenes with `rules.round`. Details in the script's docstring. |
+| `feel_xbloom_patch.py` | Crosshair spread: the in-game crosshair lines move out while you move or spray, like VALORANT, following each line's Movement/Firing error settings (see the patch order below). |
 | `round_author.mjs` | Writes `app/mods/aim-rounds/<map>.json` (Round mode map data: spawns, barriers, plant zones, defender setups) from the map files in `site/aim-maps/`, node only. `--plot <file.svg>` draws it (also a `.png`), `--check` fails when the stored file is out of date. See [Round mode data](#round-mode-data). |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
@@ -50,6 +51,16 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 10. `spotvary_patch.py` (needs `spotbias_patch.py`; refuses to run twice: it looks for `aimSpotApply`)
 11. `peekmove_patch.py` (needs `spotvary_patch.py`; refuses to run twice: it looks for `aimPeekUpdate`)
 12. `round_patch.py` (after `peekmove_patch.py`; refuses to run twice: it looks for `/aim-rounds/round-core.mjs`). It keeps each copy's own line ends.
+13. `feel_xbloom_patch.py` (after `round_patch.py`; refuses to run twice: it looks for `aimErrDeg` /
+    `__aimXbloomStep`). Crosshair spread: a read-only `aimErrDeg()` on the sim object (`CnrSARj_.js`)
+    returns the firing error above the gun's resting error and the movement error, in degrees (no RNG
+    draw, no state write: runs and replays are unchanged). The play page (`OkAdunfX.js`) turns them into
+    pixels from the camera FOV each frame and `StageCrosshair` adds them to the inner/outer line offsets
+    per the profile's `inner/outerMovementError(Scale)` and `inner/outerFiringError(Scale)` (rounded to
+    0.5 px, a line's offset capped at 60 px; a still crosshair never re-renders). Game recoil and game
+    movement only (the live defaults). `fadeWithFiringError` and `overrideErrorOffset` aren't modelled.
+    It doesn't touch the regions of `feel_audio_patch.py`; the two apply in either order. Test:
+    `npm run test:feelxbloom` in `app/`.
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
