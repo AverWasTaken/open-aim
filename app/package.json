@@ -21,7 +21,8 @@
     "test:feelsens": "node --test ../scripts/test-feel-sens.cjs",
     "test:feelaudio": "node --test ../scripts/test-feel-audio.cjs",
     "test:feelaudiopatch": "node --test ../scripts/test-feel-audio-patch.cjs",
-    "test:feelxbloom": "node --test ../scripts/test-feel-xbloom.mjs"
+    "test:feelxbloom": "node --test ../scripts/test-feel-xbloom.mjs",
+    "test:feelxprof": "node --test ../scripts/test-feel-xprofiles.cjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
@@ -52,6 +53,7 @@
       "valorant-import.js",
       "valorant-import-ui.js",
       "valorant-import-ipc.js",
+      "feel-crosshair-profiles.js",
       "valorant-import.css",
       "backups.js",
       "local-guard.js",
