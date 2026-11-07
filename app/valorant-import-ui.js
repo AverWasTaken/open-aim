@@ -72,7 +72,7 @@
           const n = result.profiles.length, m = profileList().mergeImported(profileList().load(localStorage), result.profiles);
           listNote = m.added === n ? `All ${n} crosshair profiles will be added to your profile list.`
             : `${m.added} of ${n} crosshair profiles will be added to your profile list` +
-              [m.duplicates ? `${m.duplicates} already there` : "", m.notAdded ? `${m.notAdded} not added (limit ${profileList().MAX})` : ""].filter(Boolean).map(t => "; " + t).join("") + ".";
+              [m.duplicates ? `${m.duplicates} already there` : "", m.invalid ? `${m.invalid} not readable` : "", m.notAdded ? `${m.notAdded} not added (limit ${profileList().MAX})` : ""].filter(Boolean).map(t => "; " + t).join("") + ".";
         }
         preview.innerHTML = `<h3>Review import</h3><p>${files.map(f => escape(f.name)).join(", ")}</p>
           ${result.profiles.length ? `<label>Crosshair profile <select data-profile>${result.profiles.map((p, i) => `<option value="${i}" ${i === selected ? "selected" : ""}>${escape(p.name)}${p.selected ? " (active in VALORANT)" : ""}</option>`).join("")}</select></label>` : ""}
@@ -163,7 +163,7 @@
       busy = true; undoButton.disabled = true;
       try {
         const saved = JSON.parse(localStorage.getItem(UNDO));
-        if (!saved?.values || !storageKeys.every(k => saved.values[k] === undefined || saved.values[k] === null || typeof saved.values[k] === "string")) throw new Error("No valid import backup found.");
+        if (!saved?.values || !storageKeys.every(k => (k === PROFILES && saved.values[k] === undefined) || saved.values[k] === null || typeof saved.values[k] === "string")) throw new Error("No valid import backup found.");
         await window.__aimDesktop.backups.create();
         if (typeof saved.vsync === "boolean") await api.setVsync(saved.vsync);
         restore(saved.values); localStorage.removeItem(UNDO); location.reload();

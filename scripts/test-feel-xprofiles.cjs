@@ -124,3 +124,13 @@ test('a parsed RiotUserSettings.ini with three crosshairs merges all three', () 
   // Importing the same file again adds nothing.
   assert.equal(xp.mergeImported(m.state, result.profiles).duplicates, 3);
 });
+
+test('mergeImported gives repeated names a number, within 32 chars', () => {
+  const st = xp.upsert({ v: 1, list: [] }, { name: 'Main', code: CODE_A }).state;
+  const long = 'L'.repeat(32);
+  const m = xp.mergeImported(st, [
+    { name: 'main', code: '0;a' }, { name: 'Main', code: '0;b' }, { name: long, code: '0;c' }, { name: long, code: '0;d' },
+  ]);
+  assert.deepEqual(m.state.list.map(p => p.name), ['Main', 'main (2)', 'Main (3)', long, 'L'.repeat(28) + ' (2)']);
+  assert.ok(m.state.list.every(p => Array.from(p.name).length <= 32));
+});

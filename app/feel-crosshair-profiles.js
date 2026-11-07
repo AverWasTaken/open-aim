@@ -70,6 +70,15 @@
     next.list = next.list.filter(p => p.id !== id);
     return { state: next, removed: next.list.length < before };
   }
+  // "Main" -> "Main (2)" when the list already has that name (any case), kept within NAME_MAX.
+  function uniqueName(state, name) {
+    const taken = new Set(state.list.map(p => p.name.toLowerCase()));
+    if (!taken.has(name.toLowerCase())) return name;
+    for (let n = 2; ; n++) {
+      const tail = ` (${n})`, base = Array.from(name).slice(0, NAME_MAX - tail.length).join("").trim();
+      if (!taken.has((base + tail).toLowerCase())) return base + tail;
+    }
+  }
   // Imported VALORANT profiles ({name, code}) in file order: existing entries stay, exact
   // duplicate codes are skipped, new ones are added until the list holds MAX.
   function mergeImported(state, profiles, now = Date.now()) {
@@ -79,7 +88,7 @@
       if (!p || !validCode(p.code)) { invalid++; return; }
       if (findByCode(next, p.code)) { duplicates++; return; }
       if (next.list.length >= MAX) { notAdded++; return; }
-      next.list.push({ id: newId(), name: cleanName(p.name) || "VALORANT " + (i + 1), code: p.code, source: "valorant", updatedAt: now });
+      next.list.push({ id: newId(), name: uniqueName(next, cleanName(p.name) || "VALORANT " + (i + 1)), code: p.code, source: "valorant", updatedAt: now });
       added++;
     });
     return { state: next, added, duplicates, notAdded, invalid };
@@ -146,17 +155,23 @@
       edit.append(input, ok, cancel);
       const status = el("small", "feel-xprof-status"); status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
       strip.append(pick, row, edit, status);
-      // Typing a name must not trigger drill key binds.
-      for (const type of ["keydown", "keyup", "keypress"]) strip.addEventListener(type, e => e.stopPropagation());
+      // Typing a name must not trigger drill key binds. Escape outside the name box still
+      // reaches the page, so it can close the settings dialog as usual.
+      for (const type of ["keydown", "keyup", "keypress"]) strip.addEventListener(type, e => { if (e.target === input || e.key !== "Escape") e.stopPropagation(); });
 
-      let mode = null, confirmTimer = 0, busy = false;
+      // chosen: the profile last picked or saved here, and the crosshair code at that moment.
+      // While the crosshair is unchanged it stays selected, even when another profile has the
+      // same code or applying it failed (so it can still be renamed or deleted).
+      let mode = null, confirmTimer = 0, busy = false, chosen = null;
       const say = (text, bad = false) => { status.textContent = text; status.classList.toggle("is-bad", bad); };
       const state = () => { const s = store(); return s ? load(s) : empty(); };
       const write = next => { try { save(localStorage, next); return true; } catch { say("Could not save profiles.", true); return false; } };
       const selected = () => state().list.find(p => p.id === select.value) || null;
       function resetDelete() { clearTimeout(confirmTimer); del.textContent = "Delete"; del.classList.remove("feel-xprof-danger"); del.dataset.confirm = ""; }
       function render() {
-        const s = state(), code = current(), match = code ? findByCode(s, code) : null;
+        const s = state(), code = current();
+        const kept = chosen && chosen.code === code ? s.list.find(p => p.id === chosen.id) : null;
+        const match = kept || (code ? findByCode(s, code) : null);
         lastCode = code;
         const opts = [];
         if (!match) { const o = document.createElement("option"); o.value = ""; o.text = s.list.length ? "— (edited)" : "— (no profiles yet)"; opts.push(o); }
@@ -182,6 +197,7 @@
           const r = upsert(state(), { name: input.value, code });
           if (r.error) { say(r.error, true); return; }
           if (!write(r.state)) return;
+          chosen = { id: r.entry.id, code: current() };
           closeEdit(); render(); say((r.updated ? "Updated " : "Saved ") + r.entry.name);
         } else if (mode === "rename") {
           const p = selected();
@@ -194,7 +210,7 @@
       async function apply(id) {
         const p = state().list.find(x => x.id === id);
         if (!p || busy) { render(); return; }
-        busy = true; select.disabled = true;
+        busy = true;
         try {
           const message = panel.querySelector('[data-role="crosshair-code-message"]');
           const target = importButton(panel), area = panel.querySelector("textarea");
@@ -211,7 +227,7 @@
           }
           say("Applied " + p.name);
         } catch { say("Could not apply " + p.name + ".", true); }
-        finally { busy = false; select.disabled = false; render(); }
+        finally { chosen = { id: p.id, code: current() }; busy = false; render(); }
       }
       select.onchange = () => { resetDelete(); if (select.value) apply(select.value); };
       saveAs.onclick = () => openEdit("save");
