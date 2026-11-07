@@ -12,6 +12,7 @@ The CSS it checks is the `/* settings page layout (ux) */` block in `app/theme-e
 node scripts/ux/settings-layout-check.mjs <cdpPort> [--sizes 1280x720,1920x1080,3840x2160] [--tabs general,video] [--shots <dir>] [--no-search]
 ```
 
+- On hp: `bash open-aim-hq/hp.sh cdp-script <cdpPort> scripts/ux/settings-layout-check.mjs [options]`. hp.sh already passes the port as the first argument, so don't repeat it. `--shots` paths are on hp.
 - It opens SETTINGS from the top nav, then walks every tab at each size (`Emulation.setDeviceMetricsOverride`). It clears the override at the end.
 - A size can carry a scale: `1920x1080@2`.
 - On the Video tab it waits for the shell lighting row (`[data-setting="mapLighting"]`) before measuring.
