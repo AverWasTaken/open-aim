@@ -22,6 +22,8 @@ Run them from the repository root with Python 3.
 | `peekmove_patch.py` | Pre-aim bots react and move: with Human-like bots and an explicit enemy rank, the static shooting bots of the shipped pre-aim drills walk ADAD along their checked lane once they see you, by rank (`aimPeekRanks` next to `aimBotRanks`; saved in the replay meta as `peekMove` and `spotLane`). Edits the mods `BiMsX6Xn.js`, `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details and the rank table in the script's docstring. |
 | `round_patch.py` | Round mode: the round controller in the sim (barrier phase, spike plant / defuse, outcomes, save/restore), the play page side (held keys, no replay, round end, result text, barrier and spike visuals) and `window.__aimLaunchScene` for the lobby panel. Edits the mods `CnrSARj_.js`, `OkAdunfX.js`, `ChJ6FlD4.js` and `Hwnlm6zD.js` (both copies). Only acts on scenes with `rules.round`. Details in the script's docstring. |
 | `round_author.mjs` | Writes `app/mods/aim-rounds/<map>.json` (Round mode map data: spawns, barriers, plant zones, defender setups) from the map files in `site/aim-maps/`, node only. `--plot <file.svg>` draws it (also a `.png`), `--check` fails when the stored file is out of date. See [Round mode data](#round-mode-data). |
+| `round_terrain.mjs` | Round mode helper (node module, no CLI): `loadTerrain(map)` rebuilds the game's real pawn and projectile collision in plain node with the game's own code (meshopt decoder, terrain worker, BVH builder and raycast, all lifted from the repo files at runtime). Triangle sets are cached in `%TEMP%/open-aim-round-cache/`. Used by `round_nav.mjs` and the round tests. |
+| `round_nav.mjs` | Writes `app/mods/aim-rounds/<map>.nav.bin`, the Round mode nav graph: the game's own nav builder run on the real collision from both spawns (2-3 min, below-normal priority). `--reuse` keeps the graph and only rewrites the header. See [Round mode nav graph](#round-mode-nav-graph). |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
@@ -136,4 +138,27 @@ snapped to the narrowest closed choke within 3 m (rays against the pawn + greybo
 heights), and a flood fill over the navmesh checks that each team's barriers close off every neutral
 callout. A new map needs its own entry in `MAPS` at the top of the script (callout names, label and
 mark pixels from a reference picture, setup spots) and then the same two commands.
+
+## Round mode nav graph
+
+`app/mods/aim-rounds/<map>.nav.bin` is the graph Round mode bots walk on. Format v1 (little-endian,
+reader/writer in `app/mods/aim-rounds/round-nav.mjs`): `"RNAV"`, u32 version, u32 header length,
+header JSON, then per node f32 x / y (floor) / z, then CSR edges `edgeStart[n+1]`, `edgeTo`,
+`edgeCost` (seconds at run speed), `edgeType` (0 walk, 1 drop, 2 jump up, 3 two-cell gap).
+The header holds the bake parameters and grid origin, and `source` (sha256 of the collision file,
+the GLB and the terrain worker it was baked from).
+
+`tools/round_nav.mjs` builds it: `loadTerrain` (`tools/round_terrain.mjs`) rebuilds the pawn
+collision, the game's nav builder `Vv` (lifted from `OkAdunfX.js`) runs from the attacker and the
+defender spawn with the game's parameters, and the two graphs are merged by cell and floor height.
+It takes 2-3 minutes on one core and drops its own priority to below normal. The first run also
+decodes the map (about 20 s) and caches the triangles in `%TEMP%/open-aim-round-cache/`.
+
+```bash
+node tools/round_nav.mjs            # full bake (Ascent: 21746 nodes, 161371 edges)
+node tools/round_nav.mjs --reuse    # keep the graph, rewrite only the header
+```
+
+`npm run test:round` (scripts/test-round-nav.mjs) fails when the collision, GLB or terrain worker
+no longer match the hashes in the header; then rerun the full bake.
 
