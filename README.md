@@ -49,6 +49,9 @@ version's stats.
 - **Anti-flash:** they flash, then swing. Turn away in time, then take the duel.
 - **Fundamentals:** micro-flicks, Drift-style clicking, strafers and tracking.
 
+**Know where you are:** the callout you're standing in (A Main, Mid Courtyard) shows under the
+minimap during map drills and Round mode. Turn it off in Settings > Video > Stats.
+
 <br>
 
 ## Build your own drills

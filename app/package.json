@@ -18,6 +18,7 @@
     "test:spots": "node --test ../scripts/test-spot-bias.cjs",
     "test:vary": "node --test ../scripts/test-spot-vary.cjs",
     "test:round": "node --test ../scripts/test-round.mjs ../scripts/test-round-sim.mjs ../scripts/test-round-nav.mjs ../scripts/test-round-bots.mjs ../scripts/test-round-bots-parity.mjs ../scripts/test-round-ui.mjs",
+    "test:maps-location": "node --test ../scripts/test-maps-location.mjs",
     "test:feelsens": "node --test ../scripts/test-feel-sens.cjs",
     "test:maps": "node --test ../scripts/test-maps-callouts.mjs"
   },
@@ -57,6 +58,8 @@
       "studio-store.js",
       "studio-launch.js",
       "shooting-error.js",
+      "aim-tick-hub.js",
+      "maps-location.js",
       "studio/**/*",
       "training-set.json",
       "translations.js",
