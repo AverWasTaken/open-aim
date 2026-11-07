@@ -190,37 +190,6 @@ html[data-aim-local]:not(#es) body :is(h1, h2, h3, .al-wk-hero-word, .al-wk-s-na
 /* ---------- lobby shell ---------- */
 html[data-aim-local]:not(#es) body .hall-topnav { background: #0c0e13 !important; border-bottom: 2px solid var(--es-red) !important; }
 html[data-aim-local]:not(#es) body .hall-bottombar { background: #0c0e13 !important; border-top: 1px solid var(--es-line) !important; }
-html[data-aim-local]:not(#es) body .es-discord-panel {
-  position: fixed;
-  right: 22px;
-  bottom: 76px;
-  z-index: 35;
-  display: grid;
-  gap: 11px;
-  width: 252px;
-  padding: 16px 18px 17px;
-  color: var(--es-text);
-  background: #10131a;
-  border-top: 3px solid var(--es-red);
-  box-shadow: 0 16px 38px rgba(0, 0, 0, .45), inset 0 0 0 1px var(--es-line-2);
-  text-decoration: none;
-  cursor: pointer;
-  transition: background-color .15s ease, transform .15s ease, border-color .15s ease;
-}
-html[data-aim-local]:not(#es) body .es-discord-panel:hover,
-html[data-aim-local]:not(#es) body .es-discord-panel:focus-visible {
-  background: var(--es-raised-2);
-  border-top-color: var(--es-red-2);
-  transform: translateY(-3px);
-  outline: 2px solid var(--es-red-2);
-  outline-offset: 2px;
-}
-html[data-aim-local]:not(#es) body .es-discord-panel-head { display: flex; align-items: center; gap: 8px; color: var(--es-red-2); font: 800 11px var(--es-head); letter-spacing: .12em; }
-html[data-aim-local]:not(#es) body .es-discord-panel-head svg { width: 21px; height: 21px; flex: none; }
-html[data-aim-local]:not(#es) body .es-discord-panel > strong { font: 800 19px/1.12 var(--es-head); text-transform: uppercase; }
-html[data-aim-local]:not(#es) body .es-discord-panel-action { display: flex; align-items: center; justify-content: space-between; padding-top: 10px; border-top: 1px solid var(--es-line-2); color: var(--es-soft); font: 800 12px var(--es-head); letter-spacing: .04em; }
-html[data-aim-local]:not(#es) body .es-discord-panel-action span { color: var(--es-red-2); font-size: 16px; }
-body.al-training-active .es-discord-panel { display: none !important; }
 
 html[data-aim-local]:not(#es) body .hall-tab {
   background: transparent !important;
