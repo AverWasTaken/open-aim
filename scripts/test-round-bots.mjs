@@ -231,3 +231,50 @@ test('round_bots_patch.py: refuses to run twice; both bundle copies byte-identic
     for (const m of marks) assert.equal(a.toString('utf-8').split(m).length - 1, 1, `${f}: ${m}`);
   }
 });
+
+test('real sim: a bot with roundDefusing = 1 at the spike defuses it through io.bots; the player keeps shooting; killing it drops the progress', { skip }, () => {
+  // Bots 80 m out (beyond their 60 m range); bot d3 stands 1.1 m from where the player plants.
+  const doc = botDoc({ dist: 80, barrierSec: 1 });
+  doc.rules.round.setupBySpawner.d3 = { name: 'd3', group: 'all', x: 1, y: 0, z: 0.5 };
+  const s = createSim(doc, 8);
+  play(s, TPS / 2);
+  const st = s.saveState();
+  const d3 = st.actors.find((a) => a.spawnerId === 'd3');
+  assert.ok(Math.hypot(d3.position.x - 1, d3.position.z - 0.5) < 1e-9, 'd3 on its spot');
+  d3.roundDefusing = 1;
+  s.restoreState(st);
+  play(s, TPS / 2 + 1);
+  s.setRoundHold({ plant: true });
+  play(s, TPS * 4);
+  s.setRoundHold({ plant: false });
+  let r = s.snapshot().round;
+  assert.equal(r.phase, 'planted');
+  // Defusing: progress, botDefusing, the player is not holding and can shoot.
+  const ev = play(s, TPS * 3, (i) => ({ ...IDLE, fire: i % 20 === 0, mouseDx: i % 20 === 0 ? 40 : 0 }));
+  r = s.snapshot().round;
+  assert.equal(r.botDefusing, true);
+  assert.equal(r.defuser, d3.id);
+  assert.equal(r.holding, null);
+  assert.ok(r.defuse > 0.4 && r.defuse < 0.5, `defuse ${r.defuse}`);
+  assert.ok(ev.some((e) => e.kind === 'shot'), 'the player shoots while a bot defuses');
+  // Kill the defuser (save -> edit -> restore): before the checkpoint the progress drops to 0.
+  const st2 = s.saveState();
+  const a = st2.actors.find((x) => x.id === d3.id);
+  a.alive = false; a.health = 0;
+  s.restoreState(st2);
+  play(s, 2);
+  r = s.snapshot().round;
+  assert.equal(r.botDefusing, false);
+  assert.equal(r.defuse, 0);
+  assert.equal(s.saveState().actors.find((x) => x.id === d3.id).roundDefusing, 0, 'dead bots stop defusing');
+  // Without the kill the bot finishes: round lost, "defused".
+  s.restoreState(st);
+  play(s, TPS / 2 + 1);
+  s.setRoundHold({ plant: true });
+  play(s, TPS * 4);
+  s.setRoundHold({ plant: false });
+  play(s, TPS * 7 + 2);
+  r = s.snapshot().round;
+  assert.equal(r.reason, 'defused');
+  assert.equal(r.win, false);
+});

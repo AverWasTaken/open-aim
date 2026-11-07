@@ -372,6 +372,122 @@ test('defuse needs you within reach and facing the spike', () => {
   assert.equal(at(0.2, 0.2, Math.PI), true, 'standing on it');
 });
 
+// ---------------------------------------------------------------- bot defuse (attack side)
+// The player plants at A, then io.bots (what the sim builds from the roundBot actors) drive the
+// defuse. bot(id, dx, opts) = a bot dx metres (x) from the spike.
+function plantedRound(over = {}) {
+  const r = makeRound({ barrierSec: 1, ...over });
+  r.run(sec(1)); r.toSite(); r.run(sec(4), { hold: { plant: true } });
+  assert.equal(r.st.phase, 'planted');
+  const sp = r.st.spike.planted;
+  const bot = (id, dx = 0.5, o = {}) => ({ id, alive: true, x: sp.x + dx, y: sp.y, z: sp.z, defusing: 1, ...o });
+  let tick = r.tick;
+  const step = (bots, kills = 0) => core.roundStep(r.cfg, r.st, { tick: ++tick, tickSec: TS, player: { ...r.player }, kills, hold: {}, bots });
+  const run = (n, bots) => { let ev = []; for (let i = 0; i < n; i++) ev = ev.concat(step(typeof bots === 'function' ? bots(i) : bots)); return ev; };
+  return { ...r, sp, bot, step, run };
+}
+
+test('bot defuse: 7 s by a bot at the spike, the player can still shoot, ROUND LOST "defused"', () => {
+  const r = plantedRound();
+  r.run(sec(3), [r.bot(4)]);
+  assert.equal(r.st.defuser, 4);
+  assert.equal(r.st.holding, null, 'bots never set holding');
+  assert.equal(core.roundNoFire(r.st, {}, r.cfg, r.player), false, 'the player can shoot the defuser');
+  const v = view(r);
+  assert.equal(v.botDefusing, true);
+  assert.equal(v.defuser, 4);
+  assert.ok(Math.abs(v.defuse - 3 / 7) < 1e-9);
+  r.run(sec(4) - 1, [r.bot(4)]);
+  assert.equal(r.st.phase, 'planted');
+  const ev = r.step([r.bot(4)]);
+  assert.deepEqual(ev, [{ kind: 'roundEnd', winner: 'defense', reason: 'defused', win: false }]);
+  assert.equal(view(r).botDefusing, false, 'not after the end');
+});
+
+test('bot defuse only counts alive, defusing bots within reach (xz 1.6 m, |dy| < 2); never on the defense side', () => {
+  const r = plantedRound();
+  for (const bots of [[r.bot(1, 1.7)], [r.bot(1, 0.2, { alive: false })], [r.bot(1, 0.2, { defusing: 0 })], [r.bot(1, 0, { y: r.sp.y + 2 })], [], undefined, [{ id: 2 }]]) {
+    r.run(sec(1), bots);
+    assert.equal(r.st.defuse, 0, JSON.stringify(bots));
+    assert.equal(r.st.defuser, null);
+  }
+  r.run(sec(1), [r.bot(1, 1.55), r.bot(2, 0, { y: r.sp.y + 1.9 })]);
+  assert.equal(r.st.defuse, sec(1));
+  // Defense side: the bots are attackers; io.bots never defuses.
+  const cfg = { ...r.cfg, side: 'defense' };
+  const st = core.roundCreate(cfg, TS);
+  st.phase = 'planted'; st.plantTick = 1; st.spike.planted = { ...r.sp };
+  for (let t = 2; t < 200; t++) core.roundStep(cfg, st, { tick: t, tickSec: TS, player: { x: 0, y: 0, z: 0, health: 100 }, kills: 0, hold: {}, bots: [r.bot(1)] });
+  assert.equal(st.defuse, 0);
+  assert.equal(st.defuser, null);
+});
+
+test('bot defuse election: the current defuser keeps it, else the lowest id; a switch or a stop drops to the checkpoint or 0', () => {
+  const r = plantedRound();
+  r.run(sec(1), [r.bot(5), r.bot(3)]);
+  assert.equal(r.st.defuser, 3, 'lowest id');
+  r.run(sec(1), [r.bot(5), r.bot(3), r.bot(1)]);
+  assert.equal(r.st.defuser, 3, 'kept while it still defuses');
+  assert.equal(r.st.defuse, sec(2));
+  r.step([r.bot(5), r.bot(1)]);
+  assert.equal(r.st.defuser, 1, 'switch to the lowest remaining');
+  assert.equal(r.st.defuse, 1, 'before the checkpoint a switch starts over (this tick counts)');
+  r.step([]);
+  assert.equal(r.st.defuse, 0);
+  assert.equal(r.st.defuser, null);
+  // Past the checkpoint: the defuser dies, the next one starts from 3.5 s and needs 3.5 s more.
+  r.run(sec(4), [r.bot(2)]);
+  assert.ok(r.st.checkpoint);
+  r.step([r.bot(2, 0.5, { alive: false }), r.bot(4, -0.5)]);
+  assert.equal(r.st.defuser, 4);
+  assert.equal(r.st.defuse, sec(3.5) + 1);
+  r.step([r.bot(4, -0.5, { defusing: 0 })]);
+  assert.equal(r.st.defuse, sec(3.5), 'a stop past the checkpoint keeps half');
+  let ev = r.run(sec(3.5) - 1, [r.bot(4)]);
+  assert.equal(r.st.phase, 'planted');
+  ev = r.step([r.bot(4)]);
+  assert.equal(ev[0].reason, 'defused');
+  // Save/restore keeps the defuser (round state is JSON-cloned).
+  assert.equal(core.roundClone(r.st).defuser, 4);
+});
+
+test('bot defuse, same tick: detonation beats it; a defuser killed on its last tick defuses nothing; defused beats eliminations', () => {
+  // Finishing on the detonation tick: detonated.
+  const a = plantedRound({ spikeSec: 7 });
+  let ev = a.run(sec(7) - 1, [a.bot(1)]);
+  assert.equal(a.st.phase, 'planted');
+  ev = a.step([a.bot(1)]);
+  assert.equal(ev[0].reason, 'detonated');
+  assert.equal(ev[0].win, true);
+  // Killed on the tick it would finish (the last bot alive, 5th kill): no defuse, attackers win.
+  const b = plantedRound();
+  b.run(sec(7) - 1, [b.bot(1)], 0);
+  b.st.enemiesDead = 4;
+  ev = b.step([b.bot(1, 0.5, { alive: false })], 1);
+  assert.deepEqual(ev, [{ kind: 'roundEnd', winner: 'attack', reason: 'eliminated', win: true }]);
+  // The defuse finishes on the tick the kill count reaches 5 (the defuser is alive in io.bots): defused.
+  const c = plantedRound();
+  c.run(sec(7) - 1, [c.bot(1)]);
+  c.st.enemiesDead = 4;
+  ev = c.step([c.bot(1)], 1);
+  assert.equal(ev[0].reason, 'defused');
+});
+
+test('use key near your own spike (attack side) neither blocks your shots nor weapon pickup; pickup only blocked while holding', () => {
+  const r = plantedRound();
+  r.step([]);
+  assert.equal(r.st.near, true, 'standing on the spike');
+  assert.equal(core.roundNoFire(r.st, { use: true }, r.cfg, r.player), false);
+  assert.equal(core.roundBlocksUse(r.st), false, 'planted phase: pickup works');
+  // Defense side: the same key near the spike means defuse.
+  const st = { ...r.st, side: 'defense' };
+  assert.equal(core.roundNoFire(st, { use: true }, r.cfg, r.player), true);
+  assert.equal(core.roundBlocksUse(st), true);
+  assert.equal(core.roundBlocksUse({ ...st, near: false }), false);
+  assert.equal(core.roundBlocksUse({ ...r.st, holding: 'plant' }), true);
+  assert.equal(core.roundBlocksUse({ ...r.st, phase: 'barrier', near: false }), false);
+});
+
 test('blast: only on the detonation tick, only inside the radius', () => {
   const r = makeRound({ barrierSec: 1 });
   r.run(sec(1)); r.toSite(); r.run(sec(4), { hold: { plant: true } });

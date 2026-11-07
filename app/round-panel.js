@@ -4,6 +4,7 @@
 // window.__aimLaunchScene (tools/round_patch.py). The rank is the same setting the drills use
 // (localStorage "aim-enemy-rank", read by the game when a round starts); "Default" = the round's
 // own bots. Last choices are kept in "aim-round-setup".
+// It also prefetches the bots' nav graph of every round map (see prefetchNav below).
 (() => {
   if (window.__aimRoundPanel) return;
   const SETUP_KEY = "aim-round-setup";
@@ -13,6 +14,30 @@
   const WEAPONS = [["vandal", "Vandal"], ["phantom", "Phantom"], ["spectre", "Spectre"], ["guardian", "Guardian"], ["sheriff", "Sheriff"], ["marshal", "Marshal"], ["outlaw", "Outlaw"], ["operator", "Operator"]];
   const BARRIERS = [10, 20, 30];
   const NONE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4M5 19 19 5"/></svg>';
+
+  // ---------- nav prefetch ----------
+  // The bots' nav graph /aim-rounds/<map>.nav.bin, read by app/mods/aim-rounds/round-bots.mjs from
+  // globalThis.__aimRoundNav[map] (ArrayBuffer). Fetched when this script loads and again when the
+  // panel opens, so Start can launch right inside the click (the game's fullscreen request needs a
+  // user action) and restarts / Play again find it. Start waits only when the fetch is still
+  // running. A missing or bad file is remembered (the bots then stand on their setup spots).
+  const navState = {}; // map -> "ok" | "missing" | Promise (fetch running)
+  function prefetchNav(map) {
+    const cache = (globalThis.__aimRoundNav ??= {});
+    if (cache[map] instanceof ArrayBuffer) { navState[map] = "ok"; return null; }
+    if (navState[map] instanceof Promise) return navState[map];
+    const p = fetch(`/aim-rounds/${map}.nav.bin`, { cache: "no-cache" })
+      .then((r) => (r.ok ? r.arrayBuffer() : null))
+      .then((buf) => {
+        const ok = buf instanceof ArrayBuffer && buf.byteLength >= 12 && String.fromCharCode(...new Uint8Array(buf, 0, 4)) === "RNAV";
+        if (ok) cache[map] = buf;
+        navState[map] = ok ? "ok" : "missing";
+      })
+      .catch(() => { navState[map] = "missing"; });
+    navState[map] = p;
+    return p;
+  }
+  const prefetchAll = () => { for (const m of MAPS) prefetchNav(m.id); };
 
   const get = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
   const put = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} };
@@ -67,6 +92,7 @@
   function openPanel() {
     close();
     style();
+    prefetchAll();
     const cur = setup();
     const shade = document.createElement("div");
     shade.className = "es-tool-shade aim-pick-shade";
@@ -127,8 +153,19 @@
     shade.querySelector(".aim-pick-top").append(rankTile("default", "Default", "Round's own bots", NONE_ICON));
     for (const r of ranks()) shade.querySelector(".aim-pick-grid").append(rankTile(r[0], r[1], "", img(r[0])));
 
+    let waiting = false;
     const start = () => {
+      if (waiting) return;
       if (typeof window.__aimLaunchScene !== "function") { note.textContent = "Open the lobby first, then start the round from there."; return; }
+      if (navState[cur.map] === undefined) prefetchNav(cur.map);
+      const pending = navState[cur.map] instanceof Promise ? navState[cur.map] : null;
+      if (!pending) { launch(); return; }
+      // Cold cache (the fetch is still running): wait for it, at most 5 s.
+      waiting = true;
+      note.textContent = "Loading map data…";
+      Promise.race([pending, new Promise((r) => setTimeout(r, 5000))]).then(() => { waiting = false; if (open?.shade === shade) launch(); });
+    };
+    const launch = () => {
       put(SETUP_KEY, JSON.stringify({ map: cur.map, weapon: cur.weapon, barrier: cur.barrier }));
       put(RANK_KEY, cur.rank === "default" ? null : cur.rank);
       dispatchEvent(new Event("aim-bot-settings-change"));
@@ -155,5 +192,6 @@
     shade.querySelector(".aim-round-start").focus({ preventScroll: true });
   }
 
-  window.__aimRoundPanel = { open: openPanel, close };
+  window.__aimRoundPanel = { open: openPanel, close, prefetchNav, navState };
+  prefetchAll();
 })();
