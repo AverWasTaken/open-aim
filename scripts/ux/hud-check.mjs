@@ -173,6 +173,34 @@ async function startDrill() {
   return { started: false };
 }
 
+async function leave() {
+  const r = await ev(`window.__aimLeaveTraining()`);
+  const back = await waitFor(`!document.querySelector('.al-aimlab-root') && !!document.querySelector('.hall-topnav')`, 30000, "back in lobby");
+  return { leaveReturned: r, lobby: !!back };
+}
+function takeErrors(label) {
+  const e = errs.splice(0);
+  if (e.length) RESULT.errors.push({ during: label, list: e });
+  return e;
+}
+async function finish(body) {
+  try {
+    await connect();
+    await body();
+  } catch (e) {
+    RESULT.fatal = (e instanceof Bail ? "BAIL: " : "") + (e.stack || e.message || String(e)).slice(0, 600);
+    log("FATAL", RESULT.fatal);
+    if (sessionAlive) await shot("zz-fatal");
+  } finally {
+    takeErrors("end");
+    RESULT.elapsed = elapsed();
+    try { writeFileSync(`${OUT}/result.json`, JSON.stringify(RESULT, null, 2)); } catch {}
+    console.log("RESULT_JSON " + JSON.stringify(RESULT));
+    try { ws && ws.close(); } catch {}
+    setTimeout(() => process.exit(0), 200);
+  }
+}
+
 // ---------------- W2-E1 checks ----------------
 const MICRO = "d43f842fb33e4d46"; // Micro tiles: ball/target drill, no rank picker
 const JIGGLE = "1ee402b08e6fe47b"; // jiggle peek duels: bot drill
@@ -250,23 +278,24 @@ async function drill(prefix, code, { loading = true, big = false } = {}) {
   if (!D.ready) { await shot(prefix + "-not-ready"); return D; }
   D.start = await startDrill();
   await sleep(2500);
-  Object.assign(D, await pausedCheck(prefix));
   if (big) {
+    // In-drill HUD at 2560x1440 first (Tab while paused only opens the menu, it never resumes).
     try {
-      await tabKey(); await sleep(800); // resume
       await send("Emulation.setDeviceMetricsOverride", { width: 2560, height: 1440, deviceScaleFactor: 1, mobile: false });
       await sleep(1500);
       D.big = await ev(HUD);
       await shot(prefix + "-hud-2560");
-    } finally { await viewport(); }
+    } finally { await viewport(); await sleep(1500); }
   }
+  Object.assign(D, await pausedCheck(prefix));
+  if (!D.paused?.paused) RESULT.notes.push(prefix + ": Tab did not pause the drill (pointer lock: " + (D.start && D.start.lock) + ")");
   takeErrors(prefix);
   D.leave = await leave();
   return D;
 }
 async function round() {
   const D = (RESULT.checks.round = {});
-  const b = await clickText("^Round \\(beta\\)$", "button");
+  const b = await clickText("Round \\(beta\\)", "button");
   D.button = b && b.t;
   D.panel = !!(await waitFor(`!!document.querySelector('.aim-round')`, 8000, "round panel"));
   if (!D.panel) { await shot("round-no-panel"); return D; }
@@ -302,7 +331,7 @@ await finish(async () => {
   for (const k of ["ball", "bot", "round"]) {
     const p = RESULT.checks[k]?.paused;
     if (!p) continue;
-    S[k] = { valuePx: p.valuePx, labelPx: p.labelPx, topDisplay: p.top && p.top.display, topAboveCard: p.topAboveCard, overlayAlpha: p.layer && p.layer.alpha, layer: p.layer && p.layer.cls, coversCenter: RESULT.checks[k].running?.coversCenter, coversMinimap: RESULT.checks[k].running?.coversMinimap, meta: p.meta };
+    S[k] = { paused: p.paused, valuePx: p.valuePx, labelPx: p.labelPx, topDisplay: p.top && p.top.display, topAboveCard: p.topAboveCard, overlayAlpha: p.layer && p.layer.alpha, layer: p.layer && p.layer.cls, coversCenter: RESULT.checks[k].running?.coversCenter, coversMinimap: RESULT.checks[k].running?.coversMinimap, meta: p.meta };
   }
-  writeFileSync(`${OUT}/result.json`, JSON.stringify(RESULT, null, 2));
+  S.big = RESULT.checks.bot?.big && { vp: RESULT.checks.bot.big.vp, valuePx: RESULT.checks.bot.big.valuePx, top: RESULT.checks.bot.big.top, coversCenter: RESULT.checks.bot.big.coversCenter, coversMinimap: RESULT.checks.bot.big.coversMinimap };
 });
