@@ -17,6 +17,15 @@
 //   4. round timer ran out without a plant      -> defenders win, "timeout"
 // Detonation beats a defuse that would complete on the same tick (VALORANT: the defuse has to
 // finish before the spike goes off).
+//
+// Bot defuse (attack side: the defending bots defuse the player's spike). io.bots (built by the
+// sim from every roundBot actor at the end of the tick, app/mods/aim-rounds/round-bots.mjs) =
+// [{id, alive, x, y, z, defusing}]. A bot's defuse counts only while it is alive, reports
+// defusing = 1 and stands within defuseRadius (xz) and |dy| < 2 of the spike. Election: the current
+// defuser (state.defuser) keeps it while it still qualifies, else the lowest qualifying id. A new
+// defuser, or no defuser, drops the progress to the checkpoint (if reached) or 0, as when the
+// player lets go; a new defuser's tick then counts. Bots never set state.holding (the player can
+// still shoot them). A defuser killed on its finishing tick is dead in io.bots: no defuse.
 
 export const ROUND_DEFAULTS = {
   barrierSec: 20, roundSec: 100, plantSec: 4, spikeSec: 45, defuseSec: 7, defuseCheckpointSec: 3.5,
@@ -37,6 +46,10 @@ function shuffle(list, r) { const a = list.slice(); for (let i = a.length - 1; i
 // Called by the sim on the scene before anything else (every run gets a new seed, so every
 // restart re-rolls): the player's spawn point and which enemy setup spawners stay.
 // cfg.setups = { groups: { A: [spawnerId…], mid: […], B: […] }, splits: [[2,1,2], …], count: 5 }
+// cfg.botStart === 'spawn': the kept spawners then move onto distinct enemy spawn points (a seeded
+// shuffle of cfg.spawns[enemy side], given out in kept order; round-robin if there are fewer points
+// than bots); the roundBot behaviour walks them to their setup (cfg.setupBySpawner). These draws
+// come after the M1 ones, so the player spawn and the kept setups are the same as without it.
 export function roundPrepare(doc, seed) {
   const cfg = doc?.rules?.round;
   if (!cfg || typeof cfg !== 'object' || cfg.prepared) return doc; // prepared docs pass through
@@ -64,6 +77,12 @@ export function roundPrepare(doc, seed) {
     while (keep.size > count) keep.delete([...keep].pop());
     const all = new Set(names.flatMap((g) => groups[g] ?? []));
     spawners = doc.spawners.filter((s) => !all.has(s.id) || keep.has(s.id));
+    const pts = cfg.botStart === 'spawn' ? cfg.spawns?.[cfg.side === 'defense' ? 'attack' : 'defense'] : null;
+    if (Array.isArray(pts) && pts.length) {
+      const order = shuffle(pts, r), at = new Map();
+      [...keep].forEach((id, i) => at.set(id, order[i % order.length]));
+      spawners = spawners.map((s) => { const p = at.get(s.id); return p ? { ...s, position: { x: p.x, y: p.y, z: p.z } } : s; });
+    }
   }
   return { ...doc, playerSpawn, spawners, rules: { ...doc.rules, round: { ...cfg, prepared: true } } };
 }
@@ -74,7 +93,7 @@ export function roundCreate(cfg, tickSec) {
     phase: 'barrier', tick: 0, liveTick: 0, plantTick: -1, endTick: -1, done: false,
     side, playerAlive: true, enemiesDead: 0,
     spike: { carrier: side === 'attack' ? 'player' : null, dropped: null, planted: null },
-    plant: 0, defuse: 0, checkpoint: false, holding: null, zone: null, near: false,
+    plant: 0, defuse: 0, checkpoint: false, holding: null, zone: null, near: false, defuser: null,
     winner: null, reason: null, events: 0,
   };
 }
@@ -125,12 +144,13 @@ export function roundBlocksMove(cfg, state, x0, z0, x1, z1, y) {
 // The player can't move at all (dead after the plant: the camera stays where they fell).
 export function roundFrozen(state) { return !!state && !state.playerAlive; }
 // No player shots: barrier phase, round over, dead, or a plant/defuse hold in progress. With the
-// held keys and the player's position (feet) the hold that starts on this tick counts too.
+// held keys and the player's position (feet) the hold that starts on this tick counts too (the
+// use key near the spike only means "defuse" for a defending player).
 export function roundNoFire(state, hold, cfg, pos) {
   if (!state) return false;
   if (state.phase === 'barrier' || state.phase === 'ended' || !state.playerAlive || state.holding !== null) return true;
   if (hold?.plant && cfg && pos && state.phase === 'live' && state.spike.carrier === 'player' && roundZoneAt(cfg, pos.x, pos.y, pos.z)) return true;
-  return !!(hold?.use && state.near);
+  return !!(hold?.use && state.near && state.side === 'defense');
 }
 // Detonation tick: true when `pos` (the player or a bot) is inside the blast; the sim then kills it.
 export function roundBlast(cfg, state, pos) {
@@ -140,10 +160,28 @@ export function roundBlast(cfg, state, pos) {
 }
 // Bots don't hurt the player: barrier phase, round over, or the player is already dead.
 export function roundBotsHold(state) { return !!state && (state.phase === 'barrier' || state.phase === 'ended' || !state.playerAlive); }
-// The use key doesn't pick weapons up while it could mean "defuse" (or nothing happens anyway).
-export function roundBlocksUse(state) { return !!state && (state.phase !== 'live' || state.holding !== null || state.near); }
+// The use key doesn't pick weapons up while a plant / defuse is held, or while it could start a
+// defuse (defending player near the spike).
+export function roundBlocksUse(state) { return !!state && (state.holding !== null || (state.side === 'defense' && state.near)); }
 
-// One sim tick. io = { tick, tickSec, player:{x,y,z,yaw,speed,grounded,health,knife}, kills, hold:{plant,use} }.
+const finiteNum = (v) => typeof v === 'number' && Number.isFinite(v);
+// The bot whose defuse counts this tick (see the top comment), or null.
+function electDefuser(cfg, state, bots) {
+  const sp = state.spike.planted;
+  if (!sp || !Array.isArray(bots)) return null;
+  const r = num(cfg?.defuseRadius, ROUND_DEFAULTS.defuseRadius);
+  let best = null;
+  for (const b of bots) {
+    if (!b || b.alive !== true || b.defusing !== 1 || !finiteNum(b.x) || !finiteNum(b.y) || !finiteNum(b.z)) continue;
+    if (Math.hypot(b.x - sp.x, b.z - sp.z) > r || Math.abs(b.y - sp.y) >= 2) continue;
+    if (b.id === state.defuser) return b;
+    if (best === null || b.id < best.id) best = b;
+  }
+  return best;
+}
+
+// One sim tick. io = { tick, tickSec, player:{x,y,z,yaw,speed,grounded,health,knife}, kills, hold:{plant,use},
+// bots:[{id,alive,x,y,z,defusing}] (optional; bot defuse) }.
 // knife: the melee weapon is out (switching to it cancels a plant / defuse).
 // Returns events for this tick ({kind:'roundPhase'|'roundPlant'|'roundDefuse'|'roundEnd', …}).
 export function roundStep(cfg, state, io) {
@@ -210,16 +248,25 @@ export function roundStep(cfg, state, io) {
     }
   } else state.plant = 0;
 
-  // Defuse: hold use near the planted spike (defending player). Past the checkpoint a release
-  // keeps half the progress.
+  // Defuse: hold use near the planted spike (defending player), or a defending bot defusing it
+  // (attacking player; see the top comment). Past the checkpoint a release keeps half the progress.
+  const bot = state.phase === 'planted' && state.side === 'attack' ? electDefuser(cfg, state, io.bots) : null;
+  const dropped = () => (state.checkpoint ? T(cfg, 'defuseCheckpointSec', ts) : 0);
   if (state.phase === 'planted' && state.side === 'defense' && state.near && steady && hold.use) {
     state.holding = 'defuse';
     state.defuse += 1;
     if (state.defuse >= T(cfg, 'defuseCheckpointSec', ts)) state.checkpoint = true;
     if (state.defuse >= T(cfg, 'defuseSec', ts)) defused = true;
+  } else if (bot) {
+    if (bot.id !== state.defuser) state.defuse = dropped();
+    state.defuser = bot.id;
+    state.defuse += 1;
+    if (state.defuse >= T(cfg, 'defuseCheckpointSec', ts)) state.checkpoint = true;
+    if (state.defuse >= T(cfg, 'defuseSec', ts)) defused = true;
   } else if (state.phase === 'planted') {
-    state.defuse = state.checkpoint ? T(cfg, 'defuseCheckpointSec', ts) : 0;
+    state.defuse = dropped();
   }
+  if (!bot) state.defuser = null;
 
   // Outcomes, in precedence order.
   const attackAlive = state.side === 'attack' ? (state.playerAlive ? 1 : 0) : enemiesAlive;
@@ -257,6 +304,7 @@ export function roundView(cfg, state, tickSec) {
     spikeSec: num(cfg?.spikeSec, ROUND_DEFAULTS.spikeSec),
     plant: state.plant / T(cfg, 'plantSec', ts), defuse: state.defuse / T(cfg, 'defuseSec', ts),
     checkpoint: state.checkpoint, holding: state.holding, zone: state.zone, near: state.near,
+    botDefusing: state.phase === 'planted' && state.defuser != null, defuser: state.defuser ?? null,
     carrying: state.spike.carrier === 'player', spike: state.spike,
     enemiesAlive: Math.max(0, enemyCount - state.enemiesDead), enemyCount, playerAlive: state.playerAlive,
     winner: state.winner, reason: state.reason, win: state.winner ? state.winner === state.side : null,

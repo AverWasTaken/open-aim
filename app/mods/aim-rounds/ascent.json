@@ -444,6 +444,36 @@
    ]
   ]
  },
+ "retake": {
+  "A": [
+   {
+    "name": "A heaven",
+    "x": -82.83,
+    "y": 8.092,
+    "z": -50.33
+   },
+   {
+    "name": "A tree",
+    "x": -61.33,
+    "y": 4,
+    "z": -46.83
+   }
+  ],
+  "B": [
+   {
+    "name": "B CT",
+    "x": -86.33,
+    "y": 1,
+    "z": 13.17
+   },
+   {
+    "name": "B market",
+    "x": -81.33,
+    "y": 1,
+    "z": 10.17
+   }
+  ]
+ },
  "authoring": {
   "tool": "tools/round_author.mjs",
   "transform": {
@@ -700,15 +730,40 @@
    }
   },
   "seal": {
+   "nav": {
+    "file": "app/mods/aim-rounds/ascent.nav.bin",
+    "nodes": 21746,
+    "edges": 161371
+   },
    "attack": {
-    "cells": 6612,
+    "nodes": 6375,
     "leaks": [],
-    "unreached": []
+    "unreached": [],
+    "walk": {
+     "nodes": 6297,
+     "leaks": [],
+     "unreached": []
+    },
+    "all": {
+     "nodes": 6375,
+     "leaks": [],
+     "unreached": []
+    }
    },
    "defense": {
-    "cells": 11018,
+    "nodes": 10253,
     "leaks": [],
-    "unreached": []
+    "unreached": [],
+    "walk": {
+     "nodes": 10129,
+     "leaks": [],
+     "unreached": []
+    },
+    "all": {
+     "nodes": 10253,
+     "leaks": [],
+     "unreached": []
+    }
    }
   }
  }
