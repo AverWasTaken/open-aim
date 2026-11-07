@@ -26,7 +26,7 @@
           <li>Add the files in separate selections or drops if they are in different folders. Review the combined list before applying. Use files from one account only.</li>
         </ol><p>Files stay on this computer. VALORANT files are never changed. Settings without a trainer equivalent are skipped.</p></details>
         <div class="valorant-import-drop" tabindex="0" role="button" aria-label="Choose or drop VALORANT settings files">Drop settings files here, or click to choose</div>
-        <div class="es-tool-actions"><button type="button" data-action="choose" class="es-tool-primary">Add files…</button><button type="button" data-action="clear">Clear selected files</button><button type="button" data-action="undo">Undo last import</button></div>
+        <div class="es-tool-actions"><button type="button" data-action="choose" class="es-tool-primary">Add files…</button><button type="button" data-action="clear">Clear selected files</button><button type="button" data-action="undo" title="Puts back the settings and the crosshair profile list from before the last import.">Undo last import</button></div>
         <div data-preview></div><p class="es-tool-status" role="status" aria-live="polite"></p>
         <label class="valorant-import-hide"><input type="checkbox" data-hide> Don't show this on startup again</label>
       </div></section>`;
@@ -70,9 +70,10 @@
         let listNote = "";
         if (result.profiles.length && profileList()) {
           const n = result.profiles.length, m = profileList().mergeImported(profileList().load(localStorage), result.profiles);
-          listNote = m.added === n ? `All ${n} crosshair profiles will be added to your profile list.`
+          listNote = (m.added === n ? `All ${n} crosshair profiles will be added to your profile list.`
             : `${m.added} of ${n} crosshair profiles will be added to your profile list` +
-              [m.duplicates ? `${m.duplicates} already there` : "", m.invalid ? `${m.invalid} not readable` : "", m.notAdded ? `${m.notAdded} not added (limit ${profileList().MAX})` : ""].filter(Boolean).map(t => "; " + t).join("") + ".";
+              [m.duplicates ? `${m.duplicates} already there` : "", m.invalid ? `${m.invalid} not readable` : "", m.notAdded ? `${m.notAdded} not added (limit ${profileList().MAX})` : ""].filter(Boolean).map(t => "; " + t).join("") + ".") +
+            " Undo last import also puts back the profile list you had before.";
         }
         preview.innerHTML = `<h3>Review import</h3><p>${files.map(f => escape(f.name)).join(", ")}</p>
           ${result.profiles.length ? `<label>Crosshair profile <select data-profile>${result.profiles.map((p, i) => `<option value="${i}" ${i === selected ? "selected" : ""}>${escape(p.name)}${p.selected ? " (active in VALORANT)" : ""}</option>`).join("")}</select></label>` : ""}

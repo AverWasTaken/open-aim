@@ -159,10 +159,11 @@
       // reaches the page, so it can close the settings dialog as usual.
       for (const type of ["keydown", "keyup", "keypress"]) strip.addEventListener(type, e => { if (e.target === input || e.key !== "Escape") e.stopPropagation(); });
 
-      // chosen: the profile last picked or saved here, and the crosshair code at that moment.
+      // chosen: the profile last applied or saved here, and the crosshair code at that moment.
       // While the crosshair is unchanged it stays selected, even when another profile has the
-      // same code or applying it failed (so it can still be renamed or deleted).
-      let mode = null, confirmTimer = 0, busy = false, chosen = null;
+      // same code. failed: a profile that could not be applied; while the crosshair is unchanged
+      // it stays in the box marked "(not applied)", so it can still be renamed or deleted.
+      let mode = null, confirmTimer = 0, busy = false, chosen = null, failed = null;
       const say = (text, bad = false) => { status.textContent = text; status.classList.toggle("is-bad", bad); };
       const state = () => { const s = store(); return s ? load(s) : empty(); };
       const write = next => { try { save(localStorage, next); return true; } catch { say("Could not save profiles.", true); return false; } };
@@ -170,12 +171,14 @@
       function resetDelete() { clearTimeout(confirmTimer); del.textContent = "Delete"; del.classList.remove("feel-xprof-danger"); del.dataset.confirm = ""; }
       function render() {
         const s = state(), code = current();
+        const bad = failed && failed.code === code ? s.list.find(p => p.id === failed.id) || null : null;
+        if (!bad) failed = null;
         const kept = chosen && chosen.code === code ? s.list.find(p => p.id === chosen.id) : null;
-        const match = kept || (code ? findByCode(s, code) : null);
+        const match = bad || kept || (code ? findByCode(s, code) : null);
         lastCode = code;
         const opts = [];
         if (!match) { const o = document.createElement("option"); o.value = ""; o.text = s.list.length ? "— (edited)" : "— (no profiles yet)"; opts.push(o); }
-        for (const p of s.list) { const o = document.createElement("option"); o.value = p.id; o.text = p.name; opts.push(o); }
+        for (const p of s.list) { const o = document.createElement("option"); o.value = p.id; o.text = p === bad ? p.name + " (not applied)" : p.name; opts.push(o); }
         select.replaceChildren(...opts);
         select.value = match ? match.id : "";
         renameBtn.disabled = del.disabled = !match;
@@ -197,7 +200,7 @@
           const r = upsert(state(), { name: input.value, code });
           if (r.error) { say(r.error, true); return; }
           if (!write(r.state)) return;
-          chosen = { id: r.entry.id, code: current() };
+          chosen = { id: r.entry.id, code: current() }; failed = null;
           closeEdit(); render(); say((r.updated ? "Updated " : "Saved ") + r.entry.name);
         } else if (mode === "rename") {
           const p = selected();
@@ -211,6 +214,7 @@
         const p = state().list.find(x => x.id === id);
         if (!p || busy) { render(); return; }
         busy = true;
+        let applied = false;
         try {
           const message = panel.querySelector('[data-role="crosshair-code-message"]');
           const target = importButton(panel), area = panel.querySelector("textarea");
@@ -225,9 +229,16 @@
             const s = state(), e = s.list.find(x => x.id === p.id);
             if (e && !findByCode(s, now)) { e.code = now; write(s); }
           }
-          say("Applied " + p.name);
-        } catch { say("Could not apply " + p.name + ".", true); }
-        finally { chosen = { id: p.id, code: current() }; busy = false; render(); }
+          applied = true;
+        } catch {}
+        finally {
+          // Only a profile that really applied counts as chosen; a failed one keeps the old choice.
+          if (applied) { chosen = { id: p.id, code: current() }; failed = null; }
+          else failed = { id: p.id, code: current() };
+          busy = false; render();
+          if (applied) say("Applied " + p.name);
+          else say("Could not apply " + p.name + ". Your crosshair did not change.", true);
+        }
       }
       select.onchange = () => { resetDelete(); if (select.value) apply(select.value); };
       saveAs.onclick = () => openEdit("save");
