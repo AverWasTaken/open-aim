@@ -153,7 +153,7 @@
     { id: "deadlock", name: "Deadlock", unitLabel: "Sensitivity", decimals: 3, example: "1.2", ...linear(0.022) },
     { id: "quake", name: "Quake Champions", unitLabel: "Sensitivity", decimals: 3, example: "1.2", ...linear(0.022) },
     { id: "ow2", name: "Overwatch 2", unitLabel: "Sensitivity", decimals: 2, example: "4.5", ...linear(0.0066) },
-    { id: "cod", name: "Call of Duty (MW3 / BO6 / Warzone)", unitLabel: "Hipfire sensitivity", decimals: 2, example: "4.5", ...linear(0.0066) },
+    { id: "cod", name: "CoD: MW3 / BO6 / Warzone", unitLabel: "Hipfire sensitivity", decimals: 2, example: "4.5", ...linear(0.0066) },
     { id: "destiny2", name: "Destiny 2", unitLabel: "Look sensitivity", decimals: 2, example: "4.5", ...linear(0.0066) },
     { id: "fortnite", name: "Fortnite", unitLabel: "X/Y sensitivity (%)", decimals: 1, example: "6.3", percent: true, ...linear(VAL_YAW / 12.6) },
     {
@@ -397,7 +397,7 @@
 
       const { ads, scoped } = zoomMults();
       o("zoom").innerHTML = zoomRows(v, d, ads, scoped)
-        .map((r) => `<tr><td>${r.zoom}×<small>${r.what}</small></td><td>${r.kind === "ads" ? "ADS" : "Scoped"} ${fmt(r.mult, 3)}</td><td>${fmt(r.cm360, 1)}</td><td class="feel-sens-dim">${fmt(r.match0, 3)}</td></tr>`)
+        .map((r) => `<tr><td>${r.zoom}×<small>${r.what}</small></td><td>${r.kind === "ads" ? "ADS" : "Scoped"} ${fmt(r.mult, 3)}</td><td>${fmt(r.cm360, 1)}</td><td class="feel-sens-dim">${r.match0.toFixed(3)}</td></tr>`)
         .join("");
     }
 
