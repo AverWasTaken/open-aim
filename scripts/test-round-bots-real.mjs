@@ -242,7 +242,7 @@ function checkRetake(m, label, { defused = true } = {}) {
   assert.equal(m.fireWhileDefusing, 0, `${tag}: a bot fired while defusing`);
   assert.equal(m.stuck, 0, `${tag}: stuck bots`);
   assert.ok(m.maxExcess <= 0, `${tag}: an arrival took longer than 1.35 x field + 1 s (${m.maxExcess.toFixed(2)} s over) ${JSON.stringify(m.arrivals)}`);
-  assert.ok(m.minStill >= 0.8, `${tag}: two standing bots ${m.minStill.toFixed(2)} m apart`);
+  assert.ok(m.minStillTick >= 0.8, `${tag}: two standing bots ${m.minStillTick.toFixed(2)} m apart on some tick`);
   assert.ok(m.maxDefusers <= 1, `${tag}: ${m.maxDefusers} bots defusing on one tick`);
   assert.equal(m.overdue, 0, `${tag}: goals still open and overdue at the end`);
   if (m.staged2 >= 0) assert.ok(m.firstPush >= 0 && m.firstPush - m.staged2 <= 0.5 * TPS, `${tag}: push ${(m.firstPush - m.staged2) / TPS} s after the second bot staged`);
