@@ -800,6 +800,14 @@ test('R3 bot carrier election: the planned spawner beats a lower id; else the lo
   r3.step(four);
   assert.equal(r3.st.phase, 'live');
   assert.equal(r3.st.spike.carrier, 1);
+  // elected on the live tick while already planting on site: counts from the next tick
+  const onSite = four.map((b) => (b.id === 1 ? { ...b, ...at(PLANT_A), planting: 1 } : b));
+  const r5 = makeDefense({ seed: SEED });
+  r5.run(sec(20) - 1, four);
+  r5.step(onSite);
+  assert.equal(r5.st.spike.carrier, 1); assert.equal(r5.st.botPlant, 0, 'not on the election tick');
+  r5.step(onSite);
+  assert.equal(r5.st.botPlant, 1, 'from the next tick');
 
   // no plan (cfg.attack missing): lowest living id once all 5 are in io.bots
   const r4 = makeDefense({ seed: SEED, over: { attack: undefined } });

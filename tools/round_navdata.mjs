@@ -226,7 +226,8 @@ export function deriveAttack(g, T, data, C = navContext(g, data)) {
       const cands = [];
       for (const i of nodesNear(g, H, px, pz, POST_MAX)) {
         const d = Math.hypot(g.x[i] - px, g.y[i] - py, g.z[i] - pz);
-        if (d < POST_MIN || d > POST_MAX || A.atkWalk[i] === -2 || !openFloor(g, i)) continue;
+        // attackers walk there from every spawn (also keeps t finite for the sort)
+        if (d < POST_MIN || d > POST_MAX || A.atkWalk[i] === -2 || !openFloor(g, i) || !A.spawnT.every((f) => Number.isFinite(f[i]))) continue;
         if (!T.sight([g.x[i], g.y[i] + EYE, g.z[i]], spike)) continue;
         const seen = views.filter((v) => T.sight(v, [g.x[i], g.y[i] + BODY, g.z[i]]) || T.sight(v, [g.x[i], g.y[i] + EYE, g.z[i]])).length;
         cands.push({ i, d, seen, t: Math.max(...A.spawnT.map((f) => f[i])), a: Math.atan2(g.x[i] - px, g.z[i] - pz) });
