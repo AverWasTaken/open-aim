@@ -95,10 +95,10 @@ test('aimRoundBotList / aimRoundIoBots: only round bots, flat entries', () => {
   a.behavior.shooter = { lastSeenTick: 4 };
   const list = bots.aimRoundBotList([a, plain, b]);
   assert.deepEqual(list.map((e) => e.id), [1, 2]);
-  assert.deepEqual(list[0], { id: 1, spawnerId: 'sp', alive: true, x: 3, y: 1.5, z: -4, mode: 0, defusing: 1, seenTick: 4, nav: 0, node: -1, goal: -1, arrived: 1, moving: 0 });
+  assert.deepEqual(list[0], { id: 1, spawnerId: 'sp', alive: true, x: 3, y: 1.5, z: -4, mode: 0, defusing: 1, seenTick: 4, nav: 0, node: -1, goal: -1, arrived: 1, moving: 0, pushed: 0, staged: 0, cand: -1 });
   assert.equal(list[1].alive, false);
   assert.equal(list[1].seenTick, -1);
-  assert.deepEqual(bots.aimRoundIoBots([plain, a, b]), [{ id: 1, alive: true, x: 3, y: 1.5, z: -4, defusing: 1 }, { id: 2, alive: false, x: 3, y: 1.5, z: -4, defusing: 0 }]);
+  assert.deepEqual(bots.aimRoundIoBots([plain, a, b]), [{ id: 1, spawnerId: 'sp', alive: true, x: 3, y: 1.5, z: -4, defusing: 1, planting: 0 }, { id: 2, spawnerId: 'sp', alive: false, x: 3, y: 1.5, z: -4, defusing: 0, planting: 0 }]);
 });
 
 // ---------------------------------------------------------------- real sim, flat ground
@@ -499,7 +499,7 @@ test('B2 pickTarget never steers across an active barrier: stands ([-1, -1]) whe
   assert.equal(I.pickTarget(N, F, c, px, pz, far)[0], c);
 });
 
-test('B2 stuck: a bot that makes no progress re-plans every 2 s, then stands where it is (no teleport, no more il calls)', () => {
+test('B2 stuck: a bot that makes no progress re-plans every 2 s, then stands where it is (no teleport); B3: one more try when the barriers drop, then stands for good', () => {
   useNav();
   const { a, ctx, st } = initBot('Market');
   const p0 = { ...a.position };
@@ -516,9 +516,24 @@ test('B2 stuck: a bot that makes no progress re-plans every 2 s, then stands whe
   assert.equal(st.mode, I.MODE.stuck);
   assert.equal(replanAt.length, 3);
   replanAt.forEach((t, k) => assert.ok(Math.abs(t - 2 * (k + 1)) < 0.05, `re-plan ${k + 1} at ${t.toFixed(3)} s`));
-  const n = calls;
-  for (let i = 0; i < TPS * 2; i++) { ctx.tick++; ctx.elapsed = ctx.tick / TPS; ctx.round.state.phase = 'live'; bots.roundBotUpdate({}, a, ctx, 1 / TPS, () => { calls++; }); }
-  assert.equal(calls, n, 'stuck: no il calls');
+  let n = calls;
+  for (let i = 0; i < TPS; i++) { ctx.tick++; ctx.elapsed = ctx.tick / TPS; bots.roundBotUpdate({}, a, ctx, 1 / TPS, () => { calls++; }); }
+  assert.equal(calls, n, 'stuck in the barrier phase: no il calls');
+  // The drop is a goal change: one more try (walks again), 2 s without progress -> stuck again.
+  let again = -1;
+  for (let i = 0; i < TPS * 3; i++) {
+    ctx.tick++; ctx.elapsed = ctx.tick / TPS; ctx.round.state.phase = 'live';
+    bots.roundBotUpdate({}, a, ctx, 1 / TPS, () => { calls++; });
+    if (i === 0) { assert.equal(st.mode, I.MODE.walk, 'one more try at the drop'); assert.equal(st.retries, 1); }
+    if (again < 0 && st.mode === I.MODE.stuck) again = i;
+  }
+  assert.ok(calls > n, 'walked again after the drop');
+  assert.ok(again > 2 * TPS - 2 && again < 2 * TPS + 8, `stuck again after ${again} ticks`);
+  assert.equal(st.replans, 3);
+  n = calls;
+  for (let i = 0; i < TPS * 2; i++) { ctx.tick++; ctx.elapsed = ctx.tick / TPS; bots.roundBotUpdate({}, a, ctx, 1 / TPS, () => { calls++; }); }
+  assert.equal(calls, n, 'stuck for good: no il calls');
+  assert.equal(st.retries, 1);
   assert.deepEqual(a.position, p0, 'never teleported');
   assert.equal(st.speed, 0);
 });
@@ -658,8 +673,15 @@ function combatRun(extra) {
   st.player.position = { x: ASCENT.spawns.attack[0].x, y: 0, z: ASCENT.spawns.attack[0].z };
   s.restoreState(st);
   for (let i = 0; i < TPS * 18; i++) s.step(IDLE);
-  for (const a of s.saveState().actors) if (a.alive) assert.equal(a.behavior.roundBot.mode, I.MODE.hold, `${a.spawnerId} reached its setup`);
+  // (B3: the mid bot rotates on the A/B bots' sighting and stands at a staging point instead.)
+  for (const a of s.saveState().actors) {
+    if (!a.alive) continue;
+    const b = a.behavior.roundBot, mid = ascentGroup(a.spawnerId) === 'mid';
+    if (mid && b.rotN >= 0) assert.equal(b.mode, I.MODE.stage, `${a.spawnerId} (mid) stands at its rotation point`);
+    else assert.equal(b.mode, I.MODE.hold, `${a.spawnerId} reached its setup`);
+  }
 }
+const ascentGroup = (sid) => buildDoc(ASCENT, { side: 'attack', weapon: 'vandal', barrierSec: 2 }).rules.round.setupBySpawner[sid]?.group;
 
 // A test-only setup just past def-mid (attacker side): the bot must wait at the barrier.
 function beyondMid(N) {
@@ -684,4 +706,249 @@ test('B2 flat: a setup beyond def-mid -> the bot waits at the barrier (never cro
   assert.equal(r.b.mode, I.MODE.hold, 'reached the setup after the drop');
   assert.ok(Math.hypot(r.p.x - g.x[k], r.p.z - g.z[k]) < 0.05);
   assert.ok(r.b.arriveT > 20 && r.b.arriveT < 26, `arrived ${r.b.arriveT}`);
+});
+
+// ---------------------------------------------------------------- B3: speed, rotation, retake, defuse (pure + flat)
+// Bots on their Ascent setups (nav mode, fake rng); ctxAt builds the tick's ctx with the snapshot
+// of all of them (every bot sees the same list, as in the sim).
+function team(names, { side = 'attack', rank } = {}) {
+  const doc = ascentDoc({ barrierSec: 1 }), r = doc.rules.round;
+  r.side = side;
+  const actors = names.map((nm, i) => {
+    const sid = Object.keys(r.setupBySpawner).find((id) => r.setupBySpawner[id].name === nm), s = r.setupBySpawner[sid];
+    const a = { id: i + 1, spawnerId: sid, alive: true, position: { x: s.x, y: s.y, z: s.z }, offset: { x: 0, y: 0, z: 0 }, behavior: { shooter: { lastSeenTick: -1 } }, rng: fakeRng() };
+    bots.roundBotInit({}, a, { tick: 1, elapsed: 1 / TPS, round: { cfg: r, state: { phase: 'barrier', side }, bots: null }, profile: { runSpeed: 5.4 }, target: { eye: { x: 0, y: 0, z: 0 }, canSee: () => false } });
+    return a;
+  });
+  const state = { phase: 'live', side, plantTick: -1, spike: { planted: null }, playerAlive: true, checkpoint: false, defuse: 0 };
+  const ctxAt = (tick) => ({ tick, elapsed: tick / TPS, round: { cfg: r, state, bots: bots.aimRoundBotList(actors) }, profile: { runSpeed: 5.4 }, ...(rank ? { enemyRank: rank } : {}), target: { eye: { x: 0, y: 0, z: 0 }, canSee: () => false } });
+  // One tick for all bots with a mover that does nothing (positions stay; unit tests only).
+  const tickAll = (tick, il = () => {}) => { const ctx = ctxAt(tick); for (const a of actors) bots.roundBotUpdate({}, a, ctx, 1 / TPS, il); return ctx; };
+  return { r, actors, state, ctxAt, tickAll };
+}
+const A_SPIKE = { x: -72, y: 5, z: -62, site: 'A' };
+const plantAt = (T, sp = A_SPIKE, tick = 100) => { T.state.phase = 'planted'; T.state.plantTick = tick; T.state.spike.planted = sp; };
+
+test('B3 speed: 6.75 m/s (knife) during the barrier phase whatever the gun, the profile speed after the drop', () => {
+  useNav();
+  const { a, ctx } = initBot('Market');
+  ctx.profile = { runSpeed: 5.4 };
+  let speed = null;
+  const il = (s, o) => { speed = o.speed; };
+  for (let i = 0; i < TPS; i++) { ctx.tick++; ctx.elapsed = ctx.tick / TPS; bots.roundBotUpdate({}, a, ctx, 1 / TPS, il); }
+  assert.equal(speed, 6.75, 'barrier: knife speed');
+  ctx.round.state.phase = 'live'; ctx.tick++; ctx.elapsed = ctx.tick / TPS;
+  bots.roundBotUpdate({}, a, ctx, 1 / TPS, il);
+  assert.equal(speed, 5.4, 'live: the weapon profile speed');
+});
+
+test('B3 retake latch: staged in place on site, the rest to staging slots (2 s per bot already there, 1.2 m apart), cover stops, one candidate (lowest spike time), the same in every bot; push and late joiner', () => {
+  const N = useNav(), g = N.g;
+  const T = team(['A site default', 'A heaven', 'Market', 'B default', 'B back site']);
+  plantAt(T);
+  T.tickAll(101);
+  const sd = I.spikeData(N, T.r, A_SPIKE), F = sd.field, stg = I.stagingFor(N, T.r).A;
+  assert.equal(sd.kind, 'defuse');
+  for (const k of sd.set) assert.ok(Math.hypot(g.x[k] - A_SPIKE.x, g.z[k] - A_SPIKE.z) <= 1.2 && Math.abs(g.y[k] - A_SPIKE.y) < 1.8, 'tight goal set');
+  const S = T.actors.map((a) => a.behavior.roundBot);
+  const stT = Math.min(...stg.map((k) => F.dist[k]));
+  for (const s of S) {
+    assert.equal(s.pk, 100);
+    if (F.dist[s.cur] <= stT) { assert.equal(s.sgi, -1, 'staged in place'); assert.equal(s.staged, 1); }
+    else assert.ok(s.sgi >= 0, 'has a staging point');
+  }
+  assert.ok(S.filter((s) => s.sgi === -1).length >= 2 && S.filter((s) => s.sgi >= 0).length >= 2, 'both kinds covered');
+  // Slots on a shared staging point: 0, 1.2 m, 2.4 m … in id order.
+  for (let j = 0; j < stg.length; j++) S.filter((s) => s.sgi === j).forEach((s, k) => assert.ok(Math.abs(s.slotT - (1.2 * k) / 6.75) < 1e-12, `slot ${k}`));
+  const cands = new Set(S.map((s) => s.cand));
+  assert.equal(cands.size, 1, 'every bot elects the same candidate');
+  const best = T.actors.slice().sort((p, q) => F.dist[p.behavior.roundBot.cur] - F.dist[q.behavior.roundBot.cur] || p.id - q.id)[0];
+  assert.equal([...cands][0], best.id, 'candidate = lowest spike time');
+  assert.ok(S.every((s) => s.covT >= 0), 'everyone has a cover stop');
+  // Push: the next tick sees the bots staged in place -> they push; the far ones do not yet.
+  T.tickAll(102);
+  for (const s of S) assert.equal(s.pushed, s.sgi === -1 ? 1 : 0, `push ${s.sgi}`);
+  const cand = best.behavior.roundBot;
+  assert.equal(cand.gk, I.GK.spike, 'candidate goes to the spike');
+  assert.ok(S.filter((s) => s.pushed === 1 && s !== cand).every((s) => s.gk === I.GK.cover), 'others go to cover');
+  assert.ok(S.filter((s) => s.pushed === 0).every((s) => s.gk === I.GK.stage), 'far ones head for staging');
+  // Late joiner: a far bot that reaches its staging slot pushes (someone has pushed).
+  const far = T.actors.find((a) => a.behavior.roundBot.sgi >= 0), fs_ = far.behavior.roundBot, fk = I.fieldFor(N, stg[fs_.sgi], null);
+  let n = fs_.cur;
+  while (fk.dist[n] > fs_.slotT + 1 && fk.via[n] >= 0) n = fk.via[n];
+  far.position = { x: g.x[n], y: g.y[n], z: g.z[n] }; fs_.cur = n;
+  T.tickAll(103); T.tickAll(104);
+  assert.equal(fs_.staged, 1); assert.equal(fs_.pushed, 1, 'late joiner pushes on arrival');
+  // Flat numeric state only.
+  for (const s of S) for (const [k, v] of Object.entries(s)) assert.ok(typeof v === 'number' ? Number.isFinite(v) : typeof v === 'boolean', `${k} flat finite`);
+});
+
+test('B3 retake: player dead -> no staging, everyone pushes at once; time pressure pushes a far bot; one bot alive pushes; defense side -> no retake', () => {
+  const names = ['A site default', 'Market', 'B default', 'B back site', 'B workshop'];
+  let T = team(names);
+  plantAt(T); T.state.playerAlive = false;
+  T.tickAll(101);
+  for (const a of T.actors) { assert.equal(a.behavior.roundBot.sgi, -2); assert.equal(a.behavior.roundBot.pushed, 1, 'pushes at once'); }
+  // Time pressure: 30 s gone, a bot ~16 s (field) away: 16 x 1.25 + 0.3 + 7 + 5 > 15 left -> push.
+  T = team(names);
+  plantAt(T);
+  T.tickAll(101);
+  const far = T.actors.find((a) => a.behavior.roundBot.sgi >= 0);
+  assert.equal(far.behavior.roundBot.pushed, 0);
+  T.tickAll(100 + 30 * TPS);
+  assert.equal(far.behavior.roundBot.pushed, 1, 'pushes when time runs short');
+  // One bot alive: pushes, and is the candidate.
+  T = team(names);
+  T.actors.forEach((a) => { if (a.id !== 3) a.alive = false; });
+  plantAt(T);
+  T.tickAll(101);
+  assert.equal(T.actors[2].behavior.roundBot.pushed, 1, 'last bot pushes');
+  assert.equal(T.actors[2].behavior.roundBot.cand, 3, 'and is the candidate');
+  // Defense side: nothing latches.
+  T = team(names, { side: 'defense' });
+  plantAt(T);
+  T.tickAll(101);
+  for (const a of T.actors) assert.equal(a.behavior.roundBot.pk, -1, 'no retake on the defense side');
+});
+
+test('B3 candidate: latched while eligible, re-elected when it dies or gets stuck (every bot agrees); electCand rules', () => {
+  const N = useNav();
+  const T = team(['A site default', 'A site front', 'Market', 'B default', 'B back site']);
+  plantAt(T);
+  T.tickAll(101);
+  const F = I.spikeData(N, T.r, A_SPIKE).field, c1 = T.actors[0].behavior.roundBot.cand;
+  assert.ok(c1 > 0);
+  // Another bot showing up right at the spike (snapshot node) does not steal a latched candidacy.
+  const other = T.actors.find((a) => a.id !== c1 && a.behavior.roundBot.sgi === -1) ?? T.actors.find((a) => a.id !== c1);
+  other.behavior.roundBot.cur = I.spikeData(N, T.r, A_SPIKE).set[0];
+  T.tickAll(102);
+  assert.ok(T.actors.every((a) => a.behavior.roundBot.cand === c1), 'latched');
+  T.actors.find((a) => a.id === c1).alive = false;
+  const want = (ctx) => ctx.round.bots.filter((o) => o.alive && o.mode !== I.MODE.stuck).sort((p, q) => F.dist[p.node] - F.dist[q.node] || p.id - q.id)[0].id;
+  let ctx = T.tickAll(103);
+  const c2 = T.actors.find((a) => a.alive).behavior.roundBot.cand;
+  assert.equal(c2, want(ctx), 're-elected: the nearest alive bot');
+  assert.ok(T.actors.filter((a) => a.alive).every((a) => a.behavior.roundBot.cand === c2));
+  T.actors.find((a) => a.id === c2).behavior.roundBot.mode = I.MODE.stuck;
+  ctx = T.tickAll(104);
+  const c3 = T.actors.find((a) => a.alive && a.id !== c2).behavior.roundBot.cand;
+  assert.ok(c3 !== c2 && c3 === want(ctx), 'a stuck candidate is replaced');
+  assert.ok(T.actors.filter((a) => a.alive).every((a) => a.behavior.roundBot.cand === c3));
+  // electCand pure: ties -> lowest id; infinite / no nav / stuck never.
+  const f = { dist: [0.5, 0.5, Infinity, 0.2] };
+  const list = [{ id: 2, nav: 1, node: 0, mode: 1 }, { id: 3, nav: 1, node: 1, mode: 1 }, { id: 4, nav: 1, node: 2, mode: 1 }, { id: 5, nav: 0, node: 3, mode: 0 }, { id: 6, nav: 1, node: 3, mode: I.MODE.stuck }];
+  assert.equal(I.electCand(list, f, -1, 4), 2);
+  assert.equal(I.electCand(list, f, 3, 4), 3, 'keeps a latched eligible one');
+  assert.equal(I.electCand([list[2], list[3], list[4]], f, -1, 4), -1);
+});
+
+test('B3 info rotation: a mid bot latches once on an A/B bot\'s sighting of the previous tick and goes after the rank delay (exact ticks) to the nearer staging point of that site; never for iron/bronze, mid sightings, old sightings, the barrier phase or after the plant', () => {
+  const N = useNav();
+  const names = ['A site default', 'Market', 'B default', 'Pizza', 'B back site']; // ids 1..5; mid = 2, 4
+  const run = (rank, { seer = 1, phase = 'live', at = 500, seenTick = at - 1, extra = null } = {}) => {
+    const T = team(names, { rank });
+    T.state.phase = phase;
+    if (extra) extra(T);
+    const ctx = T.ctxAt(at);
+    for (const o of ctx.round.bots) if ((Array.isArray(seer) ? seer : [seer]).includes(o.id)) o.seenTick = seenTick;
+    for (const a of T.actors) bots.roundBotUpdate({}, a, ctx, 1 / TPS, () => {});
+    return T;
+  };
+  const delays = { silver: 6, gold: 6, platinum: 4, diamond: 4, ascendant: 3, immortal: 3, radiant: 2, '': 5, made_up: 5 };
+  for (const [rank, d] of Object.entries(delays)) {
+    const T = run(rank || undefined), m = T.actors[1].behavior.roundBot;
+    assert.equal(m.rotTrig, 499, `${rank}: sighting tick`);
+    assert.equal(m.rotT - m.rotTrig, Math.round(d * TPS), `${rank}: delay ${d} s`);
+    const stg = I.stagingFor(N, T.r).A, t = stg.map((k) => I.fieldFor(N, k, null).dist[m.cur]);
+    assert.equal(m.rotN, stg[t[0] <= t[1] ? 0 : 1], `${rank}: nearer A staging`);
+    assert.ok(T.actors[3].behavior.roundBot.rotN >= 0, 'every mid bot latches');
+    for (const i of [0, 2, 4]) assert.equal(T.actors[i].behavior.roundBot.rotN, -1, 'site bots never rotate');
+  }
+  for (const rank of ['iron', 'bronze']) assert.equal(run(rank).actors[1].behavior.roundBot.rotN, -1, `${rank} never rotates`);
+  assert.equal(run('gold', { seer: 4 }).actors[1].behavior.roundBot.rotN, -1, 'a mid bot\'s sighting does not trigger');
+  assert.equal(run('gold', { seenTick: 500 }).actors[1].behavior.roundBot.rotN, -1, 'only seenTick === tick - 1 counts');
+  assert.equal(run('gold', { seenTick: 480 }).actors[1].behavior.roundBot.rotN, -1, 'an old sighting does not');
+  assert.equal(run('gold', { phase: 'barrier' }).actors[1].behavior.roundBot.rotN, -1, 'not in the barrier phase');
+  assert.equal(run('gold', { phase: 'planted', extra: (T) => { T.state.plantTick = 400; T.state.spike.planted = A_SPIKE; } }).actors[1].behavior.roundBot.rotN, -1, 'not after the plant');
+  // Both sites the same tick: the lowest-id trigger's site (bot 1 = A site default, bot 3 = B default).
+  let T = run('gold', { seer: [3, 1] });
+  assert.ok(I.stagingFor(N, T.r).A.includes(T.actors[1].behavior.roundBot.rotN), 'A wins (lower id)');
+  T = run('gold', { seer: [3, 5] });
+  assert.ok(I.stagingFor(N, T.r).B.includes(T.actors[1].behavior.roundBot.rotN), 'a B sighting -> B staging');
+  // No re-rotation; it starts walking to the rotation point exactly at rotT.
+  T = run('radiant');
+  const m = T.actors[1], ms = m.behavior.roundBot, keep = ms.rotN;
+  let firstWalk = -1;
+  for (let t = 501; t <= ms.rotT + 2; t++) {
+    const ctx = T.ctxAt(t);
+    for (const o of ctx.round.bots) if (o.id === 3) o.seenTick = t - 1;
+    bots.roundBotUpdate({}, m, ctx, 1 / TPS, () => { if (firstWalk < 0 && ms.gk === I.GK.rotate) firstWalk = t; });
+  }
+  assert.equal(ms.rotN, keep, 'no re-rotation');
+  assert.equal(firstWalk, ms.rotT, 'walks to the rotation point from rotT on (exact tick)');
+});
+
+test('B3 spike data: plant-time fields in an LRU of 8; an evicted entry rebuilds identical; a stacked-crate top nobody can reach -> no defuse goal', () => {
+  const N = useNav(), g = N.g, cfg = team(['A site default']).r;
+  const first = I.spikeData(N, cfg, A_SPIKE), dist0 = Array.from(first.field.dist);
+  for (let i = 1; i <= 9; i++) I.spikeData(N, cfg, { x: -72 + i * 0.25, y: 5, z: -62, site: 'A' });
+  assert.ok(I.plantCacheSize(N) <= I.PLANT_LRU, `cache ${I.plantCacheSize(N)}`);
+  const again = I.spikeData(N, cfg, A_SPIKE);
+  assert.notEqual(again, first, 'was evicted');
+  assert.ok(Array.from(again.field.dist).every((v, i) => v === dist0[i]), 'rebuilt the same');
+  assert.deepEqual(again.set, first.set);
+  for (const bad of N.header.zones.A.bad) {
+    const sd = I.spikeData(N, cfg, { x: bad[0], y: bad[1], z: bad[2], site: 'A' });
+    assert.notEqual(sd.kind, 'defuse', `no reachable defuse node on the crate top ${bad}`);
+  }
+  assert.ok(g.count > 0);
+});
+
+test('B3 real sim, no nav (fallback bots): after a plant nobody defuses and the spike goes off; nothing throws', { skip }, () => {
+  const s = createSim(botDoc({ dist: 80, barrierSec: 1 }), 8);
+  play(s, TPS * 1.5);
+  s.setRoundHold({ plant: true });
+  play(s, TPS * 4 + 2);
+  s.setRoundHold({ plant: false });
+  assert.equal(s.snapshot().round.phase, 'planted');
+  let defusing = 0;
+  play(s, TPS * 46, IDLE, (q) => { for (const a of q.saveState().actors) if (a.roundDefusing === 1) defusing++; });
+  assert.equal(s.snapshot().round.reason, 'detonated');
+  assert.equal(defusing, 0);
+  assert.ok(s.saveState().actors.every((a) => a.behavior.roundBot.nav === 0));
+});
+
+test('B3 flat, both movement modes: gold -> the mid bot leaves 6 s after an A/B bot\'s sighting (exact ticks) and stands at the staging point; iron -> it never rotates', { skip }, () => {
+  const g = useNav().g;
+  for (const extra of [{}, { movement: 'game' }]) {
+    for (const rank of ['gold', 'iron']) {
+      const doc = ascentDoc({ barrierSec: 2, set: SETS[0] }); // A site default, A site front, Market (mid), B default, B back site
+      const midSid = Object.keys(doc.rules.round.setupBySpawner).find((id) => doc.rules.round.setupBySpawner[id].name === 'Market');
+      const s = ascentSim(doc, 9, { ...extra, enemyRank: rank });
+      const move = (pos) => { const st = s.saveState(); st.player.position = pos; s.restoreState(st); };
+      for (let i = 0; i < TPS * 1.5; i++) s.step(IDLE);
+      // A short peek in the open near A (flat ground: the bots see it), gone before their reaction.
+      move({ x: -66, y: 0, z: -40 });
+      let live = -1, moveAt = -1, seenA = -1;
+      for (let i = 0; i < TPS * 26; i++) {
+        s.step(IDLE);
+        const q = s.saveState();
+        if (q.aimRound.phase === 'live' && live < 0) live = q.aimRound.tick;
+        if (live >= 0 && q.aimRound.tick === live + 16) move({ x: ASCENT.spawns.attack[0].x, y: 0, z: ASCENT.spawns.attack[0].z });
+        for (const a of q.actors) if (a.spawnerId !== midSid && a.behavior.shooter.lastSeenTick === q.aimRound.tick && live >= 0 && seenA < 0) seenA = q.aimRound.tick;
+        const m = q.actors.find((a) => a.spawnerId === midSid).behavior.roundBot;
+        if (moveAt < 0 && m.gk === I.GK.rotate) moveAt = q.aimRound.tick;
+      }
+      const q = s.saveState(), ma = q.actors.find((a) => a.spawnerId === midSid), m = ma.behavior.roundBot;
+      assert.equal(q.aimRound.phase, 'live', 'the player survived the peek');
+      if (rank === 'iron') { assert.equal(m.rotN, -1, 'iron never rotates'); continue; }
+      assert.ok(seenA >= 0, 'A/B bots saw the peek');
+      assert.ok(m.rotN >= 0, 'rotated');
+      assert.ok(m.rotTrig >= live - 1 && m.rotTrig <= seenA, `trigger tick ${m.rotTrig} (live ${live}, first live sighting ${seenA})`);
+      assert.equal(m.rotT - m.rotTrig, 6 * TPS, 'gold delay 6 s');
+      assert.ok(Math.abs(moveAt - m.rotT) <= 1, `left at ${moveAt} vs ${m.rotT}`);
+      assert.equal(m.mode, I.MODE.stage, 'stands at the staging point');
+      assert.ok(Math.hypot(ma.position.x - g.x[m.rotN], ma.position.z - g.z[m.rotN]) < 0.1, 'on the staging node');
+    }
+  }
 });

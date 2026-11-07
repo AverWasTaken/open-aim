@@ -35,21 +35,28 @@
 //   "game" movement setting; il then uses the game's acceleration model), ctx.ground(x, z, y, up,
 //   down) -> floor y | null (only for ground movers when the scene has collision; never in init).
 // ctx.round.bots entry: { id, spawnerId, alive, x, y, z, mode, defusing (0|1), seenTick, nav (0|1),
-//   node, goal, arrived (0|1), moving (0|1) }
+//   node, goal, arrived (0|1), moving (0|1), pushed (0|1), staged (0|1), cand }
 //   seenTick = the bot's shooter lastSeenTick (the shooter runs before roundBot in the template, so
 //   "sees the player this tick" inside roundBotUpdate is actor.behavior.shooter.lastSeenTick ===
-//   ctx.tick).
+//   ctx.tick; in the snapshot a sighting on the previous tick reads seenTick === ctx.tick - 1).
 //   mode     = ROUND_BOT_MODE: static 0 (no nav: M1 bot on its setup spot), walk 1, hold 2 (on its
 //              setup), wait 3 (barrier phase, setup beyond a defender barrier: stands at the last
-//              reachable node in front of it), stuck 4 (gave up after STUCK_MAX re-plans, stands).
+//              reachable node in front of it), stuck 4 (gave up after STUCK_MAX re-plans, stands),
+//              stage 5 (B3: stands at its retake staging slot / where it stood when it counts as
+//              staged in place / at its info-rotation point), cover 6 (B3: stands at its cover spot,
+//              or at the spike as the defuse candidate before it starts), defuse 7 (B3: defusing).
 //   nav      = 1 when the bot runs on the nav graph (decided once in init), else 0 (fallback).
 //   node     = the bot's current nav node (tracked among graph neighbours), -1 without nav.
 //   goal     = its setup's nav node (or the substitute, see below), -1 without nav.
 //   arrived  = 1 once it reached its setup (stays 1; the fallback bot is there from the start).
 //   moving   = the sim's own actor.moving flag (one tick old), used for yielding.
-//   B3 adds its own published fields here (no bundle re-patch needed).
-// io.bots entry: { id, alive, x, y, z, defusing (0|1) } -> round-core's bot defuse (it elects and
-//   confirms; the bots decide who walks to the spike).
+//   pushed   = 1 once the bot pushes the retake (latched until the next plant; B3).
+//   staged   = 1 while it counts as staged for the retake (at / <= 1.5 s from its slot, or staged in
+//              place; B3).
+//   cand     = the defuse candidate's id as this bot sees it (every bot computes the same), -1 none.
+// io.bots entry: { id, spawnerId, alive, x, y, z, defusing (0|1), planting (0|1) } -> round-core's
+//   bot defuse (it elects and confirms; the bots decide who walks to the spike). planting is always
+//   0 for now (R3: bot plants; round-core reads it, a missing value counts as 0).
 // Flat fields on the actor (top level; the sim's save copies the actor one level deep):
 //   actor.roundDefusing  0|1  set by roundBot; the shooter (MN) neither fires nor stops-to-shoot
 //                             while it is 1 (it takes effect from the next tick: roundBot runs after
@@ -94,9 +101,12 @@
 // crossing. A drop edge is taken alone (the target is the drop's lower node; il walks off the
 // ledge and falls). il gets [here, target, next] with index reset to 1, so it never reaches the
 // last waypoint of an intermediate target (JU zeroes the speed there whatever `finish` is); only
-// the goal gets [here, goal] with finish 'stop'. Speed = ctx.profile.runSpeed (= the player's
-// weapon speed, 5.4 with rifles, while edgeCost is seconds at 6.75: arrivals ~1.2 x field; il applies
-// speedScale). On a new target node `stuck` is deleted (else il's auto-jump stays off).
+// the goal gets [here, goal] with finish 'stop'. Speed: 6.75 m/s (knife run, = the nav's edgeCost
+// basis) during the barrier phase, ctx.profile.runSpeed after the drop (= the player's weapon
+// speed, 5.4 with rifles: arrivals ~1.25 x field then; il applies speedScale). On a new target node
+// `stuck` is deleted (else il's auto-jump stays off).
+// Goals are descriptors {field, stopT}: the bot walks down the field and its goal is reached at the
+// first node whose field time is <= stopT (setups: single-node field, stopT 0 = the node itself).
 // Spawn: seeded 0-0.6 s stagger (actor.rng) before the first step.
 // Hold: on the setup, facing header setups[name].face (sim yaw, atan2(dx, dz)); with face2 it
 // switches between the two every seeded 4-8 s. Without a header facing: toward the attacker spawn.
@@ -110,19 +120,60 @@
 // (60 deg cone, same floor), at most 0.75 s in a row, then ignores yields for 1 s (passes through).
 // Stuck: if the field value at the bot's node hasn't dropped by 0.2 s in 2 s of free walking, it
 // re-finds its node globally (re-plan; in the barrier phase only among nodes reachable from its
-// spawn inside the barriers); after 3 re-plans it stands where it is (mode stuck) for the rest of
-// the round (B3 may give it another try). A straight line to its own node that would cross an
-// active barrier is never taken (it stands instead).
+// spawn inside the barriers); after 3 re-plans it stands where it is (mode stuck). Every goal
+// change after that (the barrier drop, the plant, the push, a new defuse candidate, an info
+// rotation) gives it one more try: re-find + walk; 2 s without progress -> stuck again. A straight
+// line to its own node that would cross an active barrier is never taken (it stands instead).
 // Dead: clears its flags; if it died in the air it finishes the fall (il with brake), as lN does
 // under "game" movement (here in both modes: lN's default-mode dead bot keeps walking).
+//
+// ---------------------------------------------------------------- B3: rotation, retake, defuse
+// All of it only when cfg.side === 'attack' (the bots defend) and the bot runs on the nav.
+// Info rotation (live phase, before the plant): a bot of group 'mid' (cfg.setupBySpawner group)
+// latches once per round when the snapshot shows a bot of a site group (a group with retake
+// staging points, e.g. 'A'/'B'; never 'mid') that saw the player on the previous tick (seenTick ===
+// ctx.tick - 1; several the same tick: the lowest id wins). It goes delay seconds after that
+// sighting to the nearer (field time) staging point of that site and stands there (mode stage)
+// facing the site. delay by ctx.enemyRank: iron/bronze never, silver/gold 6 s, platinum/diamond
+// 4 s, ascendant/immortal 3 s, radiant 2 s, anything else (absent = the drill's own bots) 5 s. No
+// re-rotation.
+// Retake (from the first tick that sees phase 'planted'): spike field = one multi-source field to
+// the defuse goal set: nav nodes reachable from the bots' spawn points within xz 1.2 / |dy| < 1.8
+// of the spike, else within round-core's own rule (xz 1.6 / |dy| < 2). No such node (Ascent: a few
+// stacked-crate tops that need 2+ jumps) -> nobody defuses there (cover set = nodes within xz 4 /
+// |dy| < 3; the spike goes off). Plant-time fields live in a small LRU (8).
+//   Latch (each bot computes the same from the snapshot, alive nav bots by id): a bot whose spike
+//   time is <= the nearest staging point's spike time is staged where it stands; every other bot
+//   gets the staging point (header staging / cfg.retake of the spike's site) with the lowest
+//   travel + 2 s per bot already there, slot k = stop 1.2 k m (field time k * 1.2 / 6.75) short of
+//   it. Cover = the first node on its spike-field chain (from its staging point, or where it
+//   stands) 3-5 m from the spike and >= 1.5 m from earlier picks (else the one nearest 5 m among
+//   5-8 m out; already closer than 3 m: where it stands; none: it stays at its staging point). Player dead or no staging data: no staging, it pushes at once.
+//   Push (latched, pushed = 1): player dead, OR only one bot alive, OR time left <= travel to the
+//   spike (field x 6.75 / speed + 0.3 s) + defuse time left (defuseSec, minus the checkpoint once
+//   reached) + 5 s, OR it is staged and (>= 2 alive bots are staged OR some bot has pushed).
+//   Defuse candidate = the alive nav bot (not stuck, finite spike time) with the lowest spike time,
+//   ties lowest id; latched while it stays eligible, then re-elected. After the push the candidate
+//   walks to the spike goal set, the others to their cover spots (facing the spike).
+//   Defuse: the candidate starts (actor.roundDefusing = 1, mode defuse) once it stands at the goal
+//   (after the il move: xz <= 1.5, |dy| < 1.9, stopped, not airborne, combatHold !== 1) and the
+//   player is dead or it hasn't seen them for >= 1 s. It then holds the flag every tick without
+//   moving (no il) until the round ends, unless it sees the player and the rank isn't iron..gold:
+//   then it stops to fight, except past the checkpoint with time left < defuse left + 1.5 s.
 // Flat state (nav mode): nav, mode, snap, spawn, goal, setup, wait, cur, tgt, tx, ty, tz, goT,
 //   arrived, arriveT, fk, best, bestT, replans, yieldT, yieldCd, face, face2, face2On, faceSel,
-//   altT + il's own (index, speed, finished, air, vy, jy, jb, stuck). -1 = none.
+//   altT, at (node it stopped on), gk (goal kind), lx, lz (look point), retries, B3: pk (plant tick
+//   latched), sgi (staging index, -1 in place, -2 none), slotT, ipT, covT, cand, pushed, staged,
+//   rotN (rotation node), rotT (tick it goes), rotI (site index), rotTrig (sighting tick)
+//   + il's own (index, speed, finished, air, vy, jy, jb, stuck). -1 = none.
 
 import { parseRoundNav, reverseEdges, NAV_WALK, NAV_DROP } from './round-nav.mjs';
 
-export const ROUND_BOT_MODE = { static: 0, walk: 1, hold: 2, wait: 3, stuck: 4 };
+export const ROUND_BOT_MODE = { static: 0, walk: 1, hold: 2, wait: 3, stuck: 4, stage: 5, cover: 6, defuse: 7 };
 const MODE = ROUND_BOT_MODE;
+// Goal kinds (st.gk): what the current goal descriptor is.
+const GK = { setup: 0, wait: 1, stage: 2, place: 3, spike: 4, cover: 5, rotate: 6 };
+const STOPPED = new Set([MODE.hold, MODE.wait, MODE.stage, MODE.cover]);
 
 const RUN_SPEED = 6.75;
 const TURN_RATE = (540 * Math.PI) / 180; // rad/s
@@ -136,8 +187,23 @@ const SUBST_R = 2.5, SUBST_DY = 0.5;
 const LINE_STEP = 0.1, LINE_DY = 0.5, BEND_DY = 0.15;
 const WD = (1 << NAV_WALK) | (1 << NAV_DROP);
 const FAR = 1e9; // 'no value yet' in the flat state (Infinity would not survive a JSON copy)
+// B3
+const STAGE_SLOT = 1.2, STAGE_NEAR = 1.5, STAGE_COST = 2;
+const PUSH_MARGIN = 5, ACCEL_MARGIN = 0.3;
+const COVER_MIN = 3, COVER_MAX = 5, COVER_WIDE = 8, COVER_SEP = 1.5;
+const GOAL_XZ = 1.2, GOAL_DY = 1.8, FULL_XZ = 1.6, FULL_DY = 2, NEAR_XZ = 4, NEAR_DY = 3;
+const DEFUSE_XZ = 1.5, DEFUSE_DY = 1.9, UNSEEN_SEC = 1, FIGHT_MARGIN = 1.5;
+const FACE_SPIKE_M = 15;
+const PLANT_LRU = 8;
+const LOW_RANKS = new Set(['iron', 'bronze', 'silver', 'gold']); // keep defusing while seen
+const ROT_DELAY = { iron: -1, bronze: -1, silver: 6, gold: 6, platinum: 4, diamond: 4, ascendant: 3, immortal: 3, radiant: 2 };
+const ROT_DEFAULT = 5;
+const ROUND_DEF = { spikeSec: 45, defuseSec: 7, defuseCheckpointSec: 3.5 }; // = round-core ROUND_DEFAULTS
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+const num = (v, d) => (finite(v) ? v : d);
+const tickSecOf = (ctx) => (ctx.tick > 0 && finite(ctx.elapsed) && ctx.elapsed > 0 ? ctx.elapsed / ctx.tick : 1 / 128);
+const ticksOf = (sec, ts) => Math.max(1, Math.round(sec / ts)); // round-core's T()
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 function setupOf(ctx, actor) {
@@ -184,7 +250,7 @@ function buildNav(buf) {
   }
   const W = i1 - i0 + 1, H = j1 - j0 + 1, head = new Int32Array(W * H).fill(-1), next = new Int32Array(n);
   for (let i = n - 1; i >= 0; i--) { const c = (ci[i] - i0) * H + (cj[i] - j0); next[i] = head[c]; head[c] = i; }
-  return { g, rev: reverseEdges(g), header: h, cell, ox, oz, i0, j0, W, H, head, next, masks: new Map(), fields: new Map(), reach: new Map() };
+  return { g, rev: reverseEdges(g), header: h, cell, ox, oz, i0, j0, W, H, head, next, masks: new Map(), fields: new Map(), reach: new Map(), plant: new Map(), perCfg: new WeakMap() };
 }
 
 // First node of the nav cell holding (x, z), or -1; walk the list with N.next.
@@ -300,9 +366,21 @@ function fieldFor(N, goal, mask) {
   const key = `${goal}|${maskId(mask)}`;
   let f = N.fields.get(key);
   if (f) return f;
+  f = dijkstra(N, [goal], mask);
+  f.goal = goal;
+  N.fields.set(key, f);
+  return f;
+}
+// Multi-source field (every node of `src` at 0; goal -1): the spike's defuse goal set.
+function fieldMulti(N, src) {
+  const f = dijkstra(N, src, null);
+  f.goal = -1;
+  return f;
+}
+function dijkstra(N, src, mask) {
   const g = N.g, R = N.rev, n = g.count;
   const dist = new Float64Array(n).fill(Infinity), via = new Int32Array(n).fill(-1), viaE = new Int32Array(n).fill(-1), done = new Uint8Array(n), h = new Heap();
-  dist[goal] = 0; h.push(0, goal);
+  for (const s of src) { dist[s] = 0; h.push(0, s); }
   while (h.size) {
     const i = h.pop();
     if (done[i]) continue;
@@ -315,9 +393,7 @@ function fieldFor(N, goal, mask) {
       if (nd < dist[j]) { dist[j] = nd; via[j] = i; viaE[j] = e; h.push(nd, j); }
     }
   }
-  f = { goal, dist, via, viaE };
-  N.fields.set(key, f);
-  return f;
+  return { goal: -1, dist, via, viaE };
 }
 // Nodes reachable FROM src over walk+drop edges not cut by mask (1 = reached).
 function reachFor(N, src, mask) {
@@ -337,6 +413,67 @@ function reachFor(N, src, mask) {
   }
   N.reach.set(key, r);
   return r;
+}
+
+// ---------------------------------------------------------------- B3 data (pure caches)
+// Per scene cfg (rules.round never changes during a run) on this nav.
+function perCfg(N, cfg) {
+  let c = N.perCfg.get(cfg);
+  if (!c) { c = {}; N.perCfg.set(cfg, c); }
+  return c;
+}
+// Retake staging nodes per site id: nav header staging[site][j].node, else the nearest node to
+// cfg.retake[site][j] (ascent.json retake).
+function stagingFor(N, cfg) {
+  const c = perCfg(N, cfg);
+  if (c.staging) return c.staging;
+  const g = N.g, hs = N.header.staging && typeof N.header.staging === 'object' ? N.header.staging : {}, cr = cfg.retake && typeof cfg.retake === 'object' ? cfg.retake : {};
+  const out = {};
+  for (const id of new Set([...Object.keys(hs), ...Object.keys(cr)])) {
+    const list = [];
+    const src = Array.isArray(hs[id]) && hs[id].length ? hs[id] : Array.isArray(cr[id]) ? cr[id] : [];
+    for (const e of src) {
+      let k = e && Number.isInteger(e.node) && e.node >= 0 && e.node < g.count ? e.node : -1;
+      if (k < 0 && e && finite(e.x) && finite(e.z)) k = nearestNode(N, e.x, e.z, 1, finite(e.y) ? e.y : null, 1.5);
+      if (k >= 0 && !list.includes(k)) list.push(k);
+    }
+    out[id] = list;
+  }
+  return (c.staging = out);
+}
+// Nodes reachable (walk+drop) from the bots' team spawn points (union), or null without any.
+function reachUnion(N, cfg) {
+  const c = perCfg(N, cfg);
+  if (c.reach !== undefined) return c.reach;
+  let u = null;
+  for (const p of cfg.spawns?.[cfg.side === 'defense' ? 'attack' : 'defense'] ?? []) {
+    if (!p || !finite(p.x) || !finite(p.z)) continue;
+    let k = nearestNode(N, p.x, p.z, 1.5, finite(p.y) ? p.y : null, 1.5);
+    if (k < 0) k = nearestNode(N, p.x, p.z, 1.5);
+    if (k < 0) continue;
+    const r = reachFor(N, k, null);
+    if (!u) u = new Uint8Array(N.g.count);
+    for (let i = 0; i < r.length; i++) if (r[i]) u[i] = 1;
+  }
+  return (c.reach = u);
+}
+// The planted spike's goal data: kind 'defuse' (set = reachable nodes within xz 1.2 / |dy| < 1.8,
+// else xz 1.6 / |dy| < 2), 'near' (no defuse node: cover set xz 4 / |dy| < 3) or 'none'; field =
+// multi-source field to the set (null for 'none'). LRU of PLANT_LRU entries (pure: an evicted
+// entry is rebuilt the same).
+function spikeData(N, cfg, sp) {
+  const key = `${sp.x},${sp.y},${sp.z}`, L = N.plant;
+  let d = L.get(key);
+  if (d) { L.delete(key); L.set(key, d); return d; }
+  const g = N.g, R = reachUnion(N, cfg);
+  const around = (r, dy) => nodesNear(N, sp.x, sp.z, r).filter((k) => (!R || R[k] === 1) && Math.abs(g.y[k] - sp.y) < dy);
+  let set = around(GOAL_XZ, GOAL_DY), kind = 'defuse';
+  if (!set.length) set = around(FULL_XZ, FULL_DY);
+  if (!set.length) { set = around(NEAR_XZ, NEAR_DY); kind = set.length ? 'near' : 'none'; }
+  d = { key, kind, set, field: set.length ? fieldMulti(N, set) : null };
+  L.set(key, d);
+  while (L.size > PLANT_LRU) L.delete(L.keys().next().value);
+  return d;
 }
 
 // ---------------------------------------------------------------- node tracking + target
@@ -381,13 +518,14 @@ function lineOnFloor(N, x0, z0, y0, k) {
   return true;
 }
 
-// The node to steer to this tick, plus the node after it (-1 when the target is the goal).
-function pickTarget(N, F, cur, x, z, bars) {
-  const g = N.g;
-  if (cur === F.goal || F.viaE[cur] < 0) return [cur, -1];
+// The node to steer to this tick, plus the node after it (-1 when the target is the goal: the first
+// node down the field whose time is <= stopT, or a node with no way on).
+function pickTarget(N, F, cur, x, z, bars, stopT = 0) {
+  const g = N.g, end = (n) => F.viaE[n] < 0 || F.dist[n] <= stopT;
+  if (end(cur)) return [cur, -1];
   const y0 = g.y[cur], chain = [cur], cum = [0];
   let best = -1;
-  for (let k = 1, n = cur; k <= LOOK_AHEAD && n !== F.goal; k++) {
+  for (let k = 1, n = cur; k <= LOOK_AHEAD && !end(n); k++) {
     const e = F.viaE[n], m = F.via[n];
     if (e < 0) break;
     const cut = bars.length > 0 && lineCut(bars, x, z, y0, g.x[m], g.z[m], g.y[m]);
@@ -406,7 +544,7 @@ function pickTarget(N, F, cur, x, z, bars) {
     if (bars.length > 0 && lineCut(bars, x, z, y0, g.x[cur], g.z[cur], y0)) return [-1, -1]; // stand
     best = cur;
   }
-  return [best, best === F.goal ? -1 : F.via[best]];
+  return [best, end(best) ? -1 : F.via[best]];
 }
 
 // ---------------------------------------------------------------- facing
@@ -458,10 +596,16 @@ function navInit(actor, ctx, s, st) {
     face = a && finite(a.x) && finite(a.z) ? Math.atan2(a.x - g.x[goal], a.z - g.z[goal]) : 0;
   }
   const face2 = hs && finite(hs.face2) ? hs.face2 : face;
+  // B3 data that doesn't depend on the plant: staging fields, the team's reachable set (all here,
+  // not at the plant, so the plant tick only builds the spike field).
+  for (const list of Object.values(stagingFor(N, cfg))) for (const k of list) fieldFor(N, k, null);
+  reachUnion(N, cfg);
   Object.assign(st, {
     nav: 1, mode: MODE.walk, spawn, setup, goal, wait, cur: spawn, tgt: -1, tx: p.x, ty: p.y, tz: p.z,
     goT: ctx.elapsed + actor.rng.range(0, STAGGER_SEC), arrived: 0, arriveT: -1, fk: -1, best: FAR, bestT: ctx.elapsed,
     replans: 0, yieldT: 0, yieldCd: -1, face, face2, face2On: hs && finite(hs.face2) ? 1 : 0, faceSel: 0, altT: -1,
+    at: -1, gk: GK.setup, lx: FAR, lz: FAR, retries: 0,
+    pk: -1, sgi: -2, slotT: 0, ipT: -1, covT: -1, cand: -1, pushed: 0, staged: 0, rotN: -1, rotT: -1, rotI: -1, rotTrig: -1,
     index: 0, speed: 0, finished: false,
   });
   // Initial facing: down the route (a few nodes ahead on the barrier-phase field).
@@ -506,8 +650,9 @@ function shouldYield(actor, ctx, st) {
   return false;
 }
 
-function arrive(actor, ctx, st, goal) {
-  st.mode = goal === st.goal ? MODE.hold : MODE.wait;
+function arrive(actor, ctx, st, kind, node) {
+  st.mode = kind === GK.setup ? MODE.hold : kind === GK.wait ? MODE.wait : kind === GK.spike || kind === GK.cover ? MODE.cover : MODE.stage;
+  st.at = node;
   st.speed = 0;
   if (st.mode === MODE.hold && st.arrived !== 1) {
     st.arrived = 1; st.arriveT = ctx.elapsed;
@@ -515,41 +660,220 @@ function arrive(actor, ctx, st, goal) {
   }
 }
 
+// ---------------------------------------------------------------- B3: plan (rotation, retake, candidate, push)
+const runSpeed = (ctx, barrier) => (barrier ? RUN_SPEED : finite(ctx.profile?.runSpeed) ? ctx.profile.runSpeed : RUN_SPEED);
+const lastSeen = (actor) => (finite(actor.behavior?.shooter?.lastSeenTick) ? actor.behavior.shooter.lastSeenTick : -1e9);
+const spikeLeft = (ctx, cfg, rs) => num(cfg.spikeSec, ROUND_DEF.spikeSec) - (ctx.tick - rs.plantTick) * tickSecOf(ctx);
+
+// The snapshot as every bot sees it: alive bots by id (the own entry from its state when the
+// snapshot is missing, e.g. a unit test without a list).
+function snapshotOf(ctx, actor, st) {
+  const raw = Array.isArray(ctx.round?.bots) ? ctx.round.bots : [];
+  const list = raw.filter((o) => o && o.alive === true).sort((a, b) => a.id - b.id);
+  if (!list.some((o) => o.id === actor.id)) {
+    list.push({ id: actor.id, spawnerId: actor.spawnerId, alive: true, nav: 1, node: st.cur, mode: st.mode, staged: st.staged, pushed: st.pushed, cand: st.cand });
+    list.sort((a, b) => a.id - b.id);
+  }
+  return list;
+}
+
+// Defuse candidate: keep `prev` while it is eligible, else the eligible bot with the lowest spike
+// time (ties: lowest id). Eligible = alive, on the nav, not stuck, finite spike time.
+function electCand(list, F, prev, count) {
+  if (!F) return -1;
+  const ok = (o) => o.nav === 1 && o.mode !== MODE.stuck && Number.isInteger(o.node) && o.node >= 0 && o.node < count && finite(F.dist[o.node]);
+  const p = list.find((o) => o.id === prev);
+  if (p && ok(p)) return prev;
+  let best = null;
+  for (const o of list) if (ok(o) && (best === null || F.dist[o.node] < F.dist[best.node])) best = o; // list is by id: ties keep the lower
+  return best ? best.id : -1;
+}
+
+// The plant-time latch: staging point + slot, staged-in-place, cover stop (one greedy pass over
+// the snapshot, the same in every bot).
+function latchRetake(N, actor, st, sd, stg, sp, list, rs) {
+  Object.assign(st, { pk: rs.plantTick, pushed: 0, staged: 0, sgi: -2, slotT: 0, ipT: -1, covT: -1, cand: -1 });
+  const g = N.g, F = sd.field, stF = stg.map((k) => fieldFor(N, k, null));
+  let stT = Infinity;
+  if (F) for (const k of stg) stT = Math.min(stT, F.dist[k]);
+  const used = stg.map(() => 0), picks = [];
+  for (const o of list) {
+    if (o.nav !== 1 || !Number.isInteger(o.node) || o.node < 0 || o.node >= g.count) continue;
+    let sgi = -2, slotT = 0, ipT = -1, start = o.node;
+    const ts = F ? F.dist[o.node] : Infinity;
+    if (rs.playerAlive !== false && stg.length) {
+      if (finite(ts) && ts <= stT) { sgi = -1; ipT = ts; }
+      else {
+        let bc = Infinity;
+        stF.forEach((f, j) => { const c = f.dist[o.node] + STAGE_COST * used[j]; if (c < bc) { bc = c; sgi = j; } });
+        if (sgi >= 0) { slotT = (STAGE_SLOT * used[sgi]) / RUN_SPEED; used[sgi] += 1; start = stg[sgi]; } else sgi = -2;
+      }
+    }
+    let covT = -1;
+    if (F && finite(F.dist[start])) {
+      // On its chain: the first node 3-5 m out that is >= 1.5 m from earlier picks; else the one
+      // nearest 5 m among 5-8 m out; already closer than 3 m: where it stands.
+      const free = (n) => picks.every((q) => Math.hypot(g.x[q] - g.x[n], g.z[q] - g.z[n]) >= COVER_SEP);
+      let pick = -1, wide = -1, wd = Infinity;
+      for (let n = start, i = 0; i < g.count; i++) {
+        const d = Math.hypot(g.x[n] - sp.x, g.z[n] - sp.z);
+        if (d >= COVER_MIN && d <= COVER_MAX && free(n)) { pick = n; break; }
+        if (d > COVER_MAX && d <= COVER_WIDE && d < wd && free(n)) { wide = n; wd = d; }
+        if (F.viaE[n] < 0) break;
+        n = F.via[n];
+      }
+      if (pick < 0) pick = wide;
+      if (pick < 0 && Math.hypot(g.x[start] - sp.x, g.z[start] - sp.z) < COVER_MIN) pick = start;
+      if (pick >= 0) { covT = F.dist[pick]; picks.push(pick); }
+    }
+    if (o.id === actor.id) Object.assign(st, { sgi, slotT, ipT, covT });
+  }
+  if (st.sgi === -2) st.pushed = 1;
+  if (st.sgi === -1) st.staged = 1;
+}
+
+// Retake bookkeeping for this tick (attack side, spike planted). Returns {sd, sp, goal} or null.
+function retakePlan(N, actor, ctx, st, cfg, rs) {
+  const sp = rs.spike?.planted;
+  if (cfg.side !== 'attack' || !sp || !finite(sp.x) || !finite(sp.y) || !finite(sp.z) || !Number.isInteger(rs.plantTick) || rs.plantTick < 0) return null;
+  const sd = spikeData(N, cfg, sp), F = sd.field;
+  const stg = stagingFor(N, cfg)[sp.site] ?? [];
+  const list = snapshotOf(ctx, actor, st);
+  if (st.pk !== rs.plantTick) latchRetake(N, actor, st, sd, stg, sp, list, rs);
+  st.cand = sd.kind === 'defuse' ? electCand(list, F, st.cand, N.g.count) : -1;
+  if (st.pushed !== 1) {
+    if (st.sgi === -1) st.staged = 1;
+    else if (st.sgi >= 0) st.staged = fieldFor(N, stg[st.sgi], null).dist[st.cur] - st.slotT <= STAGE_NEAR ? 1 : 0;
+    let alive = 0, staged = 0, anyPushed = false;
+    for (const o of list) { alive++; if (o.staged === 1) staged++; if (o.pushed === 1) anyPushed = true; }
+    const travel = F && finite(F.dist[st.cur]) ? (F.dist[st.cur] * RUN_SPEED) / runSpeed(ctx, false) + ACCEL_MARGIN : 0;
+    const defuse = num(cfg.defuseSec, ROUND_DEF.defuseSec) - (rs.checkpoint === true ? num(cfg.defuseCheckpointSec, ROUND_DEF.defuseCheckpointSec) : 0);
+    if (rs.playerAlive === false || alive <= 1 || spikeLeft(ctx, cfg, rs) <= travel + defuse + PUSH_MARGIN || (st.staged === 1 && (staged >= 2 || anyPushed))) st.pushed = 1;
+  }
+  const stageGoal = () => {
+    if (st.sgi >= 0) return { F: fieldFor(N, stg[st.sgi], null), stopT: st.slotT, kind: GK.stage, fk: 1e8 + st.sgi };
+    if (st.sgi === -1 && F) return { F, stopT: st.ipT, kind: GK.place, fk: 2e8 };
+    return null;
+  };
+  let goal;
+  if (st.pushed !== 1) goal = stageGoal();
+  else if (F && sd.kind === 'defuse' && st.cand === actor.id) goal = { F, stopT: 0, kind: GK.spike, fk: 3e8 };
+  else if (F && st.covT >= 0) goal = { F, stopT: st.covT, kind: GK.cover, fk: 4e8 };
+  else goal = stageGoal();
+  return { sd, sp, goal };
+}
+
+// Info rotation latch (live phase, before the plant; mid bots only; once per round).
+function rotationLatch(N, actor, ctx, st, cfg, rs) {
+  if (cfg.side !== 'attack' || rs.phase !== 'live' || st.rotN >= 0 || rs.spike?.planted) return;
+  const own = cfg.setupBySpawner?.[actor.spawnerId];
+  if (!own || own.group !== 'mid') return;
+  const rank = typeof ctx.enemyRank === 'string' ? ctx.enemyRank : '';
+  const delay = Object.prototype.hasOwnProperty.call(ROT_DELAY, rank) ? ROT_DELAY[rank] : ROT_DEFAULT;
+  if (delay < 0 || !Array.isArray(ctx.round?.bots)) return;
+  const stages = stagingFor(N, cfg);
+  let trig = null;
+  for (const o of ctx.round.bots) {
+    if (!o || o.alive !== true || o.seenTick !== ctx.tick - 1 || o.id === actor.id) continue;
+    const grp = cfg.setupBySpawner?.[o.spawnerId]?.group;
+    if (typeof grp !== 'string' || grp === 'mid' || !stages[grp]?.length) continue;
+    if (trig === null || o.id < trig.id) trig = { id: o.id, site: grp };
+  }
+  if (!trig) return;
+  let bj = -1, bt = Infinity;
+  stages[trig.site].forEach((k, j) => { const t = fieldFor(N, k, null).dist[st.cur]; if (t < bt) { bt = t; bj = j; } });
+  if (bj < 0) return; // can't get there
+  const sighting = ctx.tick - 1;
+  Object.assign(st, { rotN: stages[trig.site][bj], rotT: sighting + Math.round(delay / tickSecOf(ctx)), rotI: (cfg.sites ?? []).findIndex((s) => s && s.id === trig.site), rotTrig: sighting });
+}
+
+// The goal descriptor for this tick: retake, else info rotation, else setup / wait (B2).
+function goalFor(N, ctx, st, rs, barrier, mask, plan) {
+  if (plan?.goal) return plan.goal;
+  if (!barrier && st.rotN >= 0 && rs.phase === 'live' && ctx.tick >= st.rotT) return { F: fieldFor(N, st.rotN, null), stopT: 0, kind: GK.rotate, fk: 5e8 + st.rotN };
+  let F = fieldFor(N, st.goal, mask), kind = GK.setup;
+  if (barrier && !finite(F.dist[st.cur]) && st.wait >= 0) { F = fieldFor(N, st.wait, mask); kind = GK.wait; }
+  return { F, stopT: 0, kind, fk: F.goal * 2 + (barrier ? 1 : 0) };
+}
+
+const inReach = (p, sp) => Math.hypot(p.x - sp.x, p.z - sp.z) <= DEFUSE_XZ && Math.abs(p.y - sp.y) < DEFUSE_DY;
+
+// Start defusing (after the il move): candidate at the spike goal, stopped, on the ground, not in
+// combat, and the player dead or unseen for >= 1 s.
+function tryDefuse(actor, ctx, st, rs, plan, G) {
+  if (!plan || G.kind !== GK.spike || st.mode !== MODE.cover || rs.phase !== 'planted' || actor.roundDefusing === 1) return;
+  if ((st.speed ?? 0) > 0.05 || st.air === 1 || actor.combatHold === 1 || !inReach(actor.position, plan.sp)) return;
+  if (rs.playerAlive !== false && ctx.tick - lastSeen(actor) < ticksOf(UNSEEN_SEC, tickSecOf(ctx))) return;
+  actor.roundDefusing = 1;
+  st.mode = MODE.defuse;
+}
+// Keep defusing this tick? (Seen by the player: iron..gold keep on; higher ranks stop to fight
+// unless past the checkpoint with too little time to restart.)
+function keepDefusing(actor, ctx, st, cfg, rs, plan) {
+  if (!plan || rs.phase !== 'planted' || st.cand !== actor.id || !inReach(actor.position, plan.sp)) return false;
+  if (rs.playerAlive === false || actor.behavior?.shooter?.lastSeenTick !== ctx.tick) return true;
+  if (LOW_RANKS.has(ctx.enemyRank)) return true;
+  const ts = tickSecOf(ctx), left = (ticksOf(num(cfg.defuseSec, ROUND_DEF.defuseSec), ts) - (rs.defuse ?? 0)) * ts;
+  return rs.checkpoint === true && spikeLeft(ctx, cfg, rs) < left + FIGHT_MARGIN;
+}
+
 function navUpdate(actor, ctx, dt, il, st) {
   const cfg = ctx.round?.cfg, N = cfg ? navFor(cfg.map) : null;
   if (!N) { st.speed = 0; return; } // the nav went away mid-run (never in the app): stand
-  const g = N.g, p = actor.position, barrier = ctx.round.state?.phase === 'barrier';
+  const g = N.g, p = actor.position, rs = ctx.round.state ?? {}, barrier = rs.phase === 'barrier';
   const bars = barrier ? barriersOf(cfg) : [], mask = barrier ? maskFor(N, bars) : null;
-  if (st.mode === MODE.stuck) { st.speed = 0; faceIdle(actor, ctx, st, dt, barrier); return; }
+  const okNodes = mask ? reachFor(N, st.spawn, mask) : null;
+
+  // B3 bookkeeping (from the snapshot and the round state).
+  const plan = retakePlan(N, actor, ctx, st, cfg, rs);
+  if (!plan) rotationLatch(N, actor, ctx, st, cfg, rs);
+  if (plan) { st.lx = plan.sp.x; st.lz = plan.sp.z; }
+  else if (st.rotN >= 0 && st.rotI >= 0 && finite(cfg.sites?.[st.rotI]?.center?.x)) { st.lx = cfg.sites[st.rotI].center.x; st.lz = cfg.sites[st.rotI].center.z; }
+
+  // Defusing: stand still (no il) while it goes on.
+  if (actor.roundDefusing === 1) {
+    if (keepDefusing(actor, ctx, st, cfg, rs, plan)) { st.speed = 0; st.mode = MODE.defuse; turnTo(actor, yawTo(actor, plan.sp.x, plan.sp.z), dt); return; }
+    actor.roundDefusing = 0;
+    if (st.mode === MODE.defuse) st.mode = MODE.cover;
+  }
+
+  // Stuck: stands, until the goal changes (drop, plant, push, candidate, rotation): one more try.
+  if (st.mode === MODE.stuck) {
+    if (goalFor(N, ctx, st, rs, barrier, mask, plan).fk === st.fk) { st.speed = 0; faceIdle(actor, ctx, st, dt, barrier); return; }
+    st.mode = MODE.walk; st.replans = STUCK_MAX - 1; st.retries += 1;
+    const k = refindNode(N, p.x, p.y, p.z, 2.5, st.cur, okNodes);
+    if (k >= 0) st.cur = k;
+  }
 
   // Node tracking (neighbours only; global re-find when lost).
   st.cur = trackNode(N, st.cur, p.x, p.z, mask);
-  const okNodes = mask ? reachFor(N, st.spawn, mask) : null;
   if (dxz(g, st.cur, p.x, p.z) > 1) { const k = refindNode(N, p.x, p.y, p.z, 2.5, st.cur, okNodes); if (k >= 0) st.cur = k; }
 
-  // Field: barrier phase -> masked to the setup, or to the wait node when the setup is beyond a
-  // barrier; after the drop -> unmasked to the setup.
-  let F = fieldFor(N, st.goal, mask);
-  if (barrier && !finite(F.dist[st.cur]) && st.wait >= 0) F = fieldFor(N, st.wait, mask);
-  const goal = F.goal, fk = goal * 2 + (barrier ? 1 : 0);
-  if (fk !== st.fk) {
-    st.fk = fk; st.best = FAR; st.bestT = ctx.elapsed;
-    if (st.mode === MODE.hold || st.mode === MODE.wait) { if (goal !== (st.mode === MODE.hold ? st.goal : st.wait) || dxz(g, goal, p.x, p.z) > 0.1) st.mode = MODE.walk; }
+  // Goal descriptor {field, stopT}: barrier phase -> masked to the setup, or to the wait node when
+  // the setup is beyond a barrier; after the drop -> unmasked to the setup; B3 goals override.
+  const G = goalFor(N, ctx, st, rs, barrier, mask, plan), F = G.F, stopT = G.stopT;
+  st.gk = G.kind;
+  if (G.fk !== st.fk) {
+    st.fk = G.fk; st.best = FAR; st.bestT = ctx.elapsed;
+    if (STOPPED.has(st.mode)) {
+      if (st.at >= 0 && F.dist[st.at] <= stopT && dxz(g, st.at, p.x, p.z) <= 0.1) arrive(actor, ctx, st, G.kind, st.at);
+      else st.mode = MODE.walk;
+    }
   }
   if (!finite(F.dist[st.cur])) { st.speed = 0; faceIdle(actor, ctx, st, dt, barrier); return; } // cut off (never on Ascent)
 
-  if (st.mode === MODE.hold || st.mode === MODE.wait) {
-    if (dxz(g, goal, p.x, p.z) <= HOLD_LEAVE) { faceIdle(actor, ctx, st, dt, barrier); return; }
+  if (STOPPED.has(st.mode)) {
+    if (dxz(g, st.at >= 0 ? st.at : st.cur, p.x, p.z) <= HOLD_LEAVE) { tryDefuse(actor, ctx, st, rs, plan, G); faceIdle(actor, ctx, st, dt, barrier); return; }
     st.mode = MODE.walk; st.best = FAR; st.bestT = ctx.elapsed;
   }
 
   // Walk.
   if (ctx.elapsed < st.goT) { st.bestT = ctx.elapsed; faceIdle(actor, ctx, st, dt, barrier); return; } // spawn stagger
-  const [t, t2] = pickTarget(N, F, st.cur, p.x, p.z, bars);
+  const [t, t2] = pickTarget(N, F, st.cur, p.x, p.z, bars, stopT);
   if (t < 0) { st.speed = 0; st.bestT = ctx.elapsed; faceIdle(actor, ctx, st, dt, barrier); return; } // never across a barrier
   if (t !== st.tgt) { delete st.stuck; st.tgt = t; }
   st.tx = g.x[t]; st.ty = g.y[t]; st.tz = g.z[t];
-  if (t === goal && dxz(g, goal, p.x, p.z) <= 0.02 && (st.speed ?? 0) <= 0.05) { arrive(actor, ctx, st, goal); faceIdle(actor, ctx, st, dt, barrier); return; }
+  if (t2 < 0 && dxz(g, t, p.x, p.z) <= 0.02 && (st.speed ?? 0) <= 0.05) { arrive(actor, ctx, st, G.kind, t); tryDefuse(actor, ctx, st, rs, plan, G); faceIdle(actor, ctx, st, dt, barrier); return; }
   const combat = !barrier && actor.combatHold === 1 && st.air !== 1;
   let yieldNow = false;
   if (!combat && shouldYield(actor, ctx, st)) {
@@ -560,9 +884,8 @@ function navUpdate(actor, ctx, dt, il, st) {
   const way = [{ x: p.x, y: p.y, z: p.z }, { x: st.tx, y: st.ty, z: st.tz }];
   if (t2 >= 0) way.push({ x: g.x[t2], y: g.y[t2], z: g.z[t2] });
   st.finished = false; st.index = 1;
-  const speed = finite(ctx.profile?.runSpeed) ? ctx.profile.runSpeed : RUN_SPEED;
-  if (typeof il === 'function') il(st, { waypoints: way, loop: false, speed, finish: t2 >= 0 ? 'run' : 'stop', ...(brake ? { brake: true } : {}) }, actor, ctx, dt);
-  if (t === goal && st.finished === true) arrive(actor, ctx, st, goal);
+  if (typeof il === 'function') il(st, { waypoints: way, loop: false, speed: runSpeed(ctx, barrier), finish: t2 >= 0 ? 'run' : 'stop', ...(brake ? { brake: true } : {}) }, actor, ctx, dt);
+  if (t2 < 0 && st.finished === true) arrive(actor, ctx, st, G.kind, t);
 
   // Stuck: no progress down the field in STUCK_SEC of free walking -> re-plan, then give up.
   const fv = F.dist[st.cur];
@@ -576,10 +899,13 @@ function navUpdate(actor, ctx, dt, il, st) {
     if (st.replans >= STUCK_MAX) { st.mode = MODE.stuck; st.speed = 0; }
   }
 
-  // Facing.
+  // Defuse start (after the move), then facing.
+  tryDefuse(actor, ctx, st, rs, plan, G);
   if (!barrier && (actor.combatHold === 1 || actor.behavior.shooter?.lastSeenTick === ctx.tick)) facePlayerCapped(actor, ctx, dt);
-  else if (st.mode === MODE.walk) turnTo(actor, yawTo(actor, st.tx, st.tz), dt);
-  else faceIdle(actor, ctx, st, dt, barrier);
+  else if (st.mode === MODE.walk) {
+    const spike = plan && st.pushed === 1 && Math.hypot(plan.sp.x - p.x, plan.sp.z - p.z) <= FACE_SPIKE_M;
+    turnTo(actor, spike ? yawTo(actor, plan.sp.x, plan.sp.z) : yawTo(actor, st.tx, st.tz), dt);
+  } else faceIdle(actor, ctx, st, dt, barrier);
 }
 
 function facePlayerCapped(actor, ctx, dt) {
@@ -588,7 +914,8 @@ function facePlayerCapped(actor, ctx, dt) {
 }
 
 // Facing while not walking: the player in combat (after the drop), else the setup's angle (hold:
-// face / face2 by turns; wait: toward the setup; stagger: down the route).
+// face / face2 by turns; wait: toward the setup; stage / cover / defuse: the look point = the
+// spike, or the site of an info rotation; stagger: down the route).
 function faceIdle(actor, ctx, st, dt, barrier) {
   if (!barrier && (actor.combatHold === 1 || actor.behavior.shooter?.lastSeenTick === ctx.tick)) { facePlayerCapped(actor, ctx, dt); return; }
   if (st.mode === MODE.hold || st.mode === MODE.stuck) {
@@ -602,7 +929,9 @@ function faceIdle(actor, ctx, st, dt, barrier) {
   if (st.mode === MODE.wait) {
     const N = navFor(ctx.round.cfg.map);
     if (N) turnTo(actor, yawTo(actor, N.g.x[st.goal], N.g.z[st.goal]), dt);
+    return;
   }
+  if ((st.mode === MODE.stage || st.mode === MODE.cover || st.mode === MODE.defuse) && st.lx < FAR / 2) turnTo(actor, yawTo(actor, st.lx, st.lz), dt);
   // walk during the stagger: keep the initial facing (down the route).
 }
 
@@ -645,6 +974,7 @@ export function aimRoundBotList(actors) {
       mode: s.mode, defusing: a.roundDefusing === 1 ? 1 : 0, seenTick: a.behavior.shooter?.lastSeenTick ?? -1,
       nav: s.nav === 1 ? 1 : 0, node: s.nav === 1 ? s.cur : -1, goal: s.nav === 1 ? s.goal : -1,
       arrived: s.arrived === 1 ? 1 : 0, moving: a.moving === true ? 1 : 0,
+      pushed: s.pushed === 1 ? 1 : 0, staged: s.staged === 1 ? 1 : 0, cand: Number.isInteger(s.cand) ? s.cand : -1,
     });
   }
   return out;
@@ -654,7 +984,7 @@ export function aimRoundIoBots(actors) {
   const out = [];
   for (const a of actors) {
     if (!a.behavior?.roundBot) continue;
-    out.push({ id: a.id, alive: a.alive === true, x: a.position.x, y: a.position.y, z: a.position.z, defusing: a.roundDefusing === 1 ? 1 : 0 });
+    out.push({ id: a.id, spawnerId: a.spawnerId ?? null, alive: a.alive === true, x: a.position.x, y: a.position.y, z: a.position.z, defusing: a.roundDefusing === 1 ? 1 : 0, planting: 0 });
   }
   return out;
 }
@@ -662,6 +992,8 @@ export function aimRoundIoBots(actors) {
 // Test-only access to the module caches and helpers (pure; nothing here runs at import time).
 export const roundBotsInternals = {
   resetCaches() { NAVS = new WeakMap(); MASK_IDS = new WeakMap(); BARS = new WeakMap(); BAR_KEYS = new WeakMap(); },
-  navFor, maskFor, fieldFor, reachFor, barriersOf, nearestNode, nodesNear, cellHasFloor, lineCut, pickTarget, trackNode,
-  MODE, RUN_SPEED, TURN_RATE, YIELD_DIST, YIELD_MAX, STAGGER_SEC,
+  navFor, maskFor, fieldFor, fieldMulti, reachFor, barriersOf, nearestNode, nodesNear, cellHasFloor, lineCut, pickTarget, trackNode,
+  stagingFor, reachUnion, spikeData, electCand, plantCacheSize: (N) => N.plant.size,
+  MODE, GK, RUN_SPEED, TURN_RATE, YIELD_DIST, YIELD_MAX, STAGGER_SEC, STUCK_MAX, ROT_DELAY, ROT_DEFAULT, PLANT_LRU,
+  DEFUSE_XZ, DEFUSE_DY, COVER_MIN, COVER_MAX, COVER_SEP,
 };
