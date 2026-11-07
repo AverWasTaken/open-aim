@@ -1,6 +1,7 @@
 // Round mode map data (app/mods/aim-rounds/<map>.json), authored from the map files on disk.
 //
 //   node tools/round_author.mjs [--map ascent] [--image <barrier reference png>] [--plot <out.svg>] [--check]
+//                               [--attack-plot <out.png>]
 //
 // Node only, no app or browser. Reads site/aim-maps/<map>.collision.json (pawn collision + the
 // gameplay navmesh and BombsiteMarker volumes) and <map>.minimap.json (callout names + world spots).
@@ -34,16 +35,21 @@
 //     all edges (walk, drop, jump, gap). No callout outside the team's side may be reached.
 //     Needs the nav.bin (committed); it doesn't need the 57 MB pawn bake or any ray.
 //     With --image, every spawn / setup spot is also checked against the picture's colours.
+//  8. Attacker routes, staging points and plant spots (round mode R3) are authored in ATTACK below;
+//     how they were picked is written next to them.
 //
 // --plot writes a top-down SVG (navmesh floor shaded by height, barriers, zones, spawns, setups;
 // with --image the picture is drawn underneath, transformed, for checking by eye — keep that SVG
 // local, the picture isn't ours to ship). --check rebuilds and fails if the stored file differs.
+// --attack-plot writes a top-down PNG of the attacker data from the nav.bin header (header `attack`,
+// so run tools/round_nav.mjs --reuse first): routes, entry waypoints, plant and post-plant spots.
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { parseRoundNav } from '../app/mods/aim-rounds/round-nav.mjs';
 import { TYPES, nodeIndex, nodesNear, nearestNode, flood, barrierMask } from './round_navlib.mjs';
+import { attackPlot } from './round_navdata.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -52,6 +58,7 @@ const MAP = opt('--map', 'ascent');
 const IMAGE = opt('--image');
 const PLOT = opt('--plot');
 const CHECK = args.includes('--check');
+const ATTACK_PLOT = opt('--attack-plot');
 const OUT = path.join(ROOT, 'app', 'mods', 'aim-rounds', `${MAP}.json`);
 
 // ---------------------------------------------------------------- per-map hand input
@@ -124,6 +131,36 @@ const MAPS = {
     RETAKE: {
       A: [[-82.83, 8.09, -50.33, 'A heaven'], [-61.33, 4.0, -46.83, 'A tree']],
       B: [[-86.33, 1.0, 13.17, 'B CT'], [-81.33, 1.0, 10.17, 'B market']],
+    },
+    // Attacker bot data (round mode R3, the player defends): 2 routes per site, each with 3 staging
+    // points where the attackers group up and an entry waypoint the route passes; 2 plant spots per
+    // site. All picked by computation on the real nav graph (tools/round_navdata.mjs):
+    //  - staging: attackStagingCandidates() around the route's callout spot (A Main, Mid Cubby,
+    //    B Main, Mid Bottom; all neutral in SIDES, never the defender side): open floor, reached from
+    //    all 5 attacker spawns on walk + drop edges; nearest the callout, greedily 1.5 m apart.
+    //  - entry: a node on the bots' shortest walk + drop path from the staging point to the site:
+    //    A Main = the A Main doorway (def-a), Mid Cubby = A Tree (defender side), B Main = the right
+    //    B Main doorway (def-b3; walk + drop paths from B Main into B all use it and come in past
+    //    B CT), Mid Market = Market (defender side; the route stages at Mid Bottom).
+    //  - plant: plantCandidates(): at least 1 m inside the zone, every attacker node within 1 m in
+    //    the zone and defusable, open floor. "default" = the candidate nearest the site goal, the
+    //    second about 6 m away on another part of the site (A: by the generator, B: boathouse side).
+    // tools/round_nav.mjs (--reuse) derives the checks and the post-plant spots (header `attack`).
+    ATTACK: {
+      routes: {
+        A: [
+          { name: 'A Main', entry: [-55.33, 4.0, -59.33, 'A Main door'], staging: [[-47.33, 4.0, -53.33, 'A Main 1'], [-45.83, 4.0, -53.33, 'A Main 2'], [-47.33, 4.0, -51.83, 'A Main 3']] },
+          { name: 'Mid Cubby', entry: [-56.83, 4.0, -40.83, 'A Tree'], staging: [[-51.33, 4.0, -33.83, 'Mid Cubby 1'], [-51.33, 4.0, -35.33, 'Mid Cubby 2'], [-49.83, 4.0, -33.83, 'Mid Cubby 3']] },
+        ],
+        B: [
+          { name: 'B Main', entry: [-63.83, 1.0, 13.17, 'B Main door'], staging: [[-58.33, 1.0, 19.67, 'B Main 1'], [-58.33, 1.0, 21.17, 'B Main 2'], [-59.83, 1.0, 19.67, 'B Main 3']] },
+          { name: 'Mid Market', entry: [-72.83, 3.0, -3.83, 'Market'], staging: [[-59.33, 2.0, -11.33, 'Mid Bottom 1'], [-60.83, 2.0, -11.33, 'Mid Bottom 2'], [-59.33, 2.0, -9.83, 'Mid Bottom 3']] },
+        ],
+      },
+      plant: {
+        A: [[-71.83, 5.0, -60.83, 'A default'], [-68.33, 5.0, -66.33, 'A generator']],
+        B: [[-78.83, -1.07, 30.17, 'B default'], [-77.33, -0.99, 36.17, 'B boathouse']],
+      },
     },
   },
 };
@@ -343,6 +380,20 @@ for (const [site, list] of Object.entries(M.RETAKE ?? {})) {
     return { name, x, y: f, z };
   });
 }
+// Attacker routes / plant spots (round mode R3): same floor check as the retake points.
+const floored = ([x, y, z, name], what) => {
+  const f = floorAt(x, z, y + 1.2);
+  if (f === null || Math.abs(f - y) > 0.6) throw new Error(`${what} ${name}: no floor near y=${y} (got ${f})`);
+  return { name, x, y: f, z };
+};
+let attack = null;
+if (M.ATTACK) {
+  attack = { routes: {}, plant: {} };
+  for (const [site, list] of Object.entries(M.ATTACK.routes)) {
+    attack.routes[site] = list.map((rt) => ({ name: rt.name, entry: floored(rt.entry, 'attack entry'), staging: rt.staging.map((p) => floored(p, 'attack staging')) }));
+  }
+  for (const [site, list] of Object.entries(M.ATTACK.plant)) attack.plant[site] = list.map((p) => floored(p, 'plant spot'));
+}
 
 // ---------------------------------------------------------------- seal check (real nav graph)
 // Flood the baked nav graph from each team's 5 spawns with that team's barriers up (an edge is cut
@@ -428,6 +479,10 @@ const data = {
   setups: { defense: setups, splits: M.SPLITS },
   // Retake staging points per site (defender bots group here before retaking a planted site).
   retake,
+  // Attacker bots (the player defends): routes per site (name, entry waypoint, staging points) and
+  // plant spots per site. round-scene (R3 step S4) copies it into rules.round.attackData; header `attack` in
+  // <map>.nav.bin holds the checks and the post-plant spots.
+  ...(attack ? { attack } : {}),
   authoring: {
     tool: 'tools/round_author.mjs',
     transform: {
@@ -460,6 +515,11 @@ if (PLOT) {
   const png = PLOT.replace(/[.]svg$/i, '') + '.png';
   fs.writeFileSync(png, plotPng());
   console.log(`plot: ${PLOT} and ${png}`);
+}
+if (ATTACK_PLOT && fs.existsSync(NAV_FILE)) {
+  const g = parseRoundNav(fs.readFileSync(NAV_FILE));
+  if (!g.header.attack) { console.error('attack plot: the nav.bin header has no attack data; run node tools/round_nav.mjs --reuse'); process.exitCode = 1; }
+  else console.log(`attack plot: ${attackPlot(g, data, g.header, ATTACK_PLOT, M.name.toUpperCase())}`);
 }
 
 // ---------------------------------------------------------------- plot

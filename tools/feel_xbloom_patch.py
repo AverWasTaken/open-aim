@@ -1,7 +1,7 @@
 """In-game crosshair shows movement and firing error (spread), like VALORANT.
 
 Edits the mods copies in place (both paths of each file, kept byte-identical), like
-tools/round_patch.py. Patch order 14: run it after feel_audio_patch.py (order in tools/README.md):
+tools/round_patch.py. Patch order 16: run it after feel_audio_patch.py (order in tools/README.md):
 
     python -I tools/feel_xbloom_patch.py
     python -I tools/feel_xbloom_patch.py --mods <dir>   # testing: patch another copy of app/mods

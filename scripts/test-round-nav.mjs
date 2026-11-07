@@ -5,8 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseRoundNav, writeRoundNav, reverseEdges } from "../app/mods/aim-rounds/round-nav.mjs";
 import { terrainSources, loadTerrain, terrainCacheFile } from "../tools/round_terrain.mjs";
-import { TYPES, nodeIndex, nearestNode, flood } from "../tools/round_navlib.mjs";
-import { inputsHash } from "../tools/round_navdata.mjs";
+import { TYPES, nodeIndex, nodesNear, nearestNode, flood, dijkstra, viaPath, barrierMask } from "../tools/round_navlib.mjs";
+import { inputsHash, inPoly, polyEdgeDist } from "../tools/round_navdata.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const HAVE_SITE = fs.existsSync(path.join(root, "site", "aim-maps", "ascent.collision.json"));
@@ -94,7 +94,7 @@ test("ascent.nav.bin graph is sane", () => {
 test("nav header data was derived from the current ascent.json", () => {
   const h = nav.header;
   assert.equal(h.inputs.file, "app/mods/aim-rounds/ascent.json");
-  assert.equal(h.inputs.sha256, inputsHash(data), "spawns/barriers/sites/setups/retake changed: rerun node tools/round_nav.mjs --reuse (a full bake without --reuse if the first spawn of a team moved)");
+  assert.equal(h.inputs.sha256, inputsHash(data), "spawns/barriers/sites/setups/retake/attack changed: rerun node tools/round_nav.mjs --reuse (a full bake without --reuse if the first spawn of a team moved)");
   // round_author's seal check ran on this graph.
   assert.deepEqual(data.authoring.seal.nav, { file: "app/mods/aim-rounds/ascent.nav.bin", nodes: nav.count, edges: nav.edgeCount });
   for (const team of ["attack", "defense"]) for (const mode of ["walk", "all"]) {
@@ -181,4 +181,131 @@ test("loadTerrain: the game's pawn collision has the floor where the nav says", 
     const top = nav.y[n] + 1.5, t = T.ray(T.pawn, [nav.x[n], top, nav.z[n]], [0, -1, 0], 5);
     assert.ok(t > 0 && Math.abs(top - t - nav.y[n]) < 0.05, `floor under node ${n}`);
   }
+});
+
+// ---------------------------------------------------------------- attacker data (round mode R3)
+// Recomputed here from the graph (not read from the header's own flags): routes, staging, plant spots.
+const atkCtx = (() => {
+  const g = nav, H = nodeIndex(g), snap = (p) => nearestNode(g, H, p.x, p.z, 0.5, p.y, 0.6);
+  const sp = { attack: data.spawns.attack.map(snap), defense: data.spawns.defense.map(snap) };
+  const bars = (team) => barrierMask(g, data.barriers.filter((b) => b.team === team));
+  return {
+    H, sp,
+    defSide: flood(g, sp.defense, { types: TYPES.all, mask: bars("defense") }),    // defender side in the barrier phase
+    atkBar: flood(g, sp.attack, { types: TYPES.walkDrop, mask: bars("attack") }),  // where attackers walk in the barrier phase
+    atkAll: flood(g, sp.attack, { types: TYPES.all }),
+    defWalk: flood(g, sp.defense, { types: TYPES.walkDrop }),
+    spawnT: sp.attack.map((n) => dijkstra(g, [n], { types: TYPES.walkDrop }).dist),
+  };
+})();
+const nodeAt = (p, dy = 0.3) => nearestNode(nav, atkCtx.H, p.x, p.z, 0.5, p.y, dy);
+const inSiteZone = (s, i) => inPoly(s.zone, nav.x[i], nav.z[i]) && nav.y[i] >= s.y[0] && nav.y[i] <= s.y[1];
+
+test("attack data: 2 routes per site with 3 staging points, 2 plant spots per site", () => {
+  const a = data.attack;
+  assert.ok(a, "ascent.json has an attack block");
+  assert.deepEqual(Object.keys(a.routes).sort(), ["A", "B"]);
+  assert.deepEqual(a.routes.A.map((r) => r.name), ["A Main", "Mid Cubby"]);
+  assert.deepEqual(a.routes.B.map((r) => r.name), ["B Main", "Mid Market"]);
+  for (const list of Object.values(a.routes)) for (const r of list) {
+    assert.equal(r.staging.length, 3, `${r.name}: 3 staging points`);
+    for (const p of [r.entry, ...r.staging]) assert.ok(typeof p.name === "string" && [p.x, p.y, p.z].every(Number.isFinite), `${r.name}: ${p.name}`);
+    for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) assert.ok(Math.hypot(r.staging[i].x - r.staging[j].x, r.staging[i].z - r.staging[j].z) >= 1.4, `${r.name} staging points apart`);
+  }
+  assert.deepEqual(Object.keys(a.plant).sort(), ["A", "B"]);
+  for (const list of Object.values(a.plant)) assert.equal(list.length, 2);
+  // the header mirrors the data
+  const h = nav.header.attack;
+  for (const [site, list] of Object.entries(a.routes)) assert.deepEqual(h.staging[site].map((r) => r.route), list.map((r) => r.name));
+  for (const [site, list] of Object.entries(a.plant)) assert.deepEqual(h.plant[site].map((p) => p.name), list.map((p) => p.name));
+});
+
+test("attack staging: never on the defender side, reached from every attacker spawn, wait node behind the attacker barriers", () => {
+  const h = nav.header.attack;
+  for (const [site, list] of Object.entries(data.attack.routes)) list.forEach((r, k) => {
+    const hr = h.staging[site][k];
+    assert.ok(nodeAt(r.entry, 0.6) >= 0, `${r.name} entry ${r.entry.name} on the graph`);
+    r.staging.forEach((p, j) => {
+      const n = nodeAt(p), hs = hr.staging[j];
+      assert.ok(n >= 0, `${p.name} on the graph`);
+      assert.equal(hs.node, n);
+      assert.equal(atkCtx.defSide[n], -2, `${p.name} is not on the defender side`);
+      assert.notEqual(hs.side, "defense");
+      atkCtx.spawnT.forEach((f, s) => assert.ok(Number.isFinite(f[n]), `${p.name} reached from attacker spawn ${s} on walk + drop edges`));
+      // barrier phase: the wait node is on the attackers' side and leads to the staging point.
+      assert.ok(hs.wait && hs.wait.node >= 0, `${p.name} wait node`);
+      assert.notEqual(atkCtx.atkBar[hs.wait.node], -2, `${p.name} wait node reached with the attacker barriers up`);
+      const toStage = dijkstra(nav, [hs.wait.node], { types: TYPES.walkDrop }).dist[n];
+      assert.ok(Math.abs(toStage - hs.wait.t) < 0.02 && hs.wait.t < 10, `${p.name} wait node ${hs.wait.t} s from staging`);
+    });
+  });
+});
+
+test("attack routes: the bots' shortest path staging -> every plant spot passes within 3 m of the entry", () => {
+  for (const [site, list] of Object.entries(data.attack.routes)) for (const r of list) for (const p of r.staging) {
+    const f = dijkstra(nav, [nodeAt(p)], { types: TYPES.walkDrop });
+    for (const q of data.attack.plant[site]) {
+      const pn = nodeAt(q);
+      assert.ok(Number.isFinite(f.dist[pn]), `${p.name} -> ${q.name} walkable`);
+      const d = Math.min(...viaPath(f.via, pn).map((i) => Math.hypot(nav.x[i] - r.entry.x, nav.z[i] - r.entry.z)));
+      assert.ok(d <= 3, `${r.name}: ${p.name} -> ${q.name} passes ${d.toFixed(2)} m from ${r.entry.name}`);
+    }
+  }
+});
+
+test("plant spots: 1 m inside the zone, every attacker node within 1 m in the zone, defusable, walkable for attackers", () => {
+  const bad = new Set(Object.values(nav.header.zones).flatMap((z) => z.bad.map((b) => b.join(","))));
+  const r2 = (v) => Math.round(v * 100) / 100;
+  for (const [site, list] of Object.entries(data.attack.plant)) {
+    const s = data.sites.find((q) => q.id === site);
+    list.forEach((p, k) => {
+      const n = nodeAt(p), hp = nav.header.attack.plant[site][k];
+      assert.ok(n >= 0 && hp.node === n, `${p.name} on the graph`);
+      assert.ok(inPoly(s.zone, nav.x[n], nav.z[n]) && polyEdgeDist(s.zone, nav.x[n], nav.z[n]) >= 1.0, `${p.name} at least 1 m inside the zone polygon`);
+      assert.ok(nav.y[n] >= s.y[0] && nav.y[n] <= s.y[1], `${p.name} inside the zone's y range`);
+      atkCtx.spawnT.forEach((f, i) => assert.ok(Number.isFinite(f[n]), `${p.name} reached from attacker spawn ${i} on walk + drop edges`));
+      const near = nodesNear(nav, atkCtx.H, nav.x[n], nav.z[n], 1.0).filter((j) => atkCtx.atkAll[j] !== -2 && Math.abs(nav.y[j] - nav.y[n]) < 2);
+      assert.ok(near.length >= 4, `${p.name}: attacker nodes around it`);
+      for (const j of near) {
+        assert.ok(inSiteZone(s, j), `${p.name}: node ${j} within 1 m is in the zone`);
+        assert.ok(!bad.has([r2(nav.x[j]), r2(nav.y[j]), r2(nav.z[j])].join(",")), `${p.name}: node ${j} not in zones.bad`);
+        const def = nodesNear(nav, atkCtx.H, nav.x[j], nav.z[j], 1.6).some((q) => atkCtx.defWalk[q] !== -2 && Math.abs(nav.y[q] - nav.y[j]) < 2);
+        assert.ok(def, `${p.name}: node ${j} defusable (defender walk node within 1.6 m)`);
+      }
+      assert.ok(hp.inZone && hp.reach && hp.nearOk && hp.margin >= 1.0, `${p.name} header checks`);
+    });
+  }
+});
+
+test("post-plant spots: 3-4 per plant spot, 6-20 m away, attackers walk there, 4 m apart", () => {
+  for (const [site, list] of Object.entries(data.attack.plant)) for (const p of list) {
+    const post = nav.header.attack.postPlant[site][p.name], pn = nodeAt(p);
+    assert.ok(post.length >= 3 && post.length <= 4, `${p.name}: ${post.length} post-plant spots`);
+    for (const q of post) {
+      const d = Math.hypot(nav.x[q.node] - nav.x[pn], nav.y[q.node] - nav.y[pn], nav.z[q.node] - nav.z[pn]);
+      assert.ok(d >= 6 - 1e-6 && d <= 20 + 1e-6, `${p.name}: post-plant ${q.node} ${d.toFixed(2)} m away`);
+      assert.ok(Math.abs(nav.x[q.node] - q.x) < 0.01 && Math.abs(nav.z[q.node] - q.z) < 0.01, "post-plant xyz is its node");
+      atkCtx.spawnT.forEach((f, i) => assert.ok(Number.isFinite(f[q.node]), `${p.name}: post-plant ${q.node} reached from attacker spawn ${i}`));
+    }
+    for (let i = 0; i < post.length; i++) for (let j = i + 1; j < post.length; j++) assert.ok(Math.hypot(post[i].x - post[j].x, post[i].z - post[j].z) >= 4, `${p.name}: post-plant spots 4 m apart`);
+  }
+});
+
+// The sight half of the post-plant data, re-run against the real projectile collision (the bots' own
+// sight test): eye 1.6 m above the spot's floor, spike 0.3 m above the plant spot's floor.
+test("post-plant spots see the spike (real collision sight rays)", { skip: !HAVE_CACHE && "no terrain cache (run node tools/round_nav.mjs once)" }, async (t) => {
+  const T = await loadTerrain("ascent", { root });
+  let rays = 0;
+  for (const [site, list] of Object.entries(data.attack.plant)) for (const p of list) {
+    const pn = nodeAt(p), spike = [nav.x[pn], nav.y[pn] + 0.3, nav.z[pn]];
+    for (const q of nav.header.attack.postPlant[site][p.name]) {
+      rays++;
+      assert.ok(T.sight([q.x, nav.y[q.node] + 1.6, q.z], spike), `${p.name}: post-plant ${q.node} sees the spike`);
+    }
+    // the check can fail: the defender spawn (behind walls) doesn't see the spike
+    const d = data.spawns.defense[0];
+    assert.equal(T.sight([d.x, d.y + 1.6, d.z], spike), false, `${p.name}: not seen from the defender spawn`);
+  }
+  t.diagnostic(`post-plant sight re-checked with real collision: ${rays} rays`);
+  console.log(`post-plant sight re-checked with real collision: ${rays} rays`);
 });
