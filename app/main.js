@@ -20,6 +20,28 @@ if (process.env.AIM_PROFILE) {
 
 // Testing only: AIM_PORT lets a test copy run while the real app is open.
 const PORT = Number(process.env.AIM_PORT) || 8000;
+
+// Off-screen pages can't take real pointer lock, so headless test copies get a stand-in:
+// requestPointerLock "locks" (pointerLockElement + pointerlockchange) without grabbing the
+// real mouse. CDP Input.dispatchMouseEvent moves still produce movementX/Y.
+const FAKE_POINTER_LOCK = `(() => {
+  if (window.__aimFakeLock) return; window.__aimFakeLock = true;
+  let el = null;
+  const fire = () => queueMicrotask(() => document.dispatchEvent(new Event("pointerlockchange")));
+  Object.defineProperty(Document.prototype, "pointerLockElement", { configurable: true, get() { return el; } });
+  Element.prototype.requestPointerLock = function () { el = this; fire(); return Promise.resolve(); };
+  Document.prototype.exitPointerLock = function () { if (el) { el = null; fire(); } };
+})();`;
+
+// Testing only: AIM_HEADLESS=1 renders off screen. No window appears, nothing takes the
+// mouse or goes fullscreen, and the process runs at below-normal priority so test copies
+// don't slow the desktop down. Drive it through --remote-debugging-port (CDP screenshots work).
+const HEADLESS = process.env.AIM_HEADLESS === "1";
+if (HEADLESS) {
+  try {
+    require("os").setPriority(0, require("os").constants.priority.PRIORITY_BELOW_NORMAL);
+  } catch {}
+}
 const HOST = "127.0.0.1";
 const ORIGIN = `http://localhost:${PORT}`;
 const START_PATH = "/aim";
@@ -480,21 +502,32 @@ const fromGame = (event) => guard.fromLocalPage(event, PORT);
 function createWindow(url) {
   const win = new BrowserWindow({
     show: false,
+    ...(HEADLESS ? { width: 1280, height: 720 } : {}),
     backgroundColor: "#0f1923",
     icon: path.join(__dirname, "build", "icon.ico"),
-    webPreferences: { backgroundThrottling: false, preload: path.join(__dirname, "preload.js") },
+    webPreferences: {
+      backgroundThrottling: false,
+      preload: path.join(__dirname, "preload.js"),
+      ...(HEADLESS ? { offscreen: true } : {}),
+    },
   });
-  win.maximize();
-  // Fullscreen like a game, unless the player left it with F11 last time.
-  if (shellSettings.fullscreen !== false) win.setFullScreen(true);
+  if (HEADLESS) {
+    win.webContents.setFrameRate(60);
+  } else {
+    win.maximize();
+    // Fullscreen like a game, unless the player left it with F11 last time.
+    if (shellSettings.fullscreen !== false) win.setFullScreen(true);
+  }
   // Game pages: show the window once the theme and startup screen are in, so the
   // half-loaded lobby never flashes first. The fallback keeps it from staying hidden.
   let shown = false;
   const show = () => {
+    if (HEADLESS) return;
     if (!shown && !win.isDestroyed()) { shown = true; win.show(); }
   };
   win.once("ready-to-show", () => setTimeout(show, new URL(url).pathname.startsWith(STUDIO_PATH) ? 0 : 3000));
   win.webContents.on("dom-ready", () => {
+    if (HEADLESS) win.webContents.mainFrame.executeJavaScript(FAKE_POINTER_LOCK).catch(() => {});
     // The Studio is a page of its own with its own look.
     if (new URL(win.webContents.getURL()).pathname.startsWith(STUDIO_PATH)) return show();
     // webContents.executeJavaScript waits until the whole page has stopped loading (every
