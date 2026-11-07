@@ -551,7 +551,7 @@ function createWindow(url) {
 
   win.webContents.on("before-input-event", (event, input) => {
     if (input.type !== "keyDown") return;
-    if (input.key === "F11") {
+    if (input.key === "F11" && !HEADLESS) {
       const on = !win.isFullScreen();
       win.setFullScreen(on);
       shellSettings.fullscreen = on;
@@ -590,6 +590,7 @@ function createWindow(url) {
 
 // Game fullscreen requests (from preload.js) become window fullscreen; F11 leaves it.
 ipcMain.on("aim:fullscreen", (event) => {
+  if (HEADLESS) return; // test copies stay 1280x720 off screen
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win && !win.isFullScreen()) win.setFullScreen(true);
 });
