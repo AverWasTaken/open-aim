@@ -1105,6 +1105,7 @@ module.exports = {
   "每个瓦工坊项目都能查看自己打过的每一局": "Every VALORANT Training drill shows every run you've played",
   "瓦工坊里按 B 打开购买菜单，可以换枪、买护甲（个别项目不开放）": "Press B in VALORANT Training to open the buy menu and switch guns or buy armor (not available in some drills)",
   "条改动": "changes",
+  "年，共": "·",
 
   // ---- leaderboard, badges and community links (mostly hidden offline)
   "已经戴上了。排行榜里你的名字旁边会显示它。": "Equipped. It shows next to your name on the leaderboard.",
