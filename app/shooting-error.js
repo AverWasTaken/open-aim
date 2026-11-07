@@ -109,7 +109,11 @@
   let wasMoving = false, movedTick = -1, stop = null, lastMovingShot = -1;
   function resetStops() { wasMoving = false; movedTick = -1; stop = null; lastMovingShot = -1; }
   const tickMs = (ticks) => Math.round((ticks * 1000) / 128);
-  function addStop(ms, early) { if (recording() && round.stops.length < MAX_STOPS) round.stops.push({ ms, early }); }
+  function addStop(ms, early) {
+    if (!recording() || round.stops.length >= MAX_STOPS) return false;
+    round.stops.push({ ms, early });
+    return true;
+  }
   function stopTick(state) {
     const me = state.player && state.player.meDeg;
     if (typeof me !== "number") return; // no movement error in this state: record nothing
@@ -122,9 +126,9 @@
     stop = { movedTick, accurateTick: t, cross: (movedTick + t) / 2, used: false };
     // a moving shot fired just before this stop was early (once)
     if (lastMovingShot >= 0 && stop.cross - lastMovingShot <= EARLY_WINDOW) {
-      addStop(-tickMs(Math.max(0, stop.cross - lastMovingShot)) || 0, true);
       stop.used = true;
-      if (round && round.summary) renderSummary(round); // a stop just after the round ended
+      // (redraw an open summary: a stop just after the round ended)
+      if (addStop(-tickMs(Math.max(0, stop.cross - lastMovingShot)) || 0, true) && round.summary) renderSummary(round);
     }
     lastMovingShot = -1;
   }
@@ -468,12 +472,13 @@
         ${stopLine(r.stops, compact)}
         ${compact ? "" : `<p class="es-shotgraph-sum-note">${walked} The map shows your path and a dot where each shot was fired.</p>`}
       </div>`;
-    // the scenario layout has a fixed height: show the stop line whole or not at all
-    const stopEl = compact && panel.querySelector(".es-shotgraph-sum-line.is-stop");
-    if (stopEl && stopEl.offsetTop + stopEl.offsetHeight > panel.clientHeight) stopEl.remove();
     const map = panel.querySelector("canvas");
     map.setAttribute("aria-label", `Map of where you fired: ${still.n} shots still, ${moving.n} while moving`);
     drawMap(map, r, null, mapSize);
+    // the scenario layout has a fixed height: show the stop line whole or not at all
+    // (measured after the map has its size, which narrows the text column)
+    const stopEl = compact && panel.querySelector(".es-shotgraph-sum-line.is-stop");
+    if (stopEl && stopEl.offsetTop + stopEl.offsetHeight > panel.clientHeight) stopEl.remove();
     loadMinimap(r.mapId).then((mm) => { if (mm && map.isConnected) drawMap(map, r, mm, mapSize); });
   }
 
