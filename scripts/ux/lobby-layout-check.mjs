@@ -29,6 +29,8 @@ const SIZES = [
   { w: 1280, h: 720, dpr: 1 },
   { w: 1366, h: 768, dpr: 1 },
   { w: 1440, h: 900, dpr: 1 },
+  { w: 1536, h: 864, dpr: 1 },
+  { w: 1680, h: 1050, dpr: 1 },
   { w: 1920, h: 1080, dpr: 1 },
   { w: 3840, h: 2160, dpr: 1 },
   { w: 1920, h: 1080, dpr: 2 },
@@ -103,6 +105,8 @@ function pageOpenDrills() {
 }
 
 function pageReady() {
+  // The first-run import pop-up can open after pageOpenDrills ran: close it on every poll.
+  for (const x of document.querySelectorAll(".es-tool-shade .es-tool-x")) x.click();
   const body = document.querySelector(".hall-board-body");
   if (body) body.scrollTop = 0;
   document.documentElement.scrollLeft = 0;
@@ -178,6 +182,12 @@ function pageLayout(labelsFrom) {
   out.info.labelsShown = btns.length > 0 && btns.every((b) => { const s = b.querySelector("span"); return s && getComputedStyle(s).display !== "none"; });
   if (!btns.length) fail("no .es-bar-btn buttons");
   if (vw >= labelsFrom && !out.info.labelsShown) fail(`bar labels hidden at ${vw}px (should show from ${labelsFrom}px)`);
+  const anyLabel = btns.some((b) => { const s = b.querySelector("span"); return s && getComputedStyle(s).display !== "none"; });
+  if (vw < labelsFrom && anyLabel) fail(`bar labels shown at ${vw}px (icons only below ${labelsFrom}px)`);
+  if (vw < labelsFrom) for (const b of btns) {
+    const svg = b.querySelector("svg");
+    if (!svg || svg.getBoundingClientRect().width <= 0) fail(`icon-only bar button has no visible icon: ${b.getAttribute("aria-label")}`);
+  }
   for (const b of btns) {
     if (!(b.getAttribute("aria-label") || "").trim()) fail(`bar button without aria-label: ${b.title}`);
     if (!(b.title || "").trim()) fail(`bar button without title tooltip: ${b.getAttribute("aria-label")}`);
@@ -225,6 +235,13 @@ function pageBlur() {
   document.activeElement?.blur?.();
   const body = document.querySelector(".hall-board-body");
   if (body) body.scrollTop = 0;
+  // Reset the sequential focus start point to the top of the page: focus a temporary
+  // element at the start of <body>, then remove it, so the next Tab goes to the first stop.
+  const tmp = document.createElement("span");
+  tmp.tabIndex = -1;
+  document.body.prepend(tmp);
+  tmp.focus({ preventScroll: true });
+  tmp.remove();
   return true;
 }
 
@@ -254,7 +271,7 @@ async function checkSize(send, size) {
   const result = { size: `${size.w}x${size.h}@${size.dpr}x`, ok: false, fails: [], info: {} };
   await send("Emulation.setDeviceMetricsOverride", { width: size.w, height: size.h, deviceScaleFactor: size.dpr, mobile: false, screenWidth: size.w, screenHeight: size.h });
   await evaluate(send, pageOpenDrills);
-  await waitFor(send, pageReady, 10000);
+  if (!(await waitFor(send, pageReady, 10000))) result.fails.push("lobby not ready within 10 s (no drill card, no Quick start, or a panel still open)");
   if (!(await settle(send))) result.fails.push("layout did not settle within 6 s");
 
   const lay = await evaluate(send, pageLayout, LABELS_FROM);
@@ -302,6 +319,8 @@ const { ws, send } = await connect();
 let failed = false;
 try {
   await send("Runtime.enable");
+  // The hp copy is an offscreen window: emulate focus so Tab and focus rings behave.
+  try { await send("Emulation.setFocusEmulationEnabled", { enabled: true }); } catch {}
   if (!(await waitFor(send, pageStart, 90000))) throw new Error("lobby did not load (startup screen still up or no tabs)");
   for (const size of SIZES) {
     let r;

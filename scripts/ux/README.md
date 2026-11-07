@@ -5,24 +5,25 @@ Checks for the shell UI that need a running copy of the app. They are not part o
 
 ## lobby-layout-check.mjs
 
-Checks the lobby top bar, the feedback link and the keyboard path at six window sizes.
+Checks the lobby top bar, the feedback link and the keyboard path at eight window sizes.
 
-1. Start a hidden test copy with a CDP port, from `app/`:
-   `AIM_HEADLESS=1 AIM_PORT=<port> AIM_PROFILE=<test profile> node_modules/electron/dist/electron.exe . --remote-debugging-port=<cdpPort>`
-   (never the real profile or port 8000).
+1. Start a hidden test copy with a CDP port. In the open-aim push this only happens on the
+   hp server: `bash hp.sh app-start <name> <AIM_PORT> <cdpPort>` (never the real profile or
+   port 8000; never on the user's PC).
 2. `node scripts/ux/lobby-layout-check.mjs <cdpPort> [shotDir]`
 
 On the hp server (team copies): `bash hp.sh cdp-script <cdpPort> scripts/ux/lobby-layout-check.mjs /tmp/lobby-shots`
 (cdp-script passes the port itself), then copy the screenshots back with `scp hp:/tmp/lobby-shots/* <local dir>`.
 
 It sets each size with `Emulation.setDeviceMetricsOverride` (1280x720, 1366x768, 1440x900,
-1920x1080, 3840x2160, 1920x1080 at 2x), opens the first lobby tab and checks:
+1536x864, 1680x1050, 1920x1080, 3840x2160, 1920x1080 at 2x), opens the first lobby tab and checks:
 
 - no sideways scroll (page and top nav), and no tab cut off in the tab row (only enforced
   when Bahnschrift is installed: the widths are tuned for it; hp has no Bahnschrift, so
   there `info.tabsClipped` is reported only);
-- bar labels show from 1660px wide (the breakpoint in theme-esports.css); every button
-  has a title tooltip either way;
+- bar labels show from 1660px wide and are hidden below (the breakpoint in
+  theme-esports.css); below it every button shows an icon; every button has a title
+  tooltip either way;
 - Quick start, the Sens box and the feedback link are fully on screen and not covered;
 - the feedback link sits in the bottom bar and does not overlap the search box, drill cards
   or sort buttons, and an open panel's dim layer covers it;
