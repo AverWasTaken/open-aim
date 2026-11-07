@@ -118,6 +118,8 @@
   }
   function hide() { if (node) node.style.display = "none"; }
   function paint() {
+    // Cheap checks first: no layout reads in the lobby or menus.
+    if (phase !== "running" || !current || !settingOn) { hide(); return; }
     followMap();
     const rect = minimap ? minimap.getBoundingClientRect() : null;
     const name = current && current.name;
