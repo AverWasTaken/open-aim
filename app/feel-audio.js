@@ -26,10 +26,11 @@
     // to run. Walking is silent.
     const RUN = 5.4, WALK = RUN * 0.55, ACC_START = 0.6 * RUN, STEP_MIN = WALK + 0.5 * (RUN - WALK);
     const PLAY_TIME = 0.29, MIN_DT = 0.03, TELEPORT = 10, NEAR = 10, FAR = 40;
-    // LAND_OFFSET: bot landings come only from the sim's `jump` behaviour arc in actor.offset.y
-    // (peak = jump height, 0.8 m in every shipped drill). Stairs and ledge drops move
-    // position.y instead and never reach this rule. The player's 1.05 m rule is a fall distance
-    // and would silence every bot landing, so bots keep 0.3 m.
+    // LAND_OFFSET: only `jump`-behaviour landings play. That arc lives in actor.offset.y and peaks
+    // at the jump height (0.8 m in every shipped drill). Stairs, ledge drops and path/nav/replay
+    // bots that go airborne move position.y instead, so they are silent (possible follow-up).
+    // The player's 1.05 m rule is a fall distance and would silence every bot jump, so bots
+    // keep 0.3 m.
     const CAP = 4, CAP_WINDOW = 0.1, LAND_OFFSET = 0.3, STALE = 5;
     const falloff = (d) => (d <= NEAR ? 1 : d >= FAR ? 0 : (FAR - d) / (FAR - NEAR));
     const byDist = (a, b) => a.dist - b.dist;
