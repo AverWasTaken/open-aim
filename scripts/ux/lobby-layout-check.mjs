@@ -143,6 +143,18 @@ function pageLayout(labelsFrom) {
   const nav = document.querySelector(".hall-topnav");
   if (!nav) fail("no .hall-topnav");
   else if (nav.scrollWidth > nav.clientWidth) fail(`top nav overflows: scrollWidth ${nav.scrollWidth} > clientWidth ${nav.clientWidth}`);
+  // Reported only, to check the breakpoints in theme-esports.css against real widths:
+  // navFree = spare room in the top nav (the bar's auto left margin), navNeed = width the
+  // nav needs in its current state (labels on/off, compact tabs or not) without the tab
+  // row scrolling. The breakpoint for this state fits if navNeed <= innerWidth.
+  const barEl = document.querySelector(".hall-topnav .es-bar");
+  const tabsEl = document.querySelector(".hall-topnav .hall-tabs");
+  if (nav && barEl) {
+    const free = Math.max(0, parseFloat(getComputedStyle(barEl).marginLeft) || 0);
+    const hidden = tabsEl ? Math.max(0, tabsEl.scrollWidth - tabsEl.clientWidth) : 0;
+    out.info.navFree = Math.round(free);
+    out.info.navNeed = Math.round(vw - free + hidden);
+  }
 
   const named = { quick: ".es-bar .es-bar-quick", sens: ".hall-topnav .hall-sens", feedback: ".hall-bottombar .es-discord-panel" };
   for (const [k, sel] of Object.entries(named)) {
