@@ -19,7 +19,8 @@
     "test:vary": "node --test ../scripts/test-spot-vary.cjs",
     "test:round": "node --test ../scripts/test-round.mjs ../scripts/test-round-sim.mjs",
     "test:training-hooks": "node --test ../scripts/test-training-hooks.mjs",
-    "test:training": "node --test ../scripts/test-training-scenarios.mjs"
+    "test:training": "node --test ../scripts/test-training-scenarios.mjs",
+    "test:progress": "node --test ../scripts/test-training-progress.cjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
@@ -66,7 +67,10 @@
       "local-customization.js",
       "fan-audio.js",
       "sniper-scopes.js",
-      "advanced-tracers.js"
+      "advanced-tracers.js",
+      "training-progress-core.js",
+      "training-progress.js",
+      "training-progress.css"
     ],
     "extraResources": [
       {
