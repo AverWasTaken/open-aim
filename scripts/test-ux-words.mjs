@@ -60,6 +60,21 @@ const GOLDEN = [
   ['看本局回放', 'Watch replay'],
   ['瓦工坊 · 训练完成', 'Drill complete'],
   ['返回小球项目', 'Back to Target drills'],
+  // reports from other teams: lobby tab, drill start panel, start card control hint
+  ['赛事赛程', 'Tournaments'],
+  ['号角', 'Web'],
+  ['鼠标移动瞄准 · 鼠标左键射击 · T重启 · ESC 菜单', 'Mouse aim · Left Mouse shoot · T restart · ESC menu'],
+  ['玩家场景', 'Custom drill'],
+  ['同屏靶数', 'Targets at once'],
+  ['个 · 球形', '· spheres'],
+  ['· 狂徒 · 无后坐', '· Vandal · No recoil'],
+  ['站定 ', 'Stand still '],
+  ['· 不可位移', '· fixed spot'],
+  ['· 被玩过 3 次 · 10-21 发布 · 1.1 KB', '· Played 3 times · 10-21 published · 1.1 KB'],
+  [' 靶打掉后 0 秒补一个。 ', ' A new target appears 0 sec after each kill. '],
+  [' 时长由这份场景决定： ', ' Length is set by this drill: '],
+  // pause menu text
+  ['停住倒计时，慢慢熟悉地图。开过的这一局不计排名，成绩照常记录。', 'Stops the countdown so you can learn the map. This run won\'t be ranked; your score is still saved.'],
   // base terms
   ['小球项目', 'Target drills'],
   ['瓦创意工坊', 'Studio'],
