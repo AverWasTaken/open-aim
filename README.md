@@ -252,6 +252,7 @@ npm start
 ```
 
 `npm run build` makes the installer. How it's put together: [docs/architecture.md](docs/architecture.md).
+Testing: `npm run check` and the `npm run test:*` scripts; an opt-in in-app smoke test is described in [scripts/smoke/README.md](scripts/smoke/README.md).
 Want to add a drill to the built-in list? See [docs/scenario-format.md](docs/scenario-format.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 <br>

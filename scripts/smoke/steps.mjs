@@ -198,7 +198,12 @@ async function isVariant(ctx, code) {
 async function launchDrill(ctx, d, via) {
   if (via === "card") {
     const sel = `[data-role=workshop-card][data-share-code="${d.code}"]`;
-    const have = await waitFor(ctx, `!!document.querySelector(${J(sel)})`, { timeout: 15000, what: `card ${d.code}` }).catch(() => false);
+    let have = await waitFor(ctx, `!!document.querySelector(${J(sel)})`, { timeout: 15000, what: `card ${d.code}` }).catch(() => false);
+    if (!have) {
+      // A category chip from an earlier step may be filtering the list: back to "All".
+      await clickSel(ctx, ".al-wk-chip", String.raw`^\s*All\b`).catch(() => {});
+      have = await waitFor(ctx, `!!document.querySelector(${J(sel)})`, { timeout: 5000, what: `card ${d.code}` }).catch(() => false);
+    }
     if (!have) throw new Error(`pinned drill ${d.code} (${d.name}) missing from the lobby - update scripts/smoke/drills.json`);
     await clickSel(ctx, `${sel} .al-wk-split-go, ${sel} .al-wk-go`);
   } else {
@@ -320,39 +325,108 @@ const lobby = {
   },
 };
 
+// Category chip in the lobby drill list (button.al-wk-chip: label + count). Clicks it and
+// checks the pinned card is listed under it.
+async function pickChip(ctx, d) {
+  const re = String.raw`^\s*` + d.chip.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + String.raw`\b`;
+  await clickSel(ctx, ".al-wk-chip", re);
+  await waitFor(ctx, `(()=>{const c=__qa.visq('.al-wk-chip.al-wk-on'); return !!c && new RegExp(${J(re)}, 'i').test(__qa.text(c));})()`, { timeout: 5000, what: `chip "${d.chip}" active` });
+  const card = `[data-role=workshop-card][data-share-code="${d.code}"]`;
+  const seen = await waitFor(ctx, `!!__qa.visq(${J(card)})`, { timeout: 5000, what: `card ${d.code} under chip ${d.chip}` }).catch(() => false);
+  if (!seen) throw new Error(`pinned drill ${d.code} (${d.name}) is not listed under the "${d.chip}" chip - update scripts/smoke/drills.json`);
+}
+
+// Play on until the drill ends by itself (timer) and the result screen is up.
+async function playToResult(ctx, { maxSeconds, offY = 0 }) {
+  await ctx.cdp.evaluate(`__qa.aimStart({offY: ${J(offY)}}); true`);
+  const t0 = Date.now();
+  let st;
+  let lastCheck = 0;
+  while (Date.now() - t0 < maxSeconds * 1000) {
+    ctx.check();
+    await ctx.cdp.press();
+    await sleep(400);
+    if (Date.now() - lastCheck > 2000) {
+      lastCheck = Date.now();
+      st = await status(ctx);
+      if (st.phase === "result" || st.result) break;
+      if (st.phase === "paused") throw new Error("drill paused by itself (lost pointer lock?)");
+    }
+  }
+  await ctx.cdp.evaluate("__qa.aimStop()");
+  await waitFor(ctx, "__qa.phase==='result' && !!__qa.visq('.al-result-overlay')", { timeout: 15000, what: "result phase + .al-result-overlay" });
+  return { ...(await status(ctx)), secs: Math.round((Date.now() - t0) / 1000) };
+}
+
 function drillStep(d) {
   return {
     name: `drill:${d.id}`,
-    about: `${d.chip}: ${d.name} (${d.code || d.task})`,
-    timeoutMs: 210000,
+    about: `${d.chip}: ${d.name} (${d.code})${d.result ? "; played to its end when result-replay follows" : ""}`,
+    timeoutMs: 240000,
     async run(ctx) {
-      let via = d.via || "card";
-      if (via === "card" && d.code && (await isVariant(ctx, d.code))) via = "scene"; // bots that shoot back: skip the picker (rank none)
-      if (d.task) await launchTask(ctx, d);
-      else await launchDrill(ctx, d, via);
+      await pickChip(ctx, d);
+      // Bots that shoot back show the rank picker on a card click (the rank-picker step covers
+      // that); launch those directly.
+      const via = (await isVariant(ctx, d.code)) ? "scene" : "card";
+      await launchDrill(ctx, d, via);
       const s = await startDrill(ctx);
-      ctx.note(`via ${d.task ? "task" : via}, loaded in ${(s.loadMs / 1000).toFixed(1)} s, start tries ${s.tries}`);
+      ctx.note(`via ${via}, loaded in ${(s.loadMs / 1000).toFixed(1)} s, start tries ${s.tries}`);
+      ctx.data("loadMs", s.loadMs);
       const r = await shootFor(ctx, { seconds: d.seconds || 10, offY: d.offY ?? 0 });
       ctx.note(`kills ${r.kills}, hits ${r.hits}/${r.shots} shots in ${r.secs} s`);
-      ctx.results.drillKills = (ctx.results.drillKills || 0) + (r.kills > 0 ? 1 : 0);
       if (r.hookFail) throw new Error(`could not hook ${r.hookFail}`);
       if (!r.ticks) throw new Error("no sim frames seen (__aimTick never called)");
-      if (r.phase === "result") ctx.warn("drill ended early (result screen)");
-      if (r.kills === 0) ctx.warn(d.noKillOk ? "no kill (expected for this drill)" : "no kill");
-      if (r.kills === 0 && d.mustKill) throw new Error("no kill on a drill that must get one");
+      if (d.noKillOk) {
+        if (r.kills === 0) ctx.note("no kill (expected for this drill)");
+      } else if (r.kills === 0) throw new Error(`no kill in ${r.secs} s (hits ${r.hits}/${r.shots})`);
+      // Plan R9b: the result-replay step continues from this drill's own result screen.
+      if (d.result && ctx.next === "result-replay" && r.phase === "running") {
+        const e = await playToResult(ctx, { maxSeconds: (DRILLS.result.seconds || 60) * 3, offY: d.offY ?? 0 });
+        ctx.note(`played to the end: result after ${e.secs} s more, kills ${e.kills}`);
+        ctx.keepState = true;
+        return;
+      }
+      if (r.phase === "result" && ctx.next === "result-replay") {
+        ctx.keepState = true;
+        return;
+      }
       await exitDrill(ctx);
     },
   };
 }
 
-// Target Workshop tasks (Grid shooting etc.): own tab and card markup, no share code.
-async function launchTask(ctx, d) {
-  await clickSel(ctx, ".hall-tab", d.tab);
-  await sleep(800);
-  await clickSel(ctx, d.cardSel, d.task);
-  await sleep(500);
-  await clickSel(ctx, d.goSel, d.goText || null);
-}
+// Timing probe (plan R9a; only with --only=probe): first vs repeat load of a target drill and a
+// map drill, sim seconds per wall second, frames per second, CDP round trip.
+const probe = {
+  name: "probe",
+  optional: true,
+  about: "timing probe: first vs repeat drill load, sim speed, fps, CDP round trip",
+  timeoutMs: 660000,
+  async run(ctx) {
+    for (const d of DRILLS.probe) {
+      for (const rep of ["first", "repeat"]) {
+        await launchDrill(ctx, d, "scene");
+        const s = await startDrill(ctx, { loadTimeout: 180000 });
+        const sample = () => ctx.cdp.evaluate("({tick: __qa.last ? __qa.last.tick : null, frames: __qa.ticks, t: Date.now()})");
+        const r0 = Date.now();
+        const a = await sample();
+        const rtt = Date.now() - r0;
+        await sleep(8000);
+        const b = await sample();
+        const wall = (b.t - a.t) / 1000;
+        const simRate = a.tick != null && b.tick != null ? (b.tick - a.tick) / 128 / wall : null;
+        const fps = (b.frames - a.frames) / wall;
+        const k = await shootFor(ctx, { seconds: 8, enough: 99 });
+        const line = `${d.name} ${rep}: load ${(s.loadMs / 1000).toFixed(1)} s, sim ${simRate == null ? "?" : simRate.toFixed(2)} s/s, ${fps.toFixed(1)} frames/s, CDP rtt ${rtt} ms, kills ${k.kills} in ${k.secs} s`;
+        ctx.note(line);
+        ctx.log(line);
+        ctx.data(`${d.code}-${rep}`, { loadMs: s.loadMs, simRate, fps, rtt, kills: k.kills, secs: k.secs });
+        await exitDrill(ctx);
+        await sleep(500);
+      }
+    }
+  },
+};
 
 // Leave a drill's start screen without starting it (side-panel exit, or start then pause-exit).
 async function leaveFromStartScreen(ctx) {
@@ -374,30 +448,21 @@ const resultReplay = {
   about: "short drill to its natural end; result screen; replay plays",
   timeoutMs: 240000,
   async run(ctx) {
-    const d = DRILLS.result;
-    await launchDrill(ctx, d, "scene");
-    const s = await startDrill(ctx);
-    ctx.note(`${d.name} (${d.seconds} s) loaded in ${(s.loadMs / 1000).toFixed(1)} s`);
-    // Keep shooting until the timer ends the drill.
-    await ctx.cdp.evaluate(`__qa.resetCounters(); __qa.aimStart({offY: ${J(d.offY ?? 0)}})`);
-    const t0 = Date.now();
-    let st;
-    let lastCheck = 0;
-    while (Date.now() - t0 < (d.seconds + 45) * 1000) {
-      ctx.check();
-      await ctx.cdp.press();
-      await sleep(400);
-      if (Date.now() - lastCheck > 2000) {
-        lastCheck = Date.now();
-        st = await status(ctx);
-        if (st.phase === "result" || st.result) break;
-        if (st.phase === "paused") throw new Error("drill paused by itself (lost pointer lock?)");
-      }
+    const fromPrev = ctx.prev && ctx.prev.keepState && (await ctx.cdp.evaluate("__qa.phase==='result' && !!__qa.visq('.al-result-overlay')"));
+    if (fromPrev) {
+      ctx.note(`continues from ${ctx.prev.step}'s result screen`);
+    } else {
+      // Run on its own (--only=result-replay): play the result drill to its end first.
+      const d = DRILLS.result;
+      await launchDrill(ctx, d, "scene");
+      const s = await startDrill(ctx);
+      ctx.note(`${d.name} (${d.seconds} s) loaded in ${(s.loadMs / 1000).toFixed(1)} s`);
+      await ctx.cdp.evaluate("__qa.resetCounters(); true");
+      const e = await playToResult(ctx, { maxSeconds: d.seconds * 3, offY: d.offY ?? 0 });
+      ctx.note(`ended after ${e.secs} s, kills ${e.kills}, hits ${e.hits}/${e.shots}`);
     }
-    await ctx.cdp.evaluate("__qa.aimStop()");
-    await waitFor(ctx, "__qa.phase==='result' && !!__qa.visq('.al-result-overlay')", { timeout: 15000, what: "result phase + .al-result-overlay" });
-    st = await status(ctx);
-    ctx.note(`ended after ${((Date.now() - t0) / 1000).toFixed(0)} s, kills ${st.kills}, hits ${st.hits}/${st.shots}`);
+    const text = await ctx.cdp.evaluate("__qa.text(__qa.visq('.al-result-modal') || __qa.visq('.al-result-overlay')).slice(0, 160)");
+    ctx.note(`result: ${text}`);
     await ctx.shot("result");
     // Replay (driving map 8): opens paused at 0; play; scrub value must rise.
     await clickSel(ctx, ".al-replay-watch-btn");
@@ -595,4 +660,4 @@ const round = {
 };
 
 // Order matters: settings AFTER result-replay (a run with changed settings saves no replay).
-export const STEPS = [boot, lobby, ...DRILLS.drills.map(drillStep), resultReplay, playAgain, pause, settings, rankPicker, studio, round];
+export const STEPS = [boot, probe, lobby, ...DRILLS.drills.map(drillStep), resultReplay, playAgain, pause, settings, rankPicker, studio, round];
