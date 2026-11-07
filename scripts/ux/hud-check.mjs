@@ -21,6 +21,7 @@ const errs = [];
 const BENIGN = [/desktop-seen/, /aimlab\/plays\/workshop/, /lock-events/, /Insecure Content-Security-Policy/, /Multiple instances of Three\.js/];
 let ws, send, sessionAlive = true;
 async function connect() {
+  sessionAlive = true;
   const list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();
   const t = list.find((x) => x.type === "page" && !x.url.startsWith("devtools"));
   if (!t) throw new Error("no page target");
@@ -314,7 +315,16 @@ async function round() {
 
 await finish(async () => {
   log("waiting for lobby");
-  if (!(await waitLobby(150000))) throw new Error("lobby never ready");
+  // The page can reload/navigate while the app boots (start screen -> lobby): reconnect.
+  let lobby = false;
+  for (let i = 0; i < 8 && !lobby; i++) {
+    try {
+      if (!sessionAlive) { await sleep(3000); await connect(); log("reconnected"); }
+      lobby = await waitLobby(150000);
+      if (!lobby) break;
+    } catch (e) { log("lobby wait:", e.message); sessionAlive = false; }
+  }
+  if (!lobby) throw new Error("lobby never ready");
   await ev(`(()=>{localStorage.setItem('aim-valorant-import-hide-startup-v1','1');return 1})()`);
   RESULT.viewport = await viewport();
   log("viewport", RESULT.viewport);
