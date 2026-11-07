@@ -73,7 +73,8 @@
 .es-tool .es-tool-body button.aim-round-opt.is-active { border-color: var(--es-red, #ff4655); background: var(--es-red-wash, rgba(255,70,85,.14)); }
 .es-tool .es-tool-body button.aim-round-opt:disabled { opacity: .45; cursor: default; }
 .es-tool .es-tool-body button.aim-round-opt:not(:disabled):hover { border-color: var(--es-line-2, #343b4a); }
-.es-tool .es-tool-body button.aim-round-opt.is-active:not(:disabled):hover { border-color: var(--es-red, #ff4655); }
+.es-tool .es-tool-body button.aim-round-opt.is-active:not(:disabled):hover { border-color: var(--es-red, #ff4655); background: var(--es-red-wash, rgba(255,70,85,.14)); }
+.es-tool .es-tool-body button.aim-round-opt:not(.is-active):not(:disabled):hover { background: var(--es-raised-2, #1e232d); }
 .es-tool.aim-round button:focus-visible { outline: 2px solid var(--es-red, #ff4655); outline-offset: 2px; }
 .aim-round-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--es-line, #272d39); }
 .aim-round-keys { margin: 0; font-size: 13px; color: var(--es-muted, #9aa1ae); line-height: 1.6; }

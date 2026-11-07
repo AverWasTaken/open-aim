@@ -59,7 +59,8 @@ html.aim-round-on .al-scene-brief-specs,
 html.aim-round-on .al-scene-brief-note,
 html.aim-round-on .al-scene-brief-says > .al-start-kicker,
 html.aim-round-on .al-scene-brief-foot { display: none !important; }
-html.aim-round-on .al-scene-brief-says p { white-space: pre-line; }
+/* The game clamps the description to 3 lines (-webkit-line-clamp); the round text needs all of it. */
+html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block; -webkit-line-clamp: unset; overflow: visible; }
 `;
   const root = document.createElement("div");
   root.id = "aim-round-hud";

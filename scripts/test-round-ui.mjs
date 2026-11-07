@@ -202,6 +202,8 @@ test('round HUD: html.aim-round-on follows window.__aimRoundOn synchronously (se
   assert.match(css, /html\.aim-round-on \.al-hud-top \{ display: none !important; \}/);
   for (const sel of ['.al-scene-brief-head', '.al-scene-brief-author', '.al-scene-brief hr', '.al-scene-brief-specs', '.al-scene-brief-note', '.al-scene-brief-says > .al-start-kicker']) assert.ok(css.includes('html.aim-round-on ' + sel), sel);
   assert.ok(!css.includes('.al-scene-brief-overlay'), 'the card itself stays (Start / Back)');
+  // The game's 3-line clamp on the description is lifted for rounds.
+  assert.match(css, /html\.aim-round-on \.al-scene-brief-says p \{[^}]*-webkit-line-clamp: unset;[^}]*overflow: visible;/);
 });
 
 test('round HUD: detonation = screen flash at once, end banner 0.6 s later; both reset for the next round', () => {

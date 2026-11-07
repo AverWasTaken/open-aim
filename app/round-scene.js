@@ -125,11 +125,13 @@ function roundScene(modsDir, code) {
   const time = "2026-11-06 12:00:00";
   const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
   // Shown on the game's brief card before the round (round-hud.js hides the card's generic parts
-  // and keeps the line breaks). Plain text: the card escapes it.
+  // and keeps the line breaks). Plain text: the card escapes it. Restart is a user keybind, shown
+  // live by the game's control hint under the card, so it isn't listed here.
+  // TODO(defense side): the goal and key lines are the attacker's.
   const description = [
     `${data.name} · ${cap(opts.side)} · ${cap(opts.weapon)} · ${opts.barrierSec} s barrier.`,
     "Plant the spike. Defenders hold the sites.",
-    "Enter: start · Hold 4: plant · T: restart · Esc: menu",
+    "Enter: start · Hold 4: plant · Esc: menu",
   ].join("\n");
   return {
     authorNickname: "open-aim", authorUid: "local", blockCount: 0, createTime: time,

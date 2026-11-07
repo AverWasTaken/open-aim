@@ -93,7 +93,7 @@ test('generated scene: brief card text (name, description with map, side, weapon
   assert.equal(env.description, [
     'Ascent · Attack · Operator · 10 s barrier.',
     'Plant the spike. Defenders hold the sites.',
-    'Enter: start · Hold 4: plant · T: restart · Esc: menu',
+    'Enter: start · Hold 4: plant · Esc: menu',
   ].join('\n'));
   assert.ok(!/[—–]/.test(env.name + env.description), 'no dashes');
   assert.match(roundScene(MODS, 'round-ascent-attack-vandal-20').description, /^Ascent · Attack · Vandal · 20 s barrier\./);
