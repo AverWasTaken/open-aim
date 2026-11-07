@@ -46,6 +46,13 @@ export async function guardLauncher(c, { pollMs = 1000 } = {}) {
     const capped = Date.now() - t0 > c.capMs;
     if (runnerGone || capped) {
       log(runnerGone ? "runner gone" : "cap reached");
+      // Pid already dead but the lock still ours: a stopper (the runner's own, or someone
+      // else's) may be in its 2 s TERM->KILL pause. Wait for it before stopping again, so a
+      // second stopper call can never hit a copy another team starts right after.
+      if (ours() && !pidAlive(c.pid)) {
+        const until = Date.now() + (c.staleWaitMs ?? 5000);
+        while (Date.now() < until && ours()) await sleep(100);
+      }
       if (ours()) {
         const r = await runStopper(c.stopper);
         log(`stopper exit ${r.code}: ${r.out}`);

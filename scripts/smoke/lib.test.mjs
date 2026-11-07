@@ -356,6 +356,17 @@ test("guard (launcher): runner gone -> checked stop; lock not ours -> no stop", 
   assert.equal(pidAlive(h2.pid), false);
 });
 
+test("guard (launcher): pid dead, lock still ours while another stopper pauses -> waits, no second stop", linuxOnly, async () => {
+  const f = fakeHp();
+  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard });
+  process.kill(h.pid, "SIGKILL");
+  await sleep(50);
+  setTimeout(() => fs.rmSync(f.cfg.lockFile, { force: true }), 300);
+  const c = { runner: 999999, pid: h.pid, port: PORT, stopper: f.cfg.stopper, lockFile: f.cfg.lockFile, profile: "/tmp/not-a-launcher-profile", capMs: 60000, log: null, staleWaitMs: 2000 };
+  assert.equal(await guardLauncher(c, { pollMs: 20 }), "not-ours");
+  assert.equal(f.stops(), 0);
+});
+
 test("allowlist: known benign 404s ignored, local 404s and exceptions fail, warnings warn", () => {
   const e404 = (url) => ({ kind: "log", level: "error", text: "Failed to load resource: the server responded with a status of 404 (Not Found)", url });
   assert.equal(classifyError(e404("http://localhost:8270/prod-api/api/v1/public/val/aimlab/desktop-seen")), "ignore");

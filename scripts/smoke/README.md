@@ -12,7 +12,7 @@ It is opt-in (`npm run smoke`); only its unit tests (`npm run test:smokelib`) ar
 |---|---|
 | `boot` | lobby ready on a fresh profile; the first-run "Import VALORANT settings" box shows and closes (runs in every batch) |
 | `lobby` | every top tab opens without leaving the lobby |
-| `drill:<category>` | one drill per lobby category chip (Pre-aim, Angle holding, Anti-flash, Scenarios, Fundamentals): the chip lists the pinned card, the drill loads, starts, and the aim helper gets a kill within about 10 s |
+| `drill:<category>` | one drill per lobby category chip (Pre-aim, Angle holding, Anti-flash, Scenarios, Fundamentals): the chip lists the pinned card, the drill loads, starts, and the aim helper gets a kill within about 10 s (the Scenarios drill ends itself after 7 s). Bot drills are launched directly (no rank picker); the `rank-picker` step covers the card path for those |
 | `result-replay` | continues from the Fundamentals drill played to its end: result screen, replay opens and plays |
 | `play-again` | Play again from the result screen restarts the drill |
 | `pause` | losing the mouse lock pauses (light menu), Resume; Tab opens the full menu, Resume; Restart |
@@ -49,8 +49,10 @@ lock, the busy checks, xvfb and the profile `/tmp/openaim-profile-<port>`) and o
 through `~/hp-share/openaim-stop.sh`, and only while `~/hp-share/openaim.lock` still names its own
 pid and port. A detached guard does the same checked stop if the runner is killed, or after
 `--max-minutes` + 3. If someone else stops the copy mid-run (`hp.sh app-stop`), the run aborts
-with exit 4 and does not touch the lock. Known limit: between reading the lock and running the
-stopper there is a gap of a few milliseconds.
+with exit 4 and does not touch the lock. Known limits: between reading the lock and running the
+stopper there is a gap of a few milliseconds; and if our copy dies by itself and leaves its lock,
+the stopper only removes the lock (the suite never kills processes itself), so anything left in
+that session shows up in the `leftovers` line of `run.log` / `results.json`.
 
 Timing on hp (hidden copy, software WebGL, about 19 fps, nice 19): see "Timing" below. A gate
 running at the same time slows the app down further.
@@ -80,6 +82,7 @@ cd app && npm run smoke -- [--only=a,b] [--skip=a,b] [--list] [--out=dir] [--por
 | 3 | hard time cap (`--max-minutes`) reached |
 | 4 | not run: hp busy, or the copy was stopped by someone else mid-run |
 | 5 | the ssh session dropped (output pipe gone); the copy is stopped |
+| 129 / 130 / 143 | stopped by SIGHUP / SIGINT / SIGTERM (131: SIGBREAK on Windows); the copy is stopped |
 
 `qa-smoke.sh` returns the first non-zero batch code, and 255 means ssh to hp failed. A
 preempted batch (exit 4) is retried like a busy one; its screenshots are kept in `b<N>-try<K>\`.
@@ -115,6 +118,8 @@ reason; `hpOnly` marks noise seen only on the hidden hp copy):
 
 ## Timing
 
-Measured with `--only=probe` on hp (hidden copy, xvfb, software WebGL, nice 19):
+Measured with `--only=probe` on hp (hidden copy, xvfb, software WebGL, nice 19).
 
-(filled in from the probe run)
+Not measured yet: hp was busy with Soprano play-tests while the suite was being moved there. Until
+the probe has run, the batch split in `qa-smoke.sh` and the step time limits are estimates from
+the driving map (target drills load in seconds, map drills ~50-80 s, Round up to ~110 s).

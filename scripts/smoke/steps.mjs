@@ -198,11 +198,11 @@ async function isVariant(ctx, code) {
 async function launchDrill(ctx, d, via) {
   if (via === "card") {
     const sel = `[data-role=workshop-card][data-share-code="${d.code}"]`;
-    let have = await waitFor(ctx, `!!document.querySelector(${J(sel)})`, { timeout: 15000, what: `card ${d.code}` }).catch(() => false);
+    let have = await waitFor(ctx, `!!__qa.visq(${J(sel)})`, { timeout: 15000, what: `card ${d.code}` }).catch(() => false);
     if (!have) {
       // A category chip from an earlier step may be filtering the list: back to "All".
       await clickSel(ctx, ".al-wk-chip", String.raw`^\s*All\b`).catch(() => {});
-      have = await waitFor(ctx, `!!document.querySelector(${J(sel)})`, { timeout: 5000, what: `card ${d.code}` }).catch(() => false);
+      have = await waitFor(ctx, `!!__qa.visq(${J(sel)})`, { timeout: 5000, what: `card ${d.code}` }).catch(() => false);
     }
     if (!have) throw new Error(`pinned drill ${d.code} (${d.name}) missing from the lobby - update scripts/smoke/drills.json`);
     await clickSel(ctx, `${sel} .al-wk-split-go, ${sel} .al-wk-go`);
@@ -362,7 +362,7 @@ function drillStep(d) {
   return {
     name: `drill:${d.id}`,
     about: `${d.chip}: ${d.name} (${d.code})${d.result ? "; played to its end when result-replay follows" : ""}`,
-    timeoutMs: 240000,
+    timeoutMs: d.result ? 420000 : 240000, // +play to the end (60 s drill, slower when the sim runs below real time)
     async run(ctx) {
       await pickChip(ctx, d);
       // Bots that shoot back show the rank picker on a card click (the rank-picker step covers
@@ -446,7 +446,7 @@ async function leaveFromStartScreen(ctx) {
 const resultReplay = {
   name: "result-replay",
   about: "short drill to its natural end; result screen; replay plays",
-  timeoutMs: 240000,
+  timeoutMs: 420000,
   async run(ctx) {
     const fromPrev = ctx.prev && ctx.prev.keepState && (await ctx.cdp.evaluate("__qa.phase==='result' && !!__qa.visq('.al-result-overlay')"));
     if (fromPrev) {

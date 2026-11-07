@@ -131,7 +131,9 @@ async function bail(code, why, flags = {}) {
   // copy that comes up after this abort still gets the checked stop instead of being orphaned.
   if (!app && starting) {
     log("waiting for the launcher to finish before stopping");
-    app = await Promise.race([starting.catch(() => null), sleep(170000).then(() => null)]);
+    // startLauncher can take up to ~150 s (launcher) + 90 s (slow CDP); past that the guard,
+    // already running by then, does the checked stop.
+    app = await Promise.race([starting.catch(() => null), sleep(250000).then(() => null)]);
     if (app?.busy) app = null;
   }
   const wasPreempted = !!flags.preempted || preempted(app);
