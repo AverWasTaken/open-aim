@@ -774,13 +774,24 @@ test('B3 retake latch: staged in place on site, the rest to staging slots (2 s p
   assert.ok(S.filter((s) => s.pushed === 0).every((s) => s.gk === I.GK.stage), 'far ones head for staging');
   // Late joiner: a far bot that reaches its staging slot pushes (someone has pushed).
   const far = T.actors.find((a) => a.behavior.roundBot.sgi >= 0), fs_ = far.behavior.roundBot, fk = I.fieldFor(N, stg[fs_.sgi], null);
-  let n = fs_.cur;
-  while (fk.dist[n] > fs_.slotT + 1 && fk.via[n] >= 0) n = fk.via[n];
+  // Staged only within STAGE_NEAR (0.5 s field time) of its slot: the node just before that is not.
+  assert.equal(I.STAGE_NEAR, 0.5);
+  let n = fs_.cur, prev = -1;
+  while (fk.dist[n] > fs_.slotT + I.STAGE_NEAR && fk.via[n] >= 0) { prev = n; n = fk.via[n]; }
+  assert.ok(prev >= 0 && fk.dist[n] <= fs_.slotT + I.STAGE_NEAR, 'found the staging window on the chain');
+  far.position = { x: g.x[prev], y: g.y[prev], z: g.z[prev] }; fs_.cur = prev;
+  T.tickAll(103);
+  assert.equal(fs_.staged, 0, `not staged ${(fk.dist[prev] - fs_.slotT).toFixed(2)} s out`); assert.equal(fs_.pushed, 0);
   far.position = { x: g.x[n], y: g.y[n], z: g.z[n] }; fs_.cur = n;
-  T.tickAll(103); T.tickAll(104);
+  T.tickAll(104); T.tickAll(105);
   assert.equal(fs_.staged, 1); assert.equal(fs_.pushed, 1, 'late joiner pushes on arrival');
   // Flat numeric state only.
   for (const s of S) for (const [k, v] of Object.entries(s)) assert.ok(typeof v === 'number' ? Number.isFinite(v) : typeof v === 'boolean', `${k} flat finite`);
+});
+
+test('B3 defuse while seen: Default (no enemyRank) and iron..gold keep defusing; platinum and up stop to fight', () => {
+  for (const r of [undefined, null, '', 'iron', 'bronze', 'silver', 'gold']) assert.equal(I.keepsDefusingSeen(r), true, `${r}`);
+  for (const r of ['platinum', 'diamond', 'ascendant', 'immortal', 'radiant']) assert.equal(I.keepsDefusingSeen(r), false, r);
 });
 
 test('B3 retake: player dead -> no staging, everyone pushes at once; time pressure pushes a far bot; one bot alive pushes; defense side -> no retake', () => {

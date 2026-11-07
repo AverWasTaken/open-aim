@@ -52,7 +52,7 @@
 //   moving   = the sim's own actor.moving flag (one tick old), used for yielding.
 //   air      = 1 while il has the bot in the air (a drop): nobody yields to it.
 //   pushed   = 1 once the bot pushes the retake (latched until the next plant; B3).
-//   staged   = 1 while it counts as staged for the retake (at / <= 1.5 s from its slot, or staged in
+//   staged   = 1 while it counts as staged for the retake (at / <= 0.5 s from its slot, or staged in
 //              place; B3).
 //   cand     = the defuse candidate's id as this bot sees it (every bot computes the same), -1 none.
 // io.bots entry: { id, spawnerId, alive, x, y, z, defusing (0|1), planting (0|1) } -> round-core's
@@ -165,7 +165,7 @@
 //   Defuse: the candidate starts (actor.roundDefusing = 1, mode defuse) once it stands at the goal
 //   (after the il move: xz <= 1.5, |dy| < 1.9 (fallback set: radius - 0.005 / 1.95), stopped, not airborne, combatHold !== 1) and the
 //   player is dead or it hasn't seen them for >= 1 s. It then holds the flag every tick without
-//   moving (no il) until the round ends, unless it sees the player and the rank isn't iron..gold:
+//   moving (no il) until the round ends, unless it sees the player and the rank isn't iron..gold or Default (absent):
 //   then it stops to fight, except past the checkpoint with time left < defuse left + 1.5 s.
 // Flat state (nav mode): nav, mode, snap, spawn, goal, setup, wait, cur, tgt, tx, ty, tz, goT,
 //   arrived, arriveT, fk, best, bestT, replans, yieldT, yieldCd, face, face2, face2On, faceSel,
@@ -196,7 +196,7 @@ const LINE_STEP = 0.1, LINE_DY = 0.5, BEND_DY = 0.15;
 const WD = (1 << NAV_WALK) | (1 << NAV_DROP);
 const FAR = 1e9; // 'no value yet' in the flat state (Infinity would not survive a JSON copy)
 // B3
-const STAGE_SLOT = 1.2, STAGE_NEAR = 1.5, STAGE_COST = 2;
+const STAGE_SLOT = 1.2, STAGE_NEAR = 0.5, STAGE_COST = 2; // STAGE_NEAR: field s from its slot that counts as staged
 const PUSH_MARGIN = 5, ACCEL_MARGIN = 0.3;
 const COVER_MIN = 3, COVER_MAX = 5, COVER_WIDE = 8, COVER_SEP = 1.5;
 // Defuse goal sets: tight (start within 1.5 / 1.9), else round-core's own rule (r = cfg.defuseRadius,
@@ -207,6 +207,8 @@ const DEFUSE_XZ = 1.5, DEFUSE_DY = 1.9, DEFUSE_FULL_M = 0.005, DEFUSE_FULL_DY = 
 const FACE_SPIKE_M = 15;
 const PLANT_LRU = 8;
 const LOW_RANKS = new Set(['iron', 'bronze', 'silver', 'gold']); // keep defusing while seen
+// Default (no ctx.enemyRank) is a mid/low rank here (reaction 0.35-0.5 s): it keeps defusing like iron..gold.
+const keepsDefusingSeen = (rank) => typeof rank !== 'string' || rank === '' || LOW_RANKS.has(rank);
 const ROT_DELAY = { iron: -1, bronze: -1, silver: 6, gold: 6, platinum: 4, diamond: 4, ascendant: 3, immortal: 3, radiant: 2 };
 const ROT_DEFAULT = 5;
 const ROUND_DEF = { spikeSec: 45, defuseSec: 7, defuseCheckpointSec: 3.5 }; // = round-core ROUND_DEFAULTS
@@ -828,12 +830,12 @@ function tryDefuse(actor, ctx, st, rs, plan, G) {
   actor.roundDefusing = 1;
   st.mode = MODE.defuse;
 }
-// Keep defusing this tick? (Seen by the player: iron..gold keep on; higher ranks stop to fight
+// Keep defusing this tick? (Seen by the player: iron..gold and Default keep on; higher ranks stop to fight
 // unless past the checkpoint with too little time to restart.)
 function keepDefusing(actor, ctx, st, cfg, rs, plan) {
   if (!plan || rs.phase !== 'planted' || st.cand !== actor.id || !inReach(actor.position, plan)) return false;
   if (rs.playerAlive === false || actor.behavior?.shooter?.lastSeenTick !== ctx.tick) return true;
-  if (LOW_RANKS.has(ctx.enemyRank)) return true;
+  if (keepsDefusingSeen(ctx.enemyRank)) return true;
   const ts = tickSecOf(ctx), left = (ticksOf(num(cfg.defuseSec, ROUND_DEF.defuseSec), ts) - (rs.defuse ?? 0)) * ts;
   return rs.checkpoint === true && spikeLeft(ctx, cfg, rs) < left + FIGHT_MARGIN;
 }
@@ -1020,7 +1022,7 @@ export function aimRoundIoBots(actors) {
 export const roundBotsInternals = {
   resetCaches() { NAVS = new WeakMap(); MASK_IDS = new WeakMap(); BARS = new WeakMap(); BAR_KEYS = new WeakMap(); },
   navFor, maskFor, fieldFor, fieldMulti, reachFor, barriersOf, nearestNode, nodesNear, cellHasFloor, lineCut, pickTarget, trackNode,
-  stagingFor, reachUnion, spikeData, electCand, plantCacheSize: (N) => N.plant.size,
+  stagingFor, reachUnion, spikeData, electCand, keepsDefusingSeen, plantCacheSize: (N) => N.plant.size,
   MODE, GK, RUN_SPEED, TURN_RATE, YIELD_DIST, YIELD_MAX, STAGGER_SEC, STUCK_MAX, ROT_DELAY, ROT_DEFAULT, PLANT_LRU,
-  DEFUSE_XZ, DEFUSE_DY, COVER_MIN, COVER_MAX, COVER_SEP,
+  DEFUSE_XZ, DEFUSE_DY, COVER_MIN, COVER_MAX, COVER_SEP, STAGE_NEAR,
 };

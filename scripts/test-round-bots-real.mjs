@@ -352,12 +352,12 @@ function showPlayer(N, W, s, st) {
   }
   return null;
 }
-test('B3 real Ascent: the player shows up in front of the defuser: iron keeps defusing (never fires), platinum stops and fights, then finishes', { skip }, async () => {
+test('B3 real Ascent: the player shows up in front of the defuser: Default (no rank) and iron keep defusing (never fire), platinum stops and fights, then finishes', { skip }, async () => {
   const N = useNav(), W = await terrain();
-  for (const rank of ['iron', 'platinum']) {
+  for (const rank of [null, 'iron', 'platinum']) {
     let shown = null, gapAfter = 0;
     const m = await retake({
-      set: SETS[0], spike: SW.spotOf(N, SITE_NODE(N, 'A'), 'A'), seed: 15, extra: { enemyRank: rank },
+      set: SETS[0], spike: SW.spotOf(N, SITE_NODE(N, 'A'), 'A'), seed: 15, extra: rank ? { enemyRank: rank } : {},
       onTick: (s, st) => {
         if (shown === null && st.actors.some((a) => a.alive && a.roundDefusing === 1) && st.aimRound.defuse > 0.2 * T_DEFUSE) shown = showPlayer(N, W, s, st) ?? -1;
         if (shown > 0 && st.aimRound.phase === 'planted' && !st.actors.some((a) => a.alive && a.roundDefusing === 1)) gapAfter++;
@@ -366,9 +366,9 @@ test('B3 real Ascent: the player shows up in front of the defuser: iron keeps de
     assert.ok(shown > 0, `${rank}: found a spot in view of the defuser`);
     assert.equal(m.fireWhileDefusing, 0, `${rank}: fired while defusing`);
     assert.equal(m.outcome, 'defused', `${rank}: ${m.outcome}`);
-    if (rank === 'iron') {
-      assert.ok(m.seenWhileDefusing > 0, 'iron: the defuser saw the player while defusing (not vacuous)');
-      assert.equal(m.flagGap, 0, 'iron: never let go');
+    if (rank !== 'platinum') {
+      assert.ok(m.seenWhileDefusing > 0, `${rank ?? 'default'}: the defuser saw the player while defusing (not vacuous)`);
+      assert.equal(m.flagGap, 0, `${rank ?? 'default'}: never let go`);
     } else {
       assert.ok(gapAfter > 0, 'platinum: let go of the defuse when it saw the player');
       assert.ok((m.shotsBy[shown] ?? 0) > 0, 'platinum: the defuser fought (fired) after letting go');
