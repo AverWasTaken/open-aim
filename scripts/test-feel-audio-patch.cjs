@@ -20,7 +20,7 @@ const count = (s, needle) => s.split(needle).length - 1;
 const MARKERS = [
   ['typeof window<"u"&&(window.__aimStepBuffers=()=>(Wl(),cr));', 1],
   ['context=null;master=null;bus=null;', 1],
-  ['__aimAudioBuild(this),window.__aimAudio=this,window.__aimAudioMix?.attach?.(this)', 1],
+  ['__aimAudioBuild(this),window.__aimAudio=this,__aimAudioMixCall("attach",this)', 1],
   ['{context:this.context,master:n,bus:this.bus}}', 1],
   ['playSkinFire(n.context,n.bus?.weapon??n.master,', 1],
   ['this.fire(n.context,n.bus?.weapon??n.master,', 1],
@@ -42,10 +42,11 @@ const MARKERS = [
   ['(__aimHS&&window.__aimAudioMix?.cue?.(re,"headshot",!0),re.playKill?.(', 1],
   ['||window.__aimAudioMix?.cue?.(re,"kill",__aimHS)||re.playHit(!0))),Qn=0,', 1],
   ['&&!__aimDotOnly&&(__aimHS&&window.__aimAudioMix?.cue?.(re,"headshot",!0)||re.playHit());', 1],
-  [',window.__aimAudioMix?.frame?.(re,r.camera.matrixWorld.elements,ce,Fe,__aimDotTemplates),re.flash){', 1],
+  [',__aimAudioMixCall("frame",re,r.camera.matrixWorld.elements,ce,Fe,__aimDotTemplates),re.flash){', 1],
   ['\nfunction __aimClipCurve(n,h){', 1],
   ['\nfunction __aimAudioBuild(e){', 1],
   ['\nfunction __aimEnemySpatial(b,h,d,p){', 1],
+  ['\nfunction __aimAudioMixCall(k,...a){', 1],
 ];
 // Old routing that must be gone.
 const GONE = ['this.master.connect(this.context.destination)', 'o.connect(s.master)', ',t.master,', ',a.master,',
@@ -177,6 +178,77 @@ test('enemy shot spatial info: muzzle, wall flag, sight test only for misses', (
   assert.deepEqual(calls[0][1], { x: 10, y: 1.5 * 0.7, z: 0 });
   r = spatial(bot, { hit: false }, { sightBlocked() { throw new Error('x'); } }, player);
   assert.equal(r.blocked, false);
+});
+
+test('attach/frame calls to the shell: missing is a no-op, a throw is caught and warned once', () => {
+  const g = globalThis;
+  const old = { window: g.window, warn: console.warn };
+  const warns = [];
+  try {
+    g.window = {};
+    console.warn = (...a) => warns.push(a);
+    const call = extract('__aimAudioMixCall')();
+    assert.equal(call('frame', 1), undefined);
+    g.window.__aimAudioMix = { frame() { throw new Error('boom'); }, attach(e) { return this === g.window.__aimAudioMix && e; } };
+    assert.equal(call('frame', 1, 2), undefined);
+    assert.equal(call('frame', 1, 2), undefined);
+    assert.equal(warns.length, 1);
+    assert.equal(call('attach', 5), 5);
+    assert.equal(call('nope'), undefined);
+  } finally {
+    g.window = old.window;
+    console.warn = old.warn;
+  }
+});
+
+test('hit / kill sounds follow the rules table (real patched code on stand-ins)', () => {
+  // The player-shot sound block, from the headshot flag to the plain-hit branch, run with stubs.
+  const from = src.indexOf('const __aimHS=');
+  const end = '||re.playHit());';
+  const to = src.indexOf(end, from) + end.length;
+  assert.ok(from > 0 && to > from && to - from < 1500);
+  const block = src.slice(from, to);
+  const run = new Function('re', 'he', 'Qn', '__aimDotOnly', 'window', 'ge', 'Ae', 'Ye', 't', '__aimIsGridTargetActor', '__aimDotTemplates',
+    `${block}\nreturn __aimHS;`);
+  const cases = [];
+  for (const mix of ['absent', 'true', 'false'])
+    for (const head of [false, true])
+      for (const kill of [false, true])
+        for (const skin of [false, true])
+          for (const dotOnly of [false, true]) cases.push({ mix, head, kill, skin, dotOnly });
+  for (const c of cases) {
+    const calls = [];
+    const re = {
+      playKill: () => (calls.push('playKill'), c.skin),
+      playHit: (k) => (calls.push(k ? 'playHit(kill)' : 'playHit'), undefined),
+    };
+    const win = c.mix === 'absent' ? {} : { __aimAudioMix: { cue: (e, k, h) => (assert.equal(e, re), calls.push(`cue:${k}:${h}`), c.mix === 'true') } };
+    const he = { hitActorId: 3, hitPart: c.head ? 'head' : 'body' };
+    const hs = run(re, he, c.kill ? 1 : 0, c.dotOnly, win, 1, { actors: [], player: { weapon: 'vandal' } }, () => 'vandal', {}, () => false, new Set());
+    assert.equal(hs, c.head);
+    let want;
+    if (c.kill) {
+      if (c.dotOnly) want = ['playKill'];
+      else {
+        want = [];
+        if (c.head && c.mix !== 'absent') want.push('cue:headshot:true');
+        want.push('playKill');
+        if (!c.skin) {
+          if (c.mix !== 'absent') want.push(`cue:kill:${c.head}`);
+          if (c.mix !== 'true') want.push('playHit(kill)');
+        }
+      }
+    } else if (c.dotOnly) want = [];
+    else {
+      want = [];
+      if (c.head && c.mix !== 'absent') want.push('cue:headshot:true');
+      if (!(c.head && c.mix === 'true')) want.push('playHit');
+    }
+    assert.deepEqual(calls, want, JSON.stringify(c));
+  }
+  // A grid dot hit on the head is not a headshot.
+  const r2 = run({ playHit() {} }, { hitActorId: 3, hitPart: 'head' }, 0, false, {}, 1, { actors: [] }, () => 'vandal', {}, () => true, new Set());
+  assert.equal(r2, false);
 });
 
 test('patched OkAdunfX.js still parses (ES module)', () => {

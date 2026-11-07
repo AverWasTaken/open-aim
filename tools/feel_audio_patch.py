@@ -43,6 +43,10 @@ What the engine (class qp) provides:
 What the play page calls (all optional chaining; a missing function or a falsy result means the old
 behaviour):
 - __aimAudioMix.attach(engine) once per new AudioContext (inside ensure()).
+  attach() and frame() go through __aimAudioMixCall (tail of the file), which catches anything they
+  throw (one console warning per page) so a shell bug can't stop ensure() or the render frame.
+  cue(), spatialOn() and enemyDest() are called directly (optional chaining); the shell must not let
+  them throw.
 - enemy shot: re.playEnemyFire(he.distance, <weapon, unchanged>,
   Be && __aimAudioMix.spatialOn() ? {id, x, y, z, blocked} : null)
   x, y, z = muzzle = Be.position + Be.offset, y + 1.45 (same as the tracer origin).
@@ -92,7 +96,7 @@ OKA = [
     # New context: buses + clipper, publish the engine, tell the shell.
     (b"this.context=new AudioContext,this.master=this.context.createGain(),this.master.connect(this.context.destination)",
      b"this.context=new AudioContext,this.master=this.context.createGain(),__aimAudioBuild(this),"
-     b"window.__aimAudio=this,window.__aimAudioMix?.attach?.(this)", 1),
+     b"window.__aimAudio=this,__aimAudioMixCall(\"attach\",this)", 1),
     (b"{context:this.context,master:n}}", b"{context:this.context,master:n,bus:this.bus}}", 1),
     # Routing.
     (b"playSkinFire(n.context,n.master,", b"playSkinFire(n.context,n.bus?.weapon??n.master,", 1),
@@ -131,13 +135,14 @@ OKA = [
      b"}else he.hitActorId!==null&&!__aimDotOnly&&(__aimHS&&window.__aimAudioMix?.cue?.(re,\"headshot\",!0)||re.playHit());", 1),
     # Every frame: listener / bot footsteps in the shell (also when there is no flash audio).
     (b",re.flash){const xe=r.camera.matrixWorld.elements;re.flash.frame(",
-     b",window.__aimAudioMix?.frame?.(re,r.camera.matrixWorld.elements,ce,Fe,__aimDotTemplates),"
+     b",__aimAudioMixCall(\"frame\",re,r.camera.matrixWorld.elements,ce,Fe,__aimDotTemplates),"
      b"re.flash){const xe=r.camera.matrixWorld.elements;re.flash.frame(", 1),
 ]
 
 OKA_TAIL = b"""
 function __aimClipCurve(n,h){const c=new Float32Array(n);for(let i=0;i<n;i++){const u=(i*2/(n-1)-1)*h,a=Math.abs(u),y=a<=.8?a:.8+.2*Math.tanh((a-.8)/.2);c[i]=(u<0?-y:y)/h}return c}
 function __aimAudioBuild(e){const c=e.context,m=e.master,p=c.createGain(),w=c.createWaveShaper(),q=c.createGain();p.gain.value=.5,w.curve=__aimClipCurve(4097,2),w.oversample="none",q.gain.value=2,m.connect(p).connect(w).connect(q).connect(c.destination);const b={};for(const k of["weapon","enemy","steps","hits","ui"]){const g=c.createGain();g.connect(m),b[k]=g}e.bus=b}
+function __aimAudioMixCall(k,...a){const m=typeof window<"u"?window.__aimAudioMix:void 0;if(!m||typeof m[k]!=="function")return;try{return m[k](...a)}catch(x){__aimAudioMixCall.warned||(__aimAudioMixCall.warned=!0,console.warn("[aim-audio] __aimAudioMix."+k+" failed",x))}}
 function __aimEnemySpatial(b,h,d,p){const x=b.position.x+(b.offset?.x??0),y=b.position.y+(b.offset?.y??0)+1.45,z=b.position.z+(b.offset?.z??0);let k=h.wall!==void 0;if(!k&&!h.hit&&p)try{k=!!d.sightBlocked({x,y,z},{x:p.position.x,y:p.position.y+1.5*(1-.3*(p.crouchAmount??0)),z:p.position.z})}catch{k=!1}return{id:b.id,x,y,z,blocked:k}}
 """
 
