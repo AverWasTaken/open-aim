@@ -221,3 +221,187 @@ test('real Ascent: a setup just beyond def-mid -> the bot waits within 2 m of th
     assert.ok(r.b.arriveT > 20 && r.b.arriveT < 25, `arrived ${r.b.arriveT}`);
   }
 });
+
+// ---------------------------------------------------------------- B3: retake / defuse on real collision
+// Runner + metrics shared with the sweep (scripts/round-bots-sweep.mjs retakeRun). Bots start on
+// their setups (barrier 1 s); the plant is forced (save -> edit -> restore) with the player hidden
+// at the attacker spawn or dead, except the one real hold-plant test.
+const SW = HAVE_SITE ? await import(pathToFileURL(path.join(root, 'scripts', 'round-bots-sweep.mjs')).href) : null;
+const SITE_NODE = (N, site) => N.g.header.siteGoals[site].node;
+const T_DEFUSE = Math.round(7 * TPS), T_CHECK = Math.round(3.5 * TPS);
+const plantMs = [];
+async function retake({ set, spike, player = 'hidden', seed = 5, extra = {}, onTick = null, maxSec = 60 }) {
+  const doc = SW.realDoc({ barrierSec: 1, set, atSetups: true });
+  const m = SW.retakeRun({ sim, W: await terrain(), doc, seed, extra, plantAfter: 0.5, spike, player, maxSec, onTick });
+  if (m.plantMs !== null) plantMs.push(+m.plantMs.toFixed(1));
+  return m;
+}
+function checkRetake(m, label, { defused = true } = {}) {
+  const tag = `${label} [seed ${m.seed}]`;
+  assert.equal(m.crossings, 0, `${tag}: barrier crossings`);
+  assert.equal(m.fireWhileDefusing, 0, `${tag}: a bot fired while defusing`);
+  assert.equal(m.stuck, 0, `${tag}: stuck bots`);
+  assert.ok(m.maxExcess <= 0, `${tag}: an arrival took longer than 1.35 x field + 1 s (${m.maxExcess.toFixed(2)} s over) ${JSON.stringify(m.arrivals)}`);
+  assert.ok(m.minStill >= 0.8, `${tag}: two standing bots ${m.minStill.toFixed(2)} m apart`);
+  if (m.staged2 >= 0) assert.ok(m.firstPush >= 0 && m.firstPush - m.staged2 <= 0.5 * TPS, `${tag}: push ${(m.firstPush - m.staged2) / TPS} s after the second bot staged`);
+  if (defused) {
+    assert.equal(m.outcome, 'defused', `${tag}: outcome ${m.outcome}`);
+    assert.equal(m.kind, 'defuse');
+    assert.ok(m.end < 45, `${tag}: defused ${m.end.toFixed(2)} s after the plant`);
+    assert.ok(m.candArrive >= 0 && m.defuseStart >= m.candArrive, `${tag}: candidate arrived ${m.candArrive}, defuse ${m.defuseStart}`);
+  }
+}
+
+const FAR_SET = ['Market', 'Market back', 'Pizza', 'B default', 'B back site']; // nobody on A
+test('B3 real Ascent: A site plant with no bot on A, player hidden: bots head for the staging points, push together once two are staged, one defuses with the flag held every tick until "Spike defused"; no fire while defusing; arrivals <= 1.35 x field + 1 s', { skip }, async () => {
+  const N = useNav();
+  const m = await retake({ set: FAR_SET, spike: SW.spotOf(N, SITE_NODE(N, 'A'), 'A') });
+  assert.ok(m.staged2 >= 0, 'two bots staged before the push');
+  checkRetake(m, 'A hidden');
+  assert.equal(m.flagGap, 0, 'the defuse flag holds every tick until the end');
+  assert.equal(m.defusers.length, 1, 'one defuser');
+  assert.equal(m.cands.length, 1, 'one candidate all round');
+  assert.ok(m.arrivals.some((a) => a.gk === I.GK.spike) && m.arrivals.some((a) => a.gk === I.GK.cover), 'spike + cover arrivals measured');
+  const r = m.s.snapshot().round;
+  assert.equal(r.reason, 'defused'); assert.equal(r.win, false, 'attack-side loss');
+  console.log(`A hidden: cand at spike ${m.candArrive.toFixed(2)} s, defuse ${m.defuseStart.toFixed(2)} -> ${m.end.toFixed(2)} s after the plant; first post-plant tick ${m.plantMs.toFixed(1)} ms`);
+});
+
+test('B3 real Ascent: B site plant, player dead, "game" movement: everyone pushes at once, one defuses', { skip }, async () => {
+  const N = useNav();
+  const m = await retake({ set: SETS[1], spike: SW.spotOf(N, SITE_NODE(N, 'B'), 'B'), player: 'dead', extra: { movement: 'game' }, seed: 7 });
+  checkRetake(m, 'B dead');
+  assert.equal(m.flagGap, 0);
+  assert.equal(m.staged2, -1, 'no staging with the player dead');
+  console.log(`B dead: cand at spike ${m.candArrive.toFixed(2)} s, defuse ${m.defuseStart.toFixed(2)} -> ${m.end.toFixed(2)} s; first post-plant tick ${m.plantMs.toFixed(1)} ms`);
+});
+
+test('B3 real Ascent: spike on a crate (>= 0.8 m above the floor) -> defused from the floor next to it', { skip }, async () => {
+  const N = useNav(), g = N.g, cfg = SW.realDoc({ barrierSec: 1 }).rules.round;
+  const box = SW.zoneSpots(N, 'A').box.find((k) => I.spikeData(N, cfg, SW.spotOf(N, k, 'A')).kind === 'defuse');
+  assert.ok(box >= 0, 'a defusable crate spot on A');
+  const spike = SW.spotOf(N, box, 'A');
+  let floorY = null;
+  const m = await retake({ set: SETS[2], spike, seed: 9, onTick: (s, st) => { const d = st.actors.find((a) => a.alive && a.roundDefusing === 1); if (d && floorY === null) floorY = d.position.y; } });
+  checkRetake(m, 'A crate');
+  assert.ok(floorY !== null && spike.y - floorY >= 0.8, `spike ${spike.y} vs defuser floor ${floorY}`);
+  void g;
+});
+
+test('B3 real Ascent: spike on a stacked-crate top no bot can reach -> nobody defuses, bots stand (no loop), the spike goes off', { skip }, async () => {
+  const N = useNav(), bad = N.header.zones.A.bad[1];
+  const m = await retake({ set: SETS[0], spike: { x: bad[0], y: bad[1], z: bad[2], site: 'A' }, seed: 11 });
+  checkRetake(m, 'A unreachable crate', { defused: false });
+  assert.equal(m.outcome, 'detonated');
+  assert.notEqual(m.kind, 'defuse');
+  assert.equal(m.defuseStart, -1); assert.deepEqual(m.cands, []);
+  assert.ok(m.retries === 0, `retries ${m.retries}`);
+  const fin = m.s.saveState();
+  for (const a of fin.actors) if (a.alive) assert.ok([I.MODE.stage, I.MODE.cover].includes(a.behavior.roundBot.mode), `bot ${a.id} mode ${a.behavior.roundBot.mode}`);
+});
+
+test('B3 real Ascent: defuser killed past the checkpoint -> another bot restarts from the checkpoint and finishes', { skip }, async () => {
+  const N = useNav();
+  let killed = null, minAfter = Infinity;
+  const m = await retake({
+    set: SETS[0], spike: SW.spotOf(N, SITE_NODE(N, 'A'), 'A'), seed: 13,
+    onTick: (s, st) => {
+      const r = st.aimRound;
+      if (killed) { if (r.defuser != null && r.defuser !== killed.id) minAfter = Math.min(minAfter, r.defuse); return; }
+      if (r.defuse < 0.6 * T_DEFUSE) return;
+      const d = st.actors.find((a) => a.alive && a.roundDefusing === 1);
+      if (!d) return;
+      killed = { id: d.id, progress: r.defuse };
+      d.alive = false; d.health = 0;
+      s.restoreState(st);
+    },
+  });
+  assert.ok(killed && killed.progress > T_CHECK, `killed at ${killed?.progress} ticks of progress`);
+  assert.ok(m.defusers.length >= 2 && m.defusers[1] !== killed.id, `defusers ${m.defusers}`);
+  assert.ok(minAfter >= T_CHECK, `the new defuser restarted from ${minAfter} (checkpoint ${T_CHECK})`);
+  assert.equal(m.outcome, 'defused');
+  assert.equal(m.fireWhileDefusing, 0);
+});
+
+// The player walks into the defuser's view (in front of it, 5-9 m, clear projectile line).
+function showPlayer(N, W, s, st) {
+  const g = N.g, d = st.actors.find((a) => a.alive && a.roundDefusing === 1), p = d.position, fy = d.facingYaw;
+  for (const k of I.nodesNear(N, p.x, p.z, 9, p.y, 0.6)) {
+    const dx = g.x[k] - p.x, dz = g.z[k] - p.z, dist = Math.hypot(dx, dz);
+    if (dist < 5 || (dx * Math.sin(fy) + dz * Math.cos(fy)) / dist < Math.cos(Math.PI / 6)) continue;
+    const o = [p.x, p.y + 1.5, p.z], t = [g.x[k], g.y[k] + 1.5, g.z[k]], v = [t[0] - o[0], t[1] - o[1], t[2] - o[2]], len = Math.hypot(...v);
+    const hit = W.ray(W.projectile, o, v.map((c) => c / len), len);
+    if (hit >= 0 && hit < len - 0.05) continue;
+    st.player.position = { x: g.x[k], y: g.y[k], z: g.z[k] };
+    s.restoreState(st);
+    return d.id;
+  }
+  return null;
+}
+test('B3 real Ascent: the player shows up in front of the defuser: iron keeps defusing (never fires), platinum stops and fights, then finishes', { skip }, async () => {
+  const N = useNav(), W = await terrain();
+  for (const rank of ['iron', 'platinum']) {
+    let shown = null, gapAfter = 0;
+    const m = await retake({
+      set: SETS[0], spike: SW.spotOf(N, SITE_NODE(N, 'A'), 'A'), seed: 15, extra: { enemyRank: rank },
+      onTick: (s, st) => {
+        if (shown === null && st.actors.some((a) => a.alive && a.roundDefusing === 1) && st.aimRound.defuse > 0.2 * T_DEFUSE) shown = showPlayer(N, W, s, st) ?? -1;
+        if (shown > 0 && st.aimRound.phase === 'planted' && !st.actors.some((a) => a.alive && a.roundDefusing === 1)) gapAfter++;
+      },
+    });
+    assert.ok(shown > 0, `${rank}: found a spot in view of the defuser`);
+    assert.equal(m.fireWhileDefusing, 0, `${rank}: fired while defusing`);
+    assert.equal(m.outcome, 'defused', `${rank}: ${m.outcome}`);
+    if (rank === 'iron') {
+      assert.ok(m.seenWhileDefusing > 0, 'iron: the defuser saw the player while defusing (not vacuous)');
+      assert.equal(m.flagGap, 0, 'iron: never let go');
+    } else {
+      assert.ok(gapAfter > 0, 'platinum: let go of the defuse when it saw the player');
+      assert.ok((m.shotsBy[shown] ?? 0) > 0, 'platinum: the defuser fought (fired) after letting go');
+    }
+  }
+});
+
+test('B3 real Ascent: a real hold-plant on B (no B bots) -> spike at the player\'s feet, the bots retake and defuse', { skip }, async () => {
+  const N = useNav(), g = N.g, k = SITE_NODE(N, 'B');
+  let phase = 0;
+  const m = await retake({
+    set: ['A site default', 'A site front', 'A generator', 'Market', 'Pizza'], spike: null, seed: 19, maxSec: 70,
+    onTick: (s, st, mm, info) => {
+      if (phase === 0 && info.phase === 'live') { st.player.position = { x: g.x[k], y: g.y[k] + 0.05, z: g.z[k] }; s.restoreState(st); phase = 1; return; }
+      if (phase === 1 && info.tick >= mm.live + TPS / 2) { s.setRoundHold({ plant: true }); phase = 2; }
+      if (phase === 2 && info.phase !== 'live') { s.setRoundHold({ plant: false }); phase = 3; }
+    },
+  });
+  assert.ok(m.plant >= 0, 'planted by holding the key');
+  const sp = m.s.saveState().aimRound.spike.planted;
+  assert.equal(sp.site, 'B');
+  const near = I.nearestNode(N, sp.x, sp.z, 0.6, sp.y, 0.5);
+  assert.ok(near >= 0 && Math.abs(g.y[near] - sp.y) < 0.3, `spike y ${sp.y} is the player's feet (floor ${near >= 0 ? g.y[near] : '-'})`);
+  assert.equal(m.outcome, 'defused', `outcome ${m.outcome}`);
+  assert.equal(m.fireWhileDefusing, 0);
+  assert.equal(m.crossings, 0);
+});
+
+test('B3 real Ascent: determinism across the plant tick: restore the planted state -> same run; cold caches -> same run; save mid-retake -> same continuation', { skip }, async () => {
+  const N = useNav(), W = await terrain();
+  const doc = SW.realDoc({ barrierSec: 1, set: SETS[0], atSetups: true });
+  const s = sim.c(doc, { sensitivity: 1, zoomSensitivity: 1, seed: 21, terrain: W });
+  for (let i = 0; i < TPS * 1.5 + 64; i++) s.step(IDLE);
+  SW.forcePlant(s, SW.spotOf(N, SITE_NODE(N, 'A'), 'A'), 'hidden');
+  const S0 = s.saveState();
+  const run = (n) => { const out = []; for (let i = 0; i < n; i++) out.push(JSON.stringify(s.step(IDLE)), JSON.stringify(s.snapshot().actors)); return out.join('\n') + JSON.stringify(s.saveState()); };
+  const a = run(TPS * 3);
+  s.restoreState(S0);
+  assert.ok(run(TPS * 3) === a, 'restore of the planted state replays the same');
+  I.resetCaches(); useNav();
+  s.restoreState(S0);
+  assert.ok(run(TPS * 3) === a, 'cold caches across the plant tick: same run');
+  s.restoreState(S0);
+  run(TPS * 1.5);
+  const S1 = s.saveState(), b = run(TPS);
+  s.restoreState(S1);
+  assert.ok(run(TPS) === b, 'mid-retake save -> same continuation');
+  assert.ok(S1.actors.some((x) => x.behavior.roundBot.pk >= 0), 'the save is past the latch');
+  console.log(`first post-plant tick on this machine: ${plantMs.join(', ')} ms`);
+});

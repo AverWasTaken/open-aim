@@ -115,6 +115,8 @@
 // shooter (which won't fire while the bot moves: speed, or moveDeg under "game" movement) can
 // shoot; it faces the player while it sees them (shooter.lastSeenTick === ctx.tick) or holds
 // combat, and walks on once the shooter lets go.
+// Once the player is dead (after the plant the round goes on) bots ignore combatHold and sightings:
+// the shooter keeps "seeing" the body, which would hold them in place for the rest of the round.
 // Facing turns at most 540 deg/s.
 // Yield: a walking bot brakes for a MOVING bot with a lower id that is within 0.9 m and ahead
 // (60 deg cone, same floor), at most 0.75 s in a row, then ignores yields for 1 s (passes through).
@@ -802,7 +804,7 @@ const inReach = (p, sp) => Math.hypot(p.x - sp.x, p.z - sp.z) <= DEFUSE_XZ && Ma
 // combat, and the player dead or unseen for >= 1 s.
 function tryDefuse(actor, ctx, st, rs, plan, G) {
   if (!plan || G.kind !== GK.spike || st.mode !== MODE.cover || rs.phase !== 'planted' || actor.roundDefusing === 1) return;
-  if ((st.speed ?? 0) > 0.05 || st.air === 1 || actor.combatHold === 1 || !inReach(actor.position, plan.sp)) return;
+  if ((st.speed ?? 0) > 0.05 || st.air === 1 || (actor.combatHold === 1 && rs.playerAlive !== false) || !inReach(actor.position, plan.sp)) return;
   if (rs.playerAlive !== false && ctx.tick - lastSeen(actor) < ticksOf(UNSEEN_SEC, tickSecOf(ctx))) return;
   actor.roundDefusing = 1;
   st.mode = MODE.defuse;
@@ -823,6 +825,9 @@ function navUpdate(actor, ctx, dt, il, st) {
   const g = N.g, p = actor.position, rs = ctx.round.state ?? {}, barrier = rs.phase === 'barrier';
   const bars = barrier ? barriersOf(cfg) : [], mask = barrier ? maskFor(N, bars) : null;
   const okNodes = mask ? reachFor(N, st.spawn, mask) : null;
+  // No fighting in the barrier phase, nor once the player is dead (after the plant the round goes
+  // on, and the shooter keeps "seeing" the body: combatHold / lastSeenTick stay set).
+  const calm = barrier || rs.playerAlive === false;
 
   // B3 bookkeeping (from the snapshot and the round state).
   const plan = retakePlan(N, actor, ctx, st, cfg, rs);
@@ -839,7 +844,7 @@ function navUpdate(actor, ctx, dt, il, st) {
 
   // Stuck: stands, until the goal changes (drop, plant, push, candidate, rotation): one more try.
   if (st.mode === MODE.stuck) {
-    if (goalFor(N, ctx, st, rs, barrier, mask, plan).fk === st.fk) { st.speed = 0; faceIdle(actor, ctx, st, dt, barrier); return; }
+    if (goalFor(N, ctx, st, rs, barrier, mask, plan).fk === st.fk) { st.speed = 0; faceIdle(actor, ctx, st, dt, calm); return; }
     st.mode = MODE.walk; st.replans = STUCK_MAX - 1; st.retries += 1;
     const k = refindNode(N, p.x, p.y, p.z, 2.5, st.cur, okNodes);
     if (k >= 0) st.cur = k;
@@ -860,21 +865,21 @@ function navUpdate(actor, ctx, dt, il, st) {
       else st.mode = MODE.walk;
     }
   }
-  if (!finite(F.dist[st.cur])) { st.speed = 0; faceIdle(actor, ctx, st, dt, barrier); return; } // cut off (never on Ascent)
+  if (!finite(F.dist[st.cur])) { st.speed = 0; faceIdle(actor, ctx, st, dt, calm); return; } // cut off (never on Ascent)
 
   if (STOPPED.has(st.mode)) {
-    if (dxz(g, st.at >= 0 ? st.at : st.cur, p.x, p.z) <= HOLD_LEAVE) { tryDefuse(actor, ctx, st, rs, plan, G); faceIdle(actor, ctx, st, dt, barrier); return; }
+    if (dxz(g, st.at >= 0 ? st.at : st.cur, p.x, p.z) <= HOLD_LEAVE) { tryDefuse(actor, ctx, st, rs, plan, G); faceIdle(actor, ctx, st, dt, calm); return; }
     st.mode = MODE.walk; st.best = FAR; st.bestT = ctx.elapsed;
   }
 
   // Walk.
-  if (ctx.elapsed < st.goT) { st.bestT = ctx.elapsed; faceIdle(actor, ctx, st, dt, barrier); return; } // spawn stagger
+  if (ctx.elapsed < st.goT) { st.bestT = ctx.elapsed; faceIdle(actor, ctx, st, dt, calm); return; } // spawn stagger
   const [t, t2] = pickTarget(N, F, st.cur, p.x, p.z, bars, stopT);
-  if (t < 0) { st.speed = 0; st.bestT = ctx.elapsed; faceIdle(actor, ctx, st, dt, barrier); return; } // never across a barrier
+  if (t < 0) { st.speed = 0; st.bestT = ctx.elapsed; faceIdle(actor, ctx, st, dt, calm); return; } // never across a barrier
   if (t !== st.tgt) { delete st.stuck; st.tgt = t; }
   st.tx = g.x[t]; st.ty = g.y[t]; st.tz = g.z[t];
-  if (t2 < 0 && dxz(g, t, p.x, p.z) <= 0.02 && (st.speed ?? 0) <= 0.05) { arrive(actor, ctx, st, G.kind, t); tryDefuse(actor, ctx, st, rs, plan, G); faceIdle(actor, ctx, st, dt, barrier); return; }
-  const combat = !barrier && actor.combatHold === 1 && st.air !== 1;
+  if (t2 < 0 && dxz(g, t, p.x, p.z) <= 0.02 && (st.speed ?? 0) <= 0.05) { arrive(actor, ctx, st, G.kind, t); tryDefuse(actor, ctx, st, rs, plan, G); faceIdle(actor, ctx, st, dt, calm); return; }
+  const combat = !calm && actor.combatHold === 1 && st.air !== 1;
   let yieldNow = false;
   if (!combat && shouldYield(actor, ctx, st)) {
     st.yieldT += dt;
@@ -901,11 +906,11 @@ function navUpdate(actor, ctx, dt, il, st) {
 
   // Defuse start (after the move), then facing.
   tryDefuse(actor, ctx, st, rs, plan, G);
-  if (!barrier && (actor.combatHold === 1 || actor.behavior.shooter?.lastSeenTick === ctx.tick)) facePlayerCapped(actor, ctx, dt);
+  if (!calm && (actor.combatHold === 1 || actor.behavior.shooter?.lastSeenTick === ctx.tick)) facePlayerCapped(actor, ctx, dt);
   else if (st.mode === MODE.walk) {
     const spike = plan && st.pushed === 1 && Math.hypot(plan.sp.x - p.x, plan.sp.z - p.z) <= FACE_SPIKE_M;
     turnTo(actor, spike ? yawTo(actor, plan.sp.x, plan.sp.z) : yawTo(actor, st.tx, st.tz), dt);
-  } else faceIdle(actor, ctx, st, dt, barrier);
+  } else faceIdle(actor, ctx, st, dt, calm);
 }
 
 function facePlayerCapped(actor, ctx, dt) {
@@ -913,11 +918,12 @@ function facePlayerCapped(actor, ctx, dt) {
   if (e) turnTo(actor, yawTo(actor, e.x, e.z), dt);
 }
 
-// Facing while not walking: the player in combat (after the drop), else the setup's angle (hold:
+// Facing while not walking (calm = barrier phase or player dead: no combat facing): the player in
+// combat, else the setup's angle (hold:
 // face / face2 by turns; wait: toward the setup; stage / cover / defuse: the look point = the
 // spike, or the site of an info rotation; stagger: down the route).
-function faceIdle(actor, ctx, st, dt, barrier) {
-  if (!barrier && (actor.combatHold === 1 || actor.behavior.shooter?.lastSeenTick === ctx.tick)) { facePlayerCapped(actor, ctx, dt); return; }
+function faceIdle(actor, ctx, st, dt, calm) {
+  if (!calm && (actor.combatHold === 1 || actor.behavior.shooter?.lastSeenTick === ctx.tick)) { facePlayerCapped(actor, ctx, dt); return; }
   if (st.mode === MODE.hold || st.mode === MODE.stuck) {
     if (st.mode === MODE.hold && st.face2On === 1 && st.altT >= 0 && ctx.elapsed >= st.altT) {
       st.faceSel = st.faceSel === 1 ? 0 : 1;
