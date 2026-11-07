@@ -1,12 +1,12 @@
 // Lobby top bar: the left sidebar is hidden by theme-esports.css, and its Quick
-// start and items (Favorites, Training Creator, Workshop manual, ...) are shown as
+// start and items (Favorites, Studio, Workshop manual, ...) are shown as
 // buttons in the top bar instead. Each button clicks the hidden sidebar item, so
 // the game's own handlers (and its links) keep working unchanged.
 (() => {
   if (window.__aimLobbyBar) return;
   window.__aimLobbyBar = true;
 
-  const SHORT = { favorites: "Favorites", "open-studio": "Creator", "open-studio-guide": "Manual" };
+  const SHORT = { favorites: "Favorites", "open-studio": "Studio", "open-studio-guide": "Manual" };
   const GAUGE = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 18a9 9 0 1 1 16 0"/><path d="M12 14l4-5"/></svg>';
 
   // Spike-ish diamond with a fuse, for Round mode.
@@ -143,7 +143,7 @@
       span.textContent = SHORT[key] || label;
       btn.appendChild(span);
       btn.addEventListener("click", () => {
-        // Creator opens the Studio (studio/), which replaces the site's editor.
+        // Studio opens studio/, which replaces the site's editor.
         if (key === "open-studio") return location.assign("/studio/");
         const live = railItems().find((it, j) => keyOf(it, j) === key);
         if (live) live.click();
@@ -185,7 +185,7 @@
     const round = document.createElement("button");
     round.type = "button";
     round.className = "es-bar-btn";
-    round.title = "Round (beta): one VALORANT-style round vs 5 bots on Ascent — barriers, plant the spike";
+    round.title = "Round (beta): one VALORANT-style round vs 5 bots on Ascent. Wait out the barriers, then plant the spike.";
     round.innerHTML = ROUND_ICON;
     const roundLabel = document.createElement("span");
     roundLabel.textContent = "Round (beta)";
