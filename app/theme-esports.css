@@ -24,6 +24,7 @@
   --es-red-d: #c42f3c;
   --es-red-wash: rgba(255, 70, 85, 0.14);
   --es-green: #4ade80;
+  --es-warn: #ffd166;
   --es-head: "Bahnschrift", "Segoe UI", sans-serif;
   --es-slant: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
   --es-slant-sm: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
@@ -136,7 +137,7 @@ html[data-aim-local]:not(#es) body .al-wkload-track > i { background: var(--es-r
   --aim-radius-md: 0px;
   --aim-radius-lg: 2px;
   --aim-focus: var(--es-red-2);
-  --aim-difficulty: #ffd23f;
+  --aim-difficulty: var(--es-warn);
 }
 html[data-aim-local]:not(#es) body :is(.hall-root, .hall-portal, .al-studio-shell),
 html[data-aim-local]:not(#es) body :is(.hall-root, .hall-portal).hall-light {
@@ -810,6 +811,31 @@ html[data-aim-local]:not(#es) body .al-result-overlay :is(.al-run-actions .al-pr
 }
 html[data-aim-local]:not(#es) body .al-result-overlay :is(.al-run-actions .al-primary-btn, .al-mr-btn[data-action=retry])::before { content: "R"; color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.45); background: rgba(0, 0, 0, 0.18); }
 html[data-aim-local]:not(#es) body .al-result-overlay :is(.al-run-actions .al-secondary-btn, .al-mr-btn[data-action=exit])::before { content: "Esc"; }
+/* result card colours and shapes (the run report: score delta, best-score bar, chart legend,
+   stat strip, verdict badge, replay button, bot list). The game's own colours are teal, amber
+   and a too-dark grey; these map them to the shell tokens. Backgrounds and --run-line stay. */
+html[data-aim-local]:not(#es) body .al-run-body { --run-good: var(--es-green); --run-signal: var(--es-warn); --run-bad: var(--es-red); --run-dim: var(--es-muted); --run-muted: var(--es-muted); }
+html[data-aim-local]:not(#es) body .al-run-legend > span:not(.is-acc)::before { border-top-color: var(--es-red); }
+html[data-aim-local]:not(#es) body .al-run-tier.is-good { color: var(--es-soft); }
+html[data-aim-local]:not(#es) body :is(.al-run-delta b, .al-run-pb-track, .al-run-pb-track i, .al-bots-card-map, .al-bots-card-list li.is-killer b) { border-radius: 0; }
+html[data-aim-local]:not(#es) body .al-run-pb-track i { background: var(--es-warn); }
+html[data-aim-local]:not(#es) body .al-result-verdict { --verdict: var(--es-muted); }
+html[data-aim-local]:not(#es) body .al-result-verdict.is-cleared { --verdict: var(--es-green); }
+html[data-aim-local]:not(#es) body .al-result-verdict.is-time { --verdict: var(--es-warn); }
+html[data-aim-local]:not(#es) body .al-result-verdict.is-died { --verdict: var(--es-red); }
+html[data-aim-local]:not(#es) body .al-result-head .al-result-paused { color: var(--es-warn); border-left-color: var(--es-warn); }
+html[data-aim-local]:not(#es) body .al-result-dirty-note { color: var(--es-warn); }
+html[data-aim-local]:not(#es) body .al-run-ranked:is(.is-rejected, .is-failed) { color: var(--es-warn); }
+html[data-aim-local]:not(#es) body .al-result-head .al-run-ranked:is(.is-rejected, .is-failed) { background: rgba(255, 209, 102, 0.08); border-left-color: var(--es-warn); }
+html[data-aim-local]:not(#es) body .al-result-guide-btn { border: none; border-left: 3px solid transparent; border-radius: 0; background: var(--es-raised-2); text-transform: uppercase; font-weight: 700; font-stretch: 75%; }
+html[data-aim-local]:not(#es) body .al-result-guide-btn:hover { color: var(--es-text); border-left-color: var(--es-red); }
+html[data-aim-local]:not(#es) body :is(.al-run-strip span, .al-run-pb-label, .al-run-chart-top) { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--es-muted); }
+html[data-aim-local]:not(#es) body .al-run-strip b { font-variant-numeric: tabular-nums; }
+html[data-aim-local]:not(#es) body .al-bots-card.is-side h3 b { color: var(--es-text); }
+/* result card container (app/ux-result.js): other teams put their result rows in here.
+   Hidden while empty (no whitespace goes in, so :empty works). */
+html[data-aim-local]:not(#es) body .ux-result-extra { display: flex; flex-direction: column; gap: 8px; padding: 12px 26px; }
+html[data-aim-local]:not(#es) body .ux-result-extra:empty { display: none; }
 html[data-aim-local]:not(#es) body :is(.al-wk-new, .al-wk-s-new) { background: var(--es-red) !important; color: #fff !important; border-radius: 0 !important; clip-path: var(--es-slant-sm) !important; padding-inline: 8px !important; }
 
 /* ---------- studio top bar ---------- */
@@ -968,7 +994,7 @@ html[data-aim-local]:not(#es) body .al-result-modal { animation: es-result-in 0.
 html[data-aim-local]:not(#es) body .al-result-modal.has-verdict-splash { animation: es-result-in 0.42s var(--es-spring) 1.15s both !important; }
 html[data-aim-local]:not(#es) body .al-result-verdict-splash.is-died { --verdict: var(--es-red); }
 html[data-aim-local]:not(#es) body .al-result-verdict-splash.is-cleared { --verdict: var(--es-green); }
-html[data-aim-local]:not(#es) body .al-result-verdict-splash.is-time { --verdict: #ffb84d; }
+html[data-aim-local]:not(#es) body .al-result-verdict-splash.is-time { --verdict: var(--es-warn); }
 html[data-aim-local]:not(#es) body .al-result-verdict-splash {
   position: fixed !important;
   inset: 0 !important;
@@ -1034,7 +1060,7 @@ html[data-aim-local]:not(#es) body .al-result-verdict-splash span {
 html[data-aim-local]:not(#es) body .al-mr {
   --mr-teal: var(--es-green);
   --mr-red: var(--es-red);
-  --mr-gold: #ffcf5a;
+  --mr-gold: var(--es-warn);
   font-family: var(--es-head) !important;
 }
 html[data-aim-local]:not(#es) body .al-mr-shade {
@@ -1066,8 +1092,8 @@ html[data-aim-local]:not(#es) body .al-mr-verdict b::before {
   transform-origin: left center;
   animation: es-mr-bar 0.35s 0.08s var(--es-ease) both;
 }
-html[data-aim-local]:not(#es) body .al-mr.is-pass .al-mr-verdict b::before { background: #1fa463; }
-html[data-aim-local]:not(#es) body .al-mr.is-time .al-mr-verdict b::before { background: #c98a1c; }
+html[data-aim-local]:not(#es) body .al-mr.is-pass .al-mr-verdict b::before { background: var(--es-green); }
+html[data-aim-local]:not(#es) body .al-mr.is-time .al-mr-verdict b::before { background: var(--es-warn); }
 html[data-aim-local]:not(#es) body .al-mr-verdict span { font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; animation: es-mr-in 0.35s 0.2s var(--es-ease) both !important; }
 html[data-aim-local]:not(#es) body .al-mr-clock { animation: es-mr-in 0.45s 0.18s var(--es-ease) both; }
 html[data-aim-local]:not(#es) body .al-mr-big { font: 700 180px/0.86 var(--es-head) !important; font-stretch: 75% !important; font-variant-numeric: tabular-nums; }

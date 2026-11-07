@@ -95,6 +95,8 @@ const PAGE_WATCH_JS = fs.readFileSync(path.join(__dirname, "page-watch.js"), "ut
 const UX_KEYS_JS = fs.readFileSync(path.join(__dirname, "ux-keys.js"), "utf-8");
 // Hit marker at the crosshair and the kills line on bot drills (events from tools/ux_hud_patch.py).
 const UX_HUD_JS = fs.readFileSync(path.join(__dirname, "ux-hud.js"), "utf-8");
+// Empty container on the result card for other teams' rows (training's routine bar).
+const UX_RESULT_JS = fs.readFileSync(path.join(__dirname, "ux-result.js"), "utf-8");
 const SMOOTH_SCROLL_JS = fs.readFileSync(path.join(__dirname, "smooth-scroll.js"), "utf-8");
 const VIDEO_SETTINGS_JS = fs.readFileSync(path.join(__dirname, "video-settings.js"), "utf-8");
 // Map lighting setting (Enhanced / Original), read by the patched BiMsX6Xn.js. Optional:
@@ -132,6 +134,7 @@ const UI_SCRIPTS = [
   ["PAGE WATCH", PAGE_WATCH_JS],
   ["UX KEYS", UX_KEYS_JS],
   ["UX HUD", UX_HUD_JS],
+  ["UX RESULT", UX_RESULT_JS],
   ["SMOOTH SCROLL", SMOOTH_SCROLL_JS],
   ["SNIPER SCOPES", SNIPER_SCOPES_JS],
   ["FAN AUDIO", FAN_AUDIO_JS],
