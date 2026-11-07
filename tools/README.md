@@ -22,6 +22,8 @@ Run them from the repository root with Python 3.
 | `peekmove_patch.py` | Pre-aim bots react and move: with Human-like bots and an explicit enemy rank, the static shooting bots of the shipped pre-aim drills walk ADAD along their checked lane once they see you, by rank (`aimPeekRanks` next to `aimBotRanks`; saved in the replay meta as `peekMove` and `spotLane`). Edits the mods `BiMsX6Xn.js`, `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details and the rank table in the script's docstring. |
 | `round_patch.py` | Round mode: the round controller in the sim (barrier phase, spike plant / defuse, outcomes, save/restore), the play page side (held keys, no replay, round end, result text, barrier and spike visuals) and `window.__aimLaunchScene` for the lobby panel. Edits the mods `CnrSARj_.js`, `OkAdunfX.js`, `ChJ6FlD4.js` and `Hwnlm6zD.js` (both copies). Only acts on scenes with `rules.round`. Details in the script's docstring. |
 | `round_author.mjs` | Writes `app/mods/aim-rounds/<map>.json` (Round mode map data: spawns, barriers, plant zones, defender setups) from the map files in `site/aim-maps/`, node only. `--plot <file.svg>` draws it (also a `.png`), `--check` fails when the stored file is out of date. See [Round mode data](#round-mode-data). |
+| `maps_callouts.mjs` | Writes `app/mods/aim-maps/<map>.minimap.json` for every map: the game's callout list with Riot's in-game English names ("A Main", "B Boat House") in place of the Chinese ones, from `tools/maps-callouts-en.json`, node only. Only the names change; every spot and every other byte stays as in `site/aim-maps/` (juliett, which only exists in `app/mods/aim-maps/`, is renamed in place). `--check` fails when a file is out of date. See [Callout names](#callout-names). |
+| `maps_callout_patch.py` | Keeps the space in English callout names ("A Main", not "AMain") in the place line of the workshop cards and the workshop detail: the nearest-callout lookup `$u` in the mods `Dc2Dm9E6.js` (both copies) now removes only whitespace next to a non-ASCII character, so Chinese names give the same text as before. Details in the script's docstring. |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
@@ -50,6 +52,7 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 10. `spotvary_patch.py` (needs `spotbias_patch.py`; refuses to run twice: it looks for `aimSpotApply`)
 11. `peekmove_patch.py` (needs `spotvary_patch.py`; refuses to run twice: it looks for `aimPeekUpdate`)
 12. `round_patch.py` (after `peekmove_patch.py`; refuses to run twice: it looks for `/aim-rounds/round-core.mjs`). It keeps each copy's own line ends.
+13. `maps_callout_patch.py` (after `round_patch.py`; only touches `Dc2Dm9E6.js`; refuses to run twice: it looks for its new regex `/\s+(?=[^\x00-\x7f])|(?<=[^\x00-\x7f])\s+/g`).
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
@@ -137,3 +140,21 @@ heights), and a flood fill over the navmesh checks that each team's barriers clo
 callout. A new map needs its own entry in `MAPS` at the top of the script (callout names, label and
 mark pixels from a reference picture, setup spots) and then the same two commands.
 
+## Callout names
+
+The game's map files name their callouts in Chinese (`site/aim-maps/<map>.minimap.json`, e.g.
+"A区 大厅"). `tools/maps-callouts-en.json` lists, per map and in the same order, each Chinese name
+and Riot's in-game English name for it (valorant-api.com, `zh-CN` vs `en-US` map data: same
+callouts, same order, on all 9 maps). `maps_callouts.mjs` writes the English copies into
+`app/mods/aim-maps/`, which the app serves in place of `site/` at the same URL, so the big map
+(M), the workshop cards and the pre-aim result all show "A Lobby", "B Boat House", "Mid Tiles".
+It stops if a map file's names don't match the data (name, count or order), and juliett's spots
+must match the x / z kept in the data file. After changing the data:
+
+```bash
+node tools/maps_callouts.mjs          # write app/mods/aim-maps/<map>.minimap.json
+node tools/maps_callouts.mjs --check  # what scripts/test-maps-callouts.mjs runs (npm run test:maps)
+```
+
+The English names replace the Chinese ones for every UI language, so the Vietnamese UI shows
+the English callouts too.
