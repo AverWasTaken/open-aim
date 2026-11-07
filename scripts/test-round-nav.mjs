@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { parseRoundNav, writeRoundNav, reverseEdges } from "../app/mods/aim-rounds/round-nav.mjs";
 import { terrainSources, loadTerrain } from "../tools/round_terrain.mjs";
 import { TYPES, nodeIndex, nodesNear, nearestNode, flood, dijkstra, viaPath, barrierMask, edgeCutBy } from "../tools/round_navlib.mjs";
-import { inputsHash, inPoly, polyEdgeDist, attackEntryTimes, navContext } from "../tools/round_navdata.mjs";
+import { inputsHash, inPoly, polyEdgeDist, attackEntryTimes, navContext, barrierSamples } from "../tools/round_navdata.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ROUNDS = path.join(root, "app", "mods", "aim-rounds");
@@ -16,10 +16,12 @@ const ROUNDS = path.join(root, "app", "mods", "aim-rounds");
 //   count/edgeCount: the baked graph (a re-bake must repeat it; tools/round_nav.mjs EXPECT has the same)
 //   notWalk: setups defenders can't walk to (known); routes: attacker route names per site
 //   setupTiming: setups held before the first attacker can reach the zone with the shortest barrier
-//   (spawnT <= 10 s + attackers' fastest barrier -> zone time); Ascent predates the rule
+//   (spawnT <= 10 s + attackers' fastest barrier -> zone time) and at least one per site hidden from
+//   the attacker barriers (R4 setup rules); Ascent predates the rules
+//   minTris: lower bounds for the real collision's pawn / projectile triangle counts
 const EXPECT = {
-  ascent: { count: 21746, edgeCount: 161371, notWalk: ["B site front"], routes: { A: ["A Main", "Mid Cubby"], B: ["B Main", "Mid Market"] }, setupTiming: false },
-  rook: { count: 21693, edgeCount: 162053, notWalk: [], routes: { A: ["A Main", "A Link"], B: ["B Main", "B Link"] }, setupTiming: true },
+  ascent: { count: 21746, edgeCount: 161371, notWalk: ["B site front"], routes: { A: ["A Main", "Mid Cubby"], B: ["B Main", "Mid Market"] }, setupTiming: false, minTris: [1e6, 1e6] },
+  rook: { count: 21693, edgeCount: 162053, notWalk: [], routes: { A: ["A Main", "A Link"], B: ["B Main", "B Link"] }, setupTiming: true, minTris: [1e6, 1e6] },
 };
 const MAPS = fs.readdirSync(ROUNDS).filter((f) => /^[a-z0-9]+\.json$/.test(f)).map((f) => f.slice(0, -5))
   .filter((m) => fs.existsSync(path.join(ROUNDS, `${m}.nav.bin`))).sort();
@@ -350,15 +352,31 @@ for (const MAP of MAPS) {
 
   test(`${T_} loadTerrain: the game's pawn collision has the floor where the nav says`, { skip: !HAVE_SITE && "no game files in site/" }, async (t) => {
     const T = await warm();
-    assert.ok(T.pawnTris.length / 9 > 1e5 && T.projectileTris.length / 9 > 1e5);
+    assert.ok(T.pawnTris.length / 9 > E.minTris[0] && T.projectileTris.length / 9 > E.minTris[1], `triangles: pawn ${T.pawnTris.length / 9}, projectile ${T.projectileTris.length / 9}`);
     const H = nodeIndex(nav);
     for (const p of [data.spawns.defense[0], data.spawns.attack[0]]) {
       const n = nearestNode(nav, H, p.x, p.z, 0.5, p.y, 0.6);
       const top = nav.y[n] + 1.5, d = T.ray(T.pawn, [nav.x[n], top, nav.z[n]], [0, -1, 0], 5);
       assert.ok(d > 0 && Math.abs(top - d - nav.y[n]) < 0.05, `floor under node ${n}`);
     }
-    t.diagnostic(`${MAP}: real collision loaded (${T.pawnTris.length / 9} pawn triangles)`);
-    console.log(`${MAP}: real collision loaded (${T.pawnTris.length / 9} pawn triangles)`);
+    t.diagnostic(`${MAP}: real collision loaded (${T.pawnTris.length / 9} pawn / ${T.projectileTris.length / 9} projectile triangles)`);
+    console.log(`${MAP}: real collision loaded (${T.pawnTris.length / 9} pawn / ${T.projectileTris.length / 9} projectile triangles)`);
+  });
+
+  // R4 setup rule (real sight rays): per site at least one setup that no attacker-barrier sample point
+  // sees (eye 1.6 / body 1.0 m above the spot), so attackers waiting at their barriers can't spot every
+  // defender of a site.
+  if (E.setupTiming) test(`${T_} every site has a setup hidden from the attacker barriers (real collision sight rays)`, { skip: !HAVE_SITE && "no game files in site/" }, async (t) => {
+    const T = await warm(), H = nodeIndex(nav);
+    const pts = data.barriers.filter((b) => b.team === "attack").flatMap((b) => barrierSamples(nav, H, b));
+    assert.ok(pts.length >= 6, "attacker barrier sample points");
+    let rays = 0;
+    for (const s of data.sites) {
+      const hidden = data.setups.defense[s.id].filter((p) => pts.every((q) => { rays += 2; return !T.sight(q, [p.x, p.y + 1.6, p.z]) && !T.sight(q, [p.x, p.y + 1.0, p.z]); }));
+      assert.ok(hidden.length >= 1, `site ${s.id}: no setup hidden from the attacker barriers`);
+    }
+    t.diagnostic(`${MAP}: setup hidden-from-attacker-barrier check: ${rays} rays`);
+    console.log(`${MAP}: setup hidden-from-attacker-barrier check: ${rays} rays`);
   });
 
   // The sight half of the post-plant data, re-run against the real projectile collision (the bots' own

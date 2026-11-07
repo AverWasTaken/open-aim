@@ -53,8 +53,10 @@
 //    floors sampled 1 and 2.5 m out on both sides along the whole length. The team is not guessed:
 //    with every barrier up, the nav graph is flooded from each team's spawns (all edges); for each
 //    barrier the edges it cuts must have one end in exactly one team's flood and the other end in
-//    neither (that team owns it), at least BARRIER_MIN_CUT walk edges, and no edge joining the two
-//    teams' floods; anything else fails. Id = team + nearest callout (stable across runs).
+//    neither (that team owns it), at least BARRIER_MIN_CUT walk edges, no edge joining the two
+//    teams' floods and none with both ends in one team's flood; anything else fails.
+//  - MARKS without LABELS: barrier marks in world [x, z] (no picture), snapped to the choke like
+//    Ascent's; in terrain mode each mark needs `floor`. Id = team + nearest callout (stable across runs).
 //    Needs the nav.bin: the first run (no nav.bin) writes the barriers without a team and fails;
 //    bake, then run again.
 //  - CALLOUT_SPOTS: per-callout [x, z] or [x, y, z] that replaces the minimap spot for the seal check
@@ -479,6 +481,7 @@ function barrierTeams(g, H, spawnsIn, bars) {
     const where = `barrier at (${r2(mx)}, ${r2(mz)})`;
     if (!team) errors.push(`${where}: cut edges touch ${votes.attack.all} attacker / ${votes.defense.all} defender flood edges (need exactly one team)`);
     if (conflict) errors.push(`${where}: ${conflict} cut edges join the two teams' floods`);
+    if (inside) errors.push(`${where}: ${inside} cut edges have both ends in one team's flood (that team gets around it with every barrier up)`);
     if (team && votes[team].walk < BARRIER_MIN_CUT) errors.push(`${where}: only ${votes[team].walk} cut walk edges on the ${team} side (decorative or misplaced?)`);
     // Names: nearest callout on the team's side / on the far side (within 30 m); id from the nearest.
     const own = Math.sign(sideSum) || 1, d = (c) => Math.hypot(c.x - mx, c.z - mz);
@@ -515,8 +518,11 @@ if (CHECK) {
 }
 
 // ---------------------------------------------------------------- barriers (snap to choke)
+// Marks are picture px (maps with LABELS) or world [x, z] (maps without a picture). In terrain mode a
+// mark needs `floor` (the floor height near it) as the ray start hint.
 function snapBarrier(mark) {
-  const a = T.f(...mark.a), b = T.f(...mark.b);
+  if (TERRAIN && mark.floor === undefined) throw new Error(`barrier ${mark.id}: terrain mode needs the mark's floor height (floor: y)`);
+  const a = T ? T.f(...mark.a) : mark.a, b = T ? T.f(...mark.b) : mark.b;
   const c = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
   let dx = b[0] - a[0], dz = b[1] - a[1]; const L = Math.hypot(dx, dz); dx /= L; dz /= L;
   const nx = -dz, nz = dx;
