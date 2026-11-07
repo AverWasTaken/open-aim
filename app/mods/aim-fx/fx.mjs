@@ -165,6 +165,9 @@ void main(){
 // --- pools ---------------------------------------------------------------------------------------
 // A pool of `quads` quads in one mesh. Quads are written in groups of `group` (one slot = one
 // spawn). Oldest slot is reused when all are busy.
+// Marks quads [q, q + n) of a per-vertex attribute (itemSize) for upload.
+function mark(a, size, q, n) { a.addUpdateRange?.(q * 4 * size, n * 4 * size); a.needsUpdate = true; }
+
 function makePool(T, {quads, group, vs, fs, blending, name}) {
   const verts = quads * 4;
   const pos = new Float32Array(verts * 3), dir = new Float32Array(verts * 4), tt = new Float32Array(verts * 4);
@@ -219,10 +222,7 @@ function makePool(T, {quads, group, vs, fs, blending, name}) {
     },
     // Marks quads [q, q + n) for upload.
     dirty(q, n) {
-      for (const [a, size] of [[aPos, 3], [aDir, 4], [aT, 4]]) {
-        a.addUpdateRange?.(q * 4 * size, n * 4 * size);
-        a.needsUpdate = true;
-      }
+      mark(aPos, 3, q, n); mark(aDir, 4, q, n); mark(aT, 4, q, n);
     },
     active(now) { let n = 0; for (let s = 0; s < slots; s++) if (ends[s] > now) n++; return n; },
     frame(time) {

@@ -8,13 +8,13 @@ lives on the renderer's own per-actor records and is reset by `clear()` (replay 
 1. Hit flash on humanoids: a white pulse on top of the base look. It holds full strength for 4 ticks
    (~31 ms, so it is on screen for at least a frame or two even at low fps), then eases out over 14
    ticks (~110 ms). A headshot (`hitPart` of the shot event is "head") is brighter, holds 5 ticks
-   and eases out over 20. The emissive goes up (gameSkin materials; the older `skin` materials
-   whose emissive map is the albedo get emissiveIntensity too) and the colour is pulled toward
-   white. The old inverted-colour tint is dropped for humanoids (the white pulse replaces it).
+   and eases out over 20. Only the emissive goes up (gameSkin materials; the older `skin`
+   materials whose emissive map is the albedo get emissiveIntensity too); the humanoid colour is
+   already white, so it is left alone. The old inverted-colour tint is dropped for humanoids
+   (the white pulse replaces it).
    - Timing is tick based (shot tick to the drawn tick, with the frame's interpolation), so a
      paused replay holds the frame. Only uniform values change, never anything that recompiles a
-     shader, and only while a pulse runs (plus one frame that writes the base emissive back; the
-     game rewrites the colour itself every frame). The base emissive is re-read when the actor's
+     shader, and only while a pulse runs (plus one frame that writes the base emissive back). The base emissive is re-read when the actor's
      tint changed, so a pulse never puts an old tint back.
 2. Death of a humanoid: when it goes alive -> dead while still visible (a kill, including Round
    mode's spike blast; time-outs hide the actor and are not animated): pose frozen, it sinks
@@ -28,7 +28,7 @@ lives on the renderer's own per-actor records and is reset by `clear()` (replay 
    they look and die exactly as before. `aimBfxSpheres=!1` in the injected code; setting it to !0
    would turn on a sphere pulse and a 120 ms pop (1 -> 1.25 -> 0), kept for later.
 Tuning: `aimBfxT` in the injected code (pb/ph peak, hb/hh hold ticks, lb/lh ease ticks for
-body/head, cm colour mix).
+body/head).
 
 Usage: python tools/graphics_botfx_patch.py   (from the repo root; refuses to run twice)
 """
@@ -46,7 +46,7 @@ MARKER = b"/* graphics-botfx */"
 
 HELPERS = (
     MARKER
-    + b"const aimBfxSpheres=!1,aimBfxBase=new WeakMap,aimBfxColor=new TA,aimBfxT={pb:1,ph:1.6,hb:4,hh:5,lb:14,lh:20,cm:.6};"
+    + b"const aimBfxSpheres=!1,aimBfxBase=new WeakMap,aimBfxColor=new TA,aimBfxT={pb:1,ph:1.6,hb:4,hh:5,lb:14,lh:20};"
     b"function aimBfxNow(){return globalThis.performance?.now?.()??Date.now()}"
     # Death start: freeze the last drawn transform.
     b"function aimBfxStart(e){if(!e.mesh.skin&&!aimBfxSpheres)return;const r=e.mesh.root;"
@@ -62,19 +62,17 @@ HELPERS = (
     b"else x=y=p<.3?1+.25*(1-(1-p/.3)*(1-p/.3)):Math.max(.02,1.25*(1-(p-.3)/.7)*(1-(p-.3)/.7));"
     b"v.scale.set(J*x,J*y,J*x),v.rotation.x=t,v.updateMatrix(),e.aimPivotSet=!0}"
     b"else if(e.aimPivotSet)v.rotation.x=0,v.scale.setScalar(J),v.updateMatrix(),e.aimPivotSet=!1}"
-    # Loop 2: glow (hit pulse, death white-hot). The pulse holds its peak for hb/hh ticks, then eases
-    # out over lb/lh ticks (body/head). emissive goes up and colour is pulled toward white (cm): the
-    # game rewrites colour every frame and the patch writes the base emissive back when the pulse
-    # ends, so nothing can stick. The base emissive is re-read when the actor's tint changed
+    # Loop 2: glow (hit pulse, death white-hot) through emissive only (humanoid colour is already
+    # white). The pulse holds its peak for hb/hh ticks, then eases out over lb/lh ticks (body/head);
+    # the patch writes the base emissive back when the pulse ends, so nothing can stick. The base emissive is re-read when the actor's tint changed
     # (`emissiveHex`, written by the game just before this call), so a pulse never restores an old tint.
     b"function aimBfxGlow(e,T,base){const sph=!e.mesh.skin;if(sph&&!aimBfxSpheres)return;const P=aimBfxT;let k=0;"
     b"const age=T-1-(e.aimHitTick??-1/0);if(age<1e9){const h=e.aimHitHead,d=h?P.lh:P.lb,y=Math.max(0,age-(h?P.hh:P.hb));"
     b"if(y<d){const x=y/d;k=(h?P.ph:P.pb)*(1-x)*(1-x)}}"
     b"e.aimDie>=0&&(k=Math.max(k,1.7*Math.min(1,.4+e.aimDieP/.12)));if(!(k>0)&&!e.aimGlowOn)return;e.aimGlowOn=k>0;"
-    b"const nh=e.aimGlowHex!==e.emissiveHex,w=Math.min(1,k)*P.cm;e.aimGlowHex=e.emissiveHex;"
+    b"const nh=e.aimGlowHex!==e.emissiveHex;e.aimGlowHex=e.emissiveHex;"
     b"for(const o of e.mesh.parts){const m=o.material;if(!m||!m.emissive)continue;let b=aimBfxBase.get(m);"
     b"b?nh&&b.e.copy(m.emissive):(b={e:m.emissive.clone(),i:m.emissiveIntensity??1},aimBfxBase.set(m,b));"
-    b"w>0&&m.color&&m.color.lerp(aimBfxColor.setRGB(1,1,1),w);"
     b"if(m.emissiveMap)m.emissive.copy(b.e).lerp(aimBfxColor.setRGB(1,1,1),Math.min(1,k)),m.emissiveIntensity=b.i+k*2.2;"
     b"else{const a=k*.85/Math.max(m.emissiveIntensity??1,.05);m.emissive.setRGB(b.e.r+a,b.e.g+a,b.e.b+a)}}}"
 )

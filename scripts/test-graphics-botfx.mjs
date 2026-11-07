@@ -141,6 +141,7 @@ test('a time-out (hidden at death) is not animated; a respawn cancels a running 
   assert.equal(root.visible, false);
   // Back alive, then killed, then respawned (new bornTick) 20 ms later.
   r.apply(at(snap, T + 2, actor.id, { bornTick: T + 2 }), [], 0, null, null);
+  const y0 = root.position.y, yaw0 = root.rotation.y;
   r.apply(at(snap, T + 3, actor.id, { bornTick: T + 2, alive: false }), [], 0, null, null);
   clock += 20; r.apply(at(snap, T + 4, actor.id, { bornTick: T + 2, alive: false }), [], 0, null, null);
   assert.ok(pivotOf(root).rotation.x !== 0 && root.visible, 'dying');
@@ -149,6 +150,8 @@ test('a time-out (hidden at death) is not animated; a respawn cancels a running 
   const s = pivotOf(root).scale;
   assert.equal(s.x, s.y);
   assert.equal(s.x, s0, 'scale restored');
+  assert.equal(root.position.y, y0, 'sunk position restored (respawn at the same spot)');
+  assert.equal(root.rotation.y, yaw0, 'yaw restored');
 });
 
 test('sphere hit: origin look (hit colour for the flash ticks, emissive untouched)', { skip }, () => {
@@ -201,7 +204,7 @@ test('humanoid hit: white pulse (holds, then eases out) instead of the inverted 
   const pulse = (part, tick) => {
     r.apply(at(snap, tick, actor.id, {}), [{ tick, kind: 'shot', hitActorId: actor.id, hitPart: part }], 0, null, null);
     const p = lum(m.emissive);
-    assert.ok(lum(m.color) >= lum(color) + (3 - lum(color)) * 0.3 - 1e-9, `colour pulled toward white (${lum(color)} -> ${lum(m.color)})`);
+    assert.ok(m.color.equals(color), 'colour untouched (no inverted tint)');
     const held = lumAt(tick + 4);
     const t19 = lumAt(tick + 19);
     for (let k = 20; k < 40; k++) r.apply(at(snap, tick + k, actor.id, {}), [], 0, null, null);
@@ -216,6 +219,22 @@ test('humanoid hit: white pulse (holds, then eases out) instead of the inverted 
   assert.ok(head.p > body.p * 1.3, 'headshot brighter');
   assert.equal(body.t19, 0, 'body pulse over by 19 ticks');
   assert.ok(head.t19 > 0, 'headshot pulse still going at 19 ticks');
+});
+
+test('hit and kill on the same tick: white-hot drop, then everything restored', { skip }, () => {
+  const { snap, r, actor, root } = setup('humanoid');
+  const m = mat(root);
+  const T = snap.tick;
+  r.apply(at(snap, T + 1, actor.id, {}), [], 0, null, null);
+  const color = m.color.clone();
+  clock = 40000;
+  r.apply(at(snap, T + 2, actor.id, { alive: false }), [{ tick: T + 2, kind: 'shot', hitActorId: actor.id, hitPart: 'head' }], 0, null, null);
+  assert.equal(root.visible, true);
+  assert.ok(lum(m.emissive) > 1.5, 'white-hot');
+  for (let k = 3; k < 40; k++) { clock += 10; r.apply(at(snap, T + k, actor.id, { alive: false }), [], 0, null, null); }
+  assert.equal(root.visible, false, 'gone');
+  assert.equal(lum(m.emissive), 0, 'emissive back to black');
+  assert.ok(m.color.equals(color), 'colour untouched');
 });
 
 test('clear() drops all death/flash state (replay seek)', { skip }, () => {
