@@ -77,7 +77,9 @@ export function parseLock(text) {
   const pid = /^\d+$/.test(first) ? Number(first) : null;
   const port = (lines[1] || "").match(/\bport (\d+)\b/);
   const cdp = (lines[1] || "").match(/\bcdp (\d+)\b/);
-  return { pid, port: port ? Number(port[1]) : null, cdp: cdp ? Number(cdp[1]) : null };
+  const when = (lines[1] || "").match(/^open-aim (\S+)/);
+  const time = when ? Date.parse(when[1]) : NaN;
+  return { pid, port: port ? Number(port[1]) : null, cdp: cdp ? Number(cdp[1]) : null, time: Number.isFinite(time) ? time : null };
 }
 
 export function readLock(file) {

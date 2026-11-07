@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parseArgs, classifyError, shellLineIsError, mainLogError, fmtMs, sleep, EXIT, exitCodeFor, DEFAULT_PORTS, launcherConfig } from "./lib.mjs";
-import { startApp, stopApp, appGone, preempted, REPO } from "./launch.mjs";
+import { startApp, stopApp, appGone, preempted, sessionReport, REPO } from "./launch.mjs";
 import { Cdp } from "./cdp.mjs";
 import { STEPS, PAGE_LIB, recover } from "./steps.mjs";
 
@@ -76,6 +76,7 @@ const log = (s) => {
 };
 
 let app = null;
+let starting = null; // in-flight startApp promise
 let cdp = null;
 let finishing = false;
 let currentStep = "start";
@@ -126,9 +127,18 @@ async function bail(code, why, flags = {}) {
   if (finishing) return;
   finishing = true;
   log(`ABORT: ${why}`);
+  // The launcher may still be starting a copy: wait for it (it returns within ~150 s), so a
+  // copy that comes up after this abort still gets the checked stop instead of being orphaned.
+  if (!app && starting) {
+    log("waiting for the launcher to finish before stopping");
+    app = await Promise.race([starting.catch(() => null), sleep(170000).then(() => null)]);
+    if (app?.busy) app = null;
+  }
+  const wasPreempted = !!flags.preempted || preempted(app);
   const st = await cleanup(why).catch((e) => ({ stopped: false, why: String(e) }));
-  const exitCode = code;
-  const { text } = writeReports({ fatal: why, exitCode, stopped: st?.stopped ?? null, ...flags });
+  const pre = wasPreempted || !!st?.preempted;
+  const exitCode = pre && code !== EXIT.sshGone ? EXIT.busy : code;
+  const { text } = writeReports({ fatal: why, exitCode, stopped: st?.stopped ?? null, ...flags, preempted: pre });
   log("\n" + text);
   process.exit(exitCode);
 }
@@ -226,9 +236,11 @@ async function main() {
   log(cfg ? `launcher mode: ${cfg.starter}` : `direct mode (untested), profile ${profile}`);
   let fatal = null;
   let fatalCode = null;
+  let session = null;
+  let leftovers = null;
   try {
     const [port, cdpPort] = opts.port ? [opts.port, opts.cdp] : cfg ? DEFAULT_PORTS : [null, null];
-    app = await startApp({
+    starting = startApp({
       cfg, profile, outDir, port, cdp: cdpPort, slotWaitMin: opts.slotWait, maxMinutes: opts.maxMinutes, log,
       onLine: (line) => {
         // Direct mode: electron stdout is the shell's console. Launcher mode: xvfb/electron noise, never scanned (R11).
@@ -239,7 +251,10 @@ async function main() {
         if (m) pushShellError("main.log: " + m);
       },
     });
+    app = await starting;
+    if (finishing) return null; // bail() owns the exit now
     if (app.busy) {
+      finishing = true;
       const exitCode = exitCodeFor({ busy: true });
       const { text } = writeReports({ busy: app.busy, exitCode });
       log("\n" + text);
@@ -257,6 +272,10 @@ async function main() {
     ]);
     await cdp.addOnNewDocument(PAGE_LIB);
     await cdp.evaluate(PAGE_LIB).catch(() => {}); // current document too
+    if (app.mode === "launcher") {
+      session = sessionReport(app.pid, [app.guardPid]);
+      if (session) log(`session ${app.pid}: ${session.members.length} processes, pid is group leader ${session.pidIsGroupLeader}, session leader ${session.pidIsSessionLeader}, run-lock fds held by copy/guard: ${session.leaks.length ? session.leaks.join(", ") : "none"}`);
+    }
     let crashedAt = null;
     for (let i = 0; i < selected.length; i++) {
       const step = selected[i];
@@ -298,7 +317,17 @@ async function main() {
     log(`FATAL: ${fatal}`);
   }
   currentStep = "stopping";
+  const wasPreempted = preempted(app);
   const st = await cleanup("run finished");
+  if (finishing) return null; // bail() owns the exit now
+  finishing = true;
+  const pre = wasPreempted || !!st?.preempted;
+  if (pre) log("the copy was stopped by someone else during the run (preempted)");
+  if (app?.mode === "launcher" && st?.stopped) {
+    await sleep(1000);
+    leftovers = sessionReport(app.pid)?.members ?? null;
+    if (leftovers) log(`leftovers in session ${app.pid}: ${leftovers.length ? leftovers.join(", ") : "none"}`);
+  }
   if (fatal) results.push({ step: "harness", status: "fail", ms: 0, notes: [], warnings: [], errors: [fatal], screenshot: null });
   // Direct mode: delete a fresh profile after a clean pass (launcher mode deletes its own in stopApp).
   let profileKept = !!profile;
@@ -314,15 +343,14 @@ async function main() {
       }
     }
   }
-  const exitCode = fatalCode ?? exitCodeFor({ pass: allPass });
-  const { text } = writeReports({ fatal, exitCode, profileKept, stopped: st?.stopped ?? null, stopWhy: st?.why ?? null });
+  const exitCode = fatalCode ?? exitCodeFor({ pass: allPass, preempted: pre });
+  const { text } = writeReports({ fatal, exitCode, profileKept, stopped: st?.stopped ?? null, stopWhy: st?.why ?? null, session, leftovers, preempted: pre });
   log("\n" + text);
   return exitCode;
 }
 
 const code = await main();
-if (!finishing) {
-  finishing = true;
+if (code !== null) {
   clearTimeout(hard);
   process.exit(code);
 }

@@ -35,10 +35,16 @@ export function runClosed(file, args = [], { timeout = 120000 } = {}) {
   });
 }
 
+// Resolves to the pid, or rejects if the spawn fails (no uncaught 'error' event).
 export function spawnClosedDetached(file, args, opts = {}) {
-  const child = spawn("bash", ["-c", CLOSE_RUN_LOCKS, file, ...args.map(String)], { detached: true, stdio: "ignore", ...opts });
-  child.unref();
-  return child.pid;
+  return new Promise((resolve, reject) => {
+    const child = spawn("bash", ["-c", CLOSE_RUN_LOCKS, file, ...args.map(String)], { detached: true, stdio: "ignore", ...opts });
+    child.once("error", reject);
+    child.once("spawn", () => {
+      child.unref();
+      resolve(child.pid);
+    });
+  });
 }
 
 // Follows a growing text file from offset 0; calls onLine for each complete line.
@@ -91,8 +97,22 @@ export async function startLauncher({ cfg, port, cdp, outDir, log = console.log,
     fs.rmSync(h.profile, { recursive: true, force: true });
     log(`fresh profile ${h.profile}`);
   }
+  const tStart = Date.now();
   const r = await runClosed(cfg.starter, [appDir, port, cdp], { timeout: 150000 });
-  const p = parseLauncherOutput(r.stdout, r.code);
+  let p = parseLauncherOutput(r.stdout, r.code);
+  if (p.kind === "garbage") {
+    // The launcher may have started a copy and then died or timed out: if a fresh lock names
+    // our port and a live pid, take it as ours so it still gets the checked stop.
+    const lock = readLock(cfg.lockFile);
+    const fresh = lock && lock.time != null && lock.time >= tStart - 5000;
+    if (lock && fresh && lock.port === Number(port) && pidAlive(lock.pid) && fs.existsSync(cfg.lockDir)) {
+      log(`launcher gave unexpected output (exit ${p.code}${r.killed ? ", timed out" : ""}) but the lock names a fresh copy on our port: pid ${lock.pid}; stopping it`);
+      h.pid = lock.pid;
+      h.started = true;
+      await h.stop(log);
+      throw new Error(`launcher gave unexpected output (exit ${p.code}); its copy pid ${lock.pid} was stopped`);
+    }
+  }
   if (p.kind === "busy") {
     h.busy = p.why;
     log(`launcher: busy (${p.why})`);
@@ -109,10 +129,15 @@ export async function startLauncher({ cfg, port, cdp, outDir, log = console.log,
   log(`launcher: started pid ${h.pid}${p.cdpReady ? "" : " (CDP not answering yet)"}; AIM ${port}, CDP ${cdp}`);
 
   // Guard right away, so a runner killed from here on still gets the copy stopped (R6).
-  h.guardPid = spawnClosedDetached(process.execPath, [guardScript, "launcher", JSON.stringify({
-    runner: process.pid, pid: h.pid, port, stopper: cfg.stopper, lockFile: cfg.lockFile, profile: h.profile,
-    capMs: (maxMinutes + 3) * 60000, log: path.join(outDir, "guard.log"),
-  })]);
+  try {
+    h.guardPid = await spawnClosedDetached(process.execPath, [guardScript, "launcher", JSON.stringify({
+      runner: process.pid, pid: h.pid, port, stopper: cfg.stopper, lockFile: cfg.lockFile, profile: h.profile,
+      capMs: (maxMinutes + 3) * 60000, log: path.join(outDir, "guard.log"),
+    })]);
+  } catch (e) {
+    await h.stop(log);
+    throw new Error(`could not start the cleanup guard (${e.message || e}); copy stopped`);
+  }
 
   // Electron/xvfb output (saved, never scanned: R11) and the shell's main.log (scanned).
   const keep = (l) => {
@@ -145,12 +170,24 @@ export async function startLauncher({ cfg, port, cdp, outDir, log = console.log,
 
 // Checked stop (R1): never a no-op stopper call without our own start, never someone else's copy.
 async function stopLauncher(h, log) {
+  h.stopping = true;
   for (const t of h.timers) clearInterval(t);
   h.timers = [];
   let stopped = false;
   let why = "not started";
   if (h.started) {
-    const lock = readLock(h.cfg.lockFile);
+    let lock = readLock(h.cfg.lockFile);
+    // Our pid already dead but the lock still ours: either someone else's openaim-stop.sh is
+    // in its 2 s TERM->KILL pause (it removes the lock after), or our copy died by itself.
+    // Wait and look again; gone = preempted (no stopper call, R7), still ours = stale, stop it.
+    if (lockIsOurs(lock, h.pid, h.port) && !pidAlive(h.pid)) {
+      const until = Date.now() + (h.staleWaitMs ?? 5000);
+      while (Date.now() < until && lockIsOurs(lock, h.pid, h.port)) {
+        await sleep(100);
+        lock = readLock(h.cfg.lockFile);
+      }
+      if (!lockIsOurs(lock, h.pid, h.port)) h.preempted = true;
+    }
     if (lockIsOurs(lock, h.pid, h.port)) {
       log(`stopping copy pid ${h.pid} with ${h.cfg.stopper}`);
       const r = await runClosed(h.cfg.stopper, [], { timeout: 30000 });
@@ -178,13 +215,48 @@ async function stopLauncher(h, log) {
       fs.rmSync(h.profile, { recursive: true, force: true });
     } catch {}
   }
-  return { stopped, why };
+  return { stopped, why, preempted: !!h.preempted };
+}
+
+// Linux only (acceptance evidence for R4/R13): the processes in the copy's session (the
+// launcher's setsid makes the pid the session id), the pid's own pgid/sid, and any process in
+// that session (or the guard) holding hp.sh's run-lock files open.
+export function sessionReport(sid, extraPids = []) {
+  if (process.platform !== "linux" || !sid) return null;
+  const statOf = (pid) => {
+    try {
+      const s = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+      const f = s.slice(s.lastIndexOf(")") + 2).split(" "); // state ppid pgrp session ...
+      return { pgid: Number(f[2]), sid: Number(f[3]) };
+    } catch {
+      return null;
+    }
+  };
+  const members = [];
+  for (const d of fs.readdirSync("/proc")) {
+    if (/^\d+$/.test(d) && statOf(d)?.sid === Number(sid)) members.push(Number(d));
+  }
+  const leaks = [];
+  for (const p of [...members, ...extraPids.filter(Boolean)]) {
+    let fds = [];
+    try {
+      fds = fs.readdirSync(`/proc/${p}/fd`);
+    } catch {}
+    for (const fd of fds) {
+      try {
+        const t = fs.readlinkSync(`/proc/${p}/fd/${fd}`);
+        if (/run\d\.lock/.test(t)) leaks.push(`${p}:${fd}->${t}`);
+      } catch {}
+    }
+  }
+  const own = statOf(sid);
+  return { members, leaks, pidIsGroupLeader: !!own && own.pgid === Number(sid), pidIsSessionLeader: !!own && own.sid === Number(sid) };
 }
 
 // Copy stopped by someone else (hp.sh app-stop, Soprano): our pid is gone and the lock no
 // longer names us (R7).
 export function preempted(h) {
-  if (!h || h.mode !== "launcher" || !h.started || h.stopped) return false;
+  if (!h || h.mode !== "launcher" || !h.started || h.stopped || h.stopping) return false;
   if (pidAlive(h.pid)) return false;
   return !lockIsOurs(readLock(h.cfg.lockFile), h.pid, h.port);
 }

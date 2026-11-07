@@ -150,7 +150,8 @@ test("launcher profile: only /tmp/openaim-profile-<digits> may be deleted", () =
 
 test("lock: parse and ownership (pid on line 1 AND port on line 2)", () => {
   const txt = "4242\nopen-aim 2026-11-07T12:00:00Z port 8270 cdp 9470\n";
-  assert.deepEqual(parseLock(txt), { pid: 4242, port: 8270, cdp: 9470 });
+  assert.deepEqual(parseLock(txt), { pid: 4242, port: 8270, cdp: 9470, time: Date.parse("2026-11-07T12:00:00Z") });
+  assert.equal(parseLock("1\nopen-aim garbage port 1").time, null);
   assert.ok(lockIsOurs(parseLock(txt), 4242, 8270));
   assert.ok(lockIsOurs(parseLock(txt), "4242", "8270"));
   assert.equal(lockIsOurs(parseLock(txt), 4243, 8270), false, "other pid");
@@ -301,6 +302,39 @@ test("launcher: lock not ours -> no stopper call; copy stopped by someone else -
   assert.equal(r.stopped, false);
   assert.equal(f.stops(), 1, "only the outside stop; ours did not call the stopper");
   assert.ok(fs.existsSync(f.cfg.lockFile), "other copy's lock untouched");
+});
+
+test("launcher: outside stopper mid-pause (pid dead, lock still ours for a moment) -> preempted, no stopper call", linuxOnly, async () => {
+  const f = fakeHp();
+  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard });
+  process.kill(h.pid, "SIGKILL"); // like openaim-stop.sh's TERM; it removes the lock 2 s later
+  await sleep(50);
+  setTimeout(() => fs.rmSync(f.cfg.lockFile, { force: true }), 300);
+  const r = await stopApp(h, quiet);
+  assert.equal(r.preempted, true);
+  assert.equal(r.stopped, false);
+  assert.equal(f.stops(), 0);
+});
+
+test("launcher: our copy died and left its lock -> stale lock stopped after the wait", linuxOnly, async () => {
+  const f = fakeHp();
+  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard });
+  h.staleWaitMs = 300;
+  process.kill(h.pid, "SIGKILL");
+  await sleep(50);
+  const r = await stopApp(h, quiet);
+  assert.equal(r.preempted, false);
+  assert.equal(f.stops(), 1);
+  assert.ok(!fs.existsSync(f.cfg.lockFile));
+});
+
+test("launcher: garbage output but a fresh lock on our port -> copy adopted and stopped", linuxOnly, async () => {
+  const f = fakeHp();
+  const real = fs.readFileSync(f.cfg.starter, "utf8").replace(/echo "started \$pid"/, 'echo "segfault"');
+  fs.writeFileSync(f.cfg.starter, real.replace("open-aim x port", 'open-aim $(date -u +%FT%TZ) port'));
+  await assert.rejects(startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard }), /unexpected output.*stopped/);
+  assert.equal(f.stops(), 1);
+  assert.ok(!fs.existsSync(f.cfg.lockFile));
 });
 
 test("guard (launcher): runner gone -> checked stop; lock not ours -> no stop", linuxOnly, async () => {
