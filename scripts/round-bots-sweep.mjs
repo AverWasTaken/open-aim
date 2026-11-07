@@ -96,7 +96,7 @@ export function retakeRun({ sim, W, doc, seed, extra = {}, plantAfter = 0.5, spi
     seed, site: spike?.site ?? null, spike, player, live: -1, plant: -1, plantMs: null, outcome: null, end: -1,
     crossings: 0, stuck: 0, retries: 0, fireWhileDefusing: 0, seenWhileDefusing: 0, defuseStart: -1, candArrive: -1,
     flagGap: 0, staged2: -1, firstPush: -1, maxExcess: -Infinity, arrivals: [], defusers: [], maxDefuse: 0, cands: new Set(),
-    kind: null, minStill: Infinity, shotsBy: {},
+    kind: null, minStill: Infinity, minStillTick: Infinity, maxDefusers: 0, overdue: 0, shotsBy: {},
   };
   const prev = new Map(), flag = new Map(), track = new Map(), stuckIds = new Set();
   let timing = false;
@@ -132,6 +132,9 @@ export function retakeRun({ sim, W, doc, seed, extra = {}, plantAfter = 0.5, spi
     }
     if (sp && m.plant >= 0) {
       m.kind = I.spikeData(N, cfg, sp).kind;
+      const still = st.actors.filter((a) => a.alive && STOPPED.has(a.behavior.roundBot.mode));
+      for (const a of still) for (const b of still) if (a.id < b.id) m.minStillTick = Math.min(m.minStillTick, Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z));
+      m.maxDefusers = Math.max(m.maxDefusers, st.actors.filter((a) => a.alive && a.roundDefusing === 1).length);
       const alive = st.actors.filter((a) => a.alive && a.behavior.roundBot.nav === 1);
       if (m.staged2 < 0 && alive.filter((a) => a.behavior.roundBot.staged === 1).length >= 2) m.staged2 = tick;
       if (m.firstPush < 0 && alive.some((a) => a.behavior.roundBot.pushed === 1)) m.firstPush = tick;
@@ -142,6 +145,8 @@ export function retakeRun({ sim, W, doc, seed, extra = {}, plantAfter = 0.5, spi
     }
     if (r.phase === 'ended' && !m.outcome) {
       m.outcome = r.reason; m.end = (tick - (m.plant >= 0 ? m.plant : tick)) * ts;
+      // Goals still open at the end that are already overdue (> 1.35 x field + 1 s): a bot wandering.
+      for (const a of st.actors) { const t = track.get(a.id); if (a.alive && t && !t.done && (tick - t.start) * ts > 1.35 * Math.max(0, t.ft) + 1) m.overdue++; }
       const still = st.actors.filter((a) => a.alive && STOPPED.has(a.behavior.roundBot.mode));
       for (const a of still) for (const b of still) if (a.id < b.id) m.minStill = Math.min(m.minStill, Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z));
       break;
@@ -205,7 +210,7 @@ async function main() {
       spike: [+m.spike.x.toFixed(2), +m.spike.y.toFixed(2), +m.spike.z.toFixed(2)], plantMs: m.plantMs === null ? null : +m.plantMs.toFixed(1),
       candArrive: m.candArrive < 0 ? null : +m.candArrive.toFixed(2), defuseStart: m.defuseStart < 0 ? null : +m.defuseStart.toFixed(2),
       outcome: m.outcome, end: +m.end.toFixed(2), stuck: m.stuck, retries: m.retries, crossings: m.crossings, fireWhileDefusing: m.fireWhileDefusing,
-      flagGap: m.flagGap, push: m.firstPush < 0 || m.staged2 < 0 ? null : +((m.firstPush - m.staged2) / TPS).toFixed(2), maxExcess: +m.maxExcess.toFixed(2),
+      flagGap: m.flagGap, maxDefusers: m.maxDefusers, overdue: m.overdue, minStillTick: Number.isFinite(m.minStillTick) ? +m.minStillTick.toFixed(2) : null, push: m.firstPush < 0 || m.staged2 < 0 ? null : +((m.firstPush - m.staged2) / TPS).toFixed(2), maxExcess: +m.maxExcess.toFixed(2),
       minStill: Number.isFinite(m.minStill) ? +m.minStill.toFixed(2) : null, wall: +((Date.now() - w0) / 1000).toFixed(1),
     };
     rows.push(row);
@@ -228,6 +233,7 @@ async function main() {
     candArrive: q(ok, (r) => r.candArrive), defuseStart: q(ok, (r) => r.defuseStart), defuseEnd: q(defused, (r) => r.end),
     stuckBots: rows.reduce((s, r) => s + r.stuck, 0), crossings: rows.reduce((s, r) => s + r.crossings, 0),
     fireWhileDefusing: rows.reduce((s, r) => s + r.fireWhileDefusing, 0), flagGapRuns: rows.filter((r) => r.flagGap > 0).length,
+    maxDefusers: Math.max(...rows.map((r) => r.maxDefusers)), overdue: rows.reduce((s, r) => s + r.overdue, 0), minStillTick: q(rows, (r) => r.minStillTick),
     plantMs: q(rows, (r) => r.plantMs), maxExcess: Math.max(...rows.map((r) => r.maxExcess)),
   };
   console.log('SUMMARY ' + JSON.stringify(summary));

@@ -136,15 +136,16 @@
 // All of it only when cfg.side === 'attack' (the bots defend) and the bot runs on the nav.
 // Info rotation (live phase, before the plant): a bot of group 'mid' (cfg.setupBySpawner group)
 // latches once per round when the snapshot shows a bot of a site group (a group with retake
-// staging points, e.g. 'A'/'B'; never 'mid') that saw the player on the previous tick (seenTick ===
-// ctx.tick - 1; several the same tick: the lowest id wins). It goes delay seconds after that
+// staging points, e.g. 'A'/'B'; never 'mid') that saw the player on the previous tick, itself in the
+// live phase (seenTick === ctx.tick - 1 >= liveTick; several the same tick: the lowest id wins). It goes delay seconds after that
 // sighting to the nearer (field time) staging point of that site and stands there (mode stage)
 // facing the site. delay by ctx.enemyRank: iron/bronze never, silver/gold 6 s, platinum/diamond
 // 4 s, ascendant/immortal 3 s, radiant 2 s, anything else (absent = the drill's own bots) 5 s. No
 // re-rotation.
 // Retake (from the first tick that sees phase 'planted'): spike field = one multi-source field to
 // the defuse goal set: nav nodes reachable from the bots' spawn points within xz 1.2 / |dy| < 1.8
-// of the spike, else within round-core's own rule (xz 1.6 / |dy| < 2; selected within 1.585 / 1.9). No such node (Ascent: a few
+// of the spike, else within round-core's own rule (xz cfg.defuseRadius / |dy| < 2; selected within
+// radius - 0.05 / 1.9). No such node (Ascent: a few
 // stacked-crate tops that need 2+ jumps) -> nobody defuses there (cover set = nodes within xz 4 /
 // |dy| < 3; the spike goes off). Plant-time fields live in a small LRU (8).
 //   Latch (each bot computes the same from the snapshot, alive nav bots by id): a bot whose spike
@@ -153,7 +154,8 @@
 //   travel + 2 s per bot already there, slot k = stop 1.2 k m (field time k * 1.2 / 6.75) short of
 //   it. Cover = the first node on its spike-field chain (from its staging point, or where it
 //   stands) 3-5 m from the spike and >= 1.5 m from earlier picks (else the one nearest 5 m among
-//   5-8 m out; already closer than 3 m: where it stands; none: it stays at its staging point). Player dead or no staging data: no staging, it pushes at once.
+//   5-8 m out; already closer than 3 m: where it stands; none: it stays at its staging point, or
+//   without one where it stood at the plant; with no spike field at all it goes back to its setup). Player dead or no staging data: no staging, it pushes at once.
 //   Push (latched, pushed = 1): player dead, OR only one bot alive, OR time left <= travel to the
 //   spike (field x 6.75 / speed + 0.3 s) + defuse time left (defuseSec, minus the checkpoint once
 //   reached) + 5 s, OR it is staged and (>= 2 alive bots are staged OR some bot has pushed).
@@ -161,7 +163,7 @@
 //   ties lowest id; latched while it stays eligible, then re-elected. After the push the candidate
 //   walks to the spike goal set, the others to their cover spots (facing the spike).
 //   Defuse: the candidate starts (actor.roundDefusing = 1, mode defuse) once it stands at the goal
-//   (after the il move: xz <= 1.5, |dy| < 1.9 (fallback set: 1.595 / 1.95), stopped, not airborne, combatHold !== 1) and the
+//   (after the il move: xz <= 1.5, |dy| < 1.9 (fallback set: radius - 0.005 / 1.95), stopped, not airborne, combatHold !== 1) and the
 //   player is dead or it hasn't seen them for >= 1 s. It then holds the flag every tick without
 //   moving (no il) until the round ends, unless it sees the player and the rank isn't iron..gold:
 //   then it stops to fight, except past the checkpoint with time left < defuse left + 1.5 s.
@@ -197,10 +199,11 @@ const FAR = 1e9; // 'no value yet' in the flat state (Infinity would not survive
 const STAGE_SLOT = 1.2, STAGE_NEAR = 1.5, STAGE_COST = 2;
 const PUSH_MARGIN = 5, ACCEL_MARGIN = 0.3;
 const COVER_MIN = 3, COVER_MAX = 5, COVER_WIDE = 8, COVER_SEP = 1.5;
-// Defuse goal sets: tight (start within 1.5 / 1.9), else round-core's own rule (1.6 / 2) with a
-// small margin for where il leaves the bot (start within 1.595 / 1.95).
-const GOAL_XZ = 1.2, GOAL_DY = 1.8, FULL_XZ = 1.585, FULL_DY = 1.9, NEAR_XZ = 4, NEAR_DY = 3;
-const DEFUSE_XZ = 1.5, DEFUSE_DY = 1.9, DEFUSE_FULL_XZ = 1.595, DEFUSE_FULL_DY = 1.95, UNSEEN_SEC = 1, FIGHT_MARGIN = 1.5;
+// Defuse goal sets: tight (start within 1.5 / 1.9), else round-core's own rule (r = cfg.defuseRadius,
+// default 1.6; |dy| < 2): set within r - 0.05 / 1.9, start within r - 0.005 / 1.95 (il leaves the
+// bot <= 0.02 m from its node).
+const GOAL_XZ = 1.2, GOAL_DY = 1.8, FULL_SET_M = 0.05, FULL_DY = 1.9, NEAR_XZ = 4, NEAR_DY = 3, CORE_RADIUS = 1.6;
+const DEFUSE_XZ = 1.5, DEFUSE_DY = 1.9, DEFUSE_FULL_M = 0.005, DEFUSE_FULL_DY = 1.95, UNSEEN_SEC = 1, FIGHT_MARGIN = 1.5;
 const FACE_SPIKE_M = 15;
 const PLANT_LRU = 8;
 const LOW_RANKS = new Set(['iron', 'bronze', 'silver', 'gold']); // keep defusing while seen
@@ -454,7 +457,9 @@ function reachUnion(N, cfg) {
   const c = perCfg(N, cfg);
   if (c.reach !== undefined) return c.reach;
   let u = null;
-  for (const p of cfg.spawns?.[cfg.side === 'defense' ? 'attack' : 'defense'] ?? []) {
+  const pts = cfg.spawns?.[cfg.side === 'defense' ? 'attack' : 'defense'] ?? [];
+  c.reachKey = (Array.isArray(pts) ? pts : []).map((p) => `${p?.x},${p?.y},${p?.z}`).join(';');
+  for (const p of pts) {
     if (!p || !finite(p.x) || !finite(p.z)) continue;
     let k = nearestNode(N, p.x, p.z, 1.5, finite(p.y) ? p.y : null, 1.5);
     if (k < 0) k = nearestNode(N, p.x, p.z, 1.5);
@@ -470,15 +475,16 @@ function reachUnion(N, cfg) {
 // multi-source field to the set (null for 'none'). LRU of PLANT_LRU entries (pure: an evicted
 // entry is rebuilt the same).
 function spikeData(N, cfg, sp) {
-  const key = `${sp.x},${sp.y},${sp.z}`, L = N.plant;
+  const R = reachUnion(N, cfg), radius = num(cfg.defuseRadius, CORE_RADIUS);
+  const key = `${perCfg(N, cfg).reachKey}|${radius}|${sp.x},${sp.y},${sp.z}`, L = N.plant; // every input of the result
   let d = L.get(key);
   if (d) { L.delete(key); L.set(key, d); return d; }
-  const g = N.g, R = reachUnion(N, cfg);
+  const g = N.g;
   const around = (r, dy) => nodesNear(N, sp.x, sp.z, r).filter((k) => (!R || R[k] === 1) && Math.abs(g.y[k] - sp.y) < dy);
-  let set = around(GOAL_XZ, GOAL_DY), kind = 'defuse', full = 0;
-  if (!set.length) { set = around(FULL_XZ, FULL_DY); full = 1; }
+  let set = around(Math.min(GOAL_XZ, radius - FULL_SET_M), GOAL_DY), kind = 'defuse', full = 0;
+  if (!set.length) { set = around(radius - FULL_SET_M, FULL_DY); full = 1; }
   if (!set.length) { set = around(NEAR_XZ, NEAR_DY); kind = set.length ? 'near' : 'none'; }
-  d = { key, kind, full, set, field: set.length ? fieldMulti(N, set) : null };
+  d = { key, kind, full, reach: full ? radius - DEFUSE_FULL_M : Math.min(DEFUSE_XZ, radius - DEFUSE_FULL_M), reachDy: full ? DEFUSE_FULL_DY : DEFUSE_DY, set, field: set.length ? fieldMulti(N, set) : null };
   L.set(key, d);
   while (L.size > PLANT_LRU) L.delete(L.keys().next().value);
   return d;
@@ -738,7 +744,7 @@ function latchRetake(N, actor, st, sd, stg, sp, list, rs) {
       if (pick < 0 && Math.hypot(g.x[start] - sp.x, g.z[start] - sp.z) < COVER_MIN) pick = start;
       if (pick >= 0) { covT = F.dist[pick]; picks.push(pick); }
     }
-    if (o.id === actor.id) Object.assign(st, { sgi, slotT, ipT, covT });
+    if (o.id === actor.id) Object.assign(st, { sgi, slotT, ipT: finite(ts) ? ts : ipT, covT });
   }
   if (st.sgi === -2) st.pushed = 1;
   if (st.sgi === -1) st.staged = 1;
@@ -767,11 +773,14 @@ function retakePlan(N, actor, ctx, st, cfg, rs) {
     if (st.sgi === -1 && F) return { F, stopT: st.ipT, kind: GK.place, fk: 2e8 };
     return null;
   };
+  // No staging point and no cover (player dead, no staging data, crowded approach): stand where it
+  // was at the plant if that is on the spike field; else (kind 'none') back to its setup goal.
+  const placeGoal = () => (F && st.ipT >= 0 ? { F, stopT: st.ipT, kind: GK.place, fk: 2e8 } : null);
   let goal;
   if (st.pushed !== 1) goal = stageGoal();
   else if (F && sd.kind === 'defuse' && st.cand === actor.id) goal = { F, stopT: 0, kind: GK.spike, fk: 3e8 };
   else if (F && st.covT >= 0) goal = { F, stopT: st.covT, kind: GK.cover, fk: 4e8 };
-  else goal = stageGoal();
+  else goal = stageGoal() ?? placeGoal();
   return { sd, sp, goal };
 }
 
@@ -782,7 +791,7 @@ function rotationLatch(N, actor, ctx, st, cfg, rs) {
   if (!own || own.group !== 'mid') return;
   const rank = typeof ctx.enemyRank === 'string' ? ctx.enemyRank : '';
   const delay = Object.prototype.hasOwnProperty.call(ROT_DELAY, rank) ? ROT_DELAY[rank] : ROT_DEFAULT;
-  if (delay < 0 || !Array.isArray(ctx.round?.bots)) return;
+  if (delay < 0 || !Array.isArray(ctx.round?.bots) || !(ctx.tick - 1 >= rs.liveTick)) return; // a sighting in the live phase only
   const stages = stagingFor(N, cfg);
   let trig = null;
   for (const o of ctx.round.bots) {
@@ -808,10 +817,7 @@ function goalFor(N, ctx, st, rs, barrier, mask, plan) {
   return { F, stopT: 0, kind, fk: F.goal * 2 + (barrier ? 1 : 0) };
 }
 
-const inReach = (p, plan) => {
-  const sp = plan.sp, full = plan.sd.full === 1;
-  return Math.hypot(p.x - sp.x, p.z - sp.z) <= (full ? DEFUSE_FULL_XZ : DEFUSE_XZ) && Math.abs(p.y - sp.y) < (full ? DEFUSE_FULL_DY : DEFUSE_DY);
-};
+const inReach = (p, plan) => Math.hypot(p.x - plan.sp.x, p.z - plan.sp.z) <= plan.sd.reach && Math.abs(p.y - plan.sp.y) < plan.sd.reachDy;
 
 // Start defusing (after the il move): candidate at the spike goal, stopped, on the ground, not in
 // combat, and the player dead or unseen for >= 1 s.

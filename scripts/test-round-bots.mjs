@@ -720,7 +720,7 @@ function team(names, { side = 'attack', rank } = {}) {
     bots.roundBotInit({}, a, { tick: 1, elapsed: 1 / TPS, round: { cfg: r, state: { phase: 'barrier', side }, bots: null }, profile: { runSpeed: 5.4 }, target: { eye: { x: 0, y: 0, z: 0 }, canSee: () => false } });
     return a;
   });
-  const state = { phase: 'live', side, plantTick: -1, spike: { planted: null }, playerAlive: true, checkpoint: false, defuse: 0 };
+  const state = { phase: 'live', side, liveTick: 0, plantTick: -1, spike: { planted: null }, playerAlive: true, checkpoint: false, defuse: 0 };
   const ctxAt = (tick) => ({ tick, elapsed: tick / TPS, round: { cfg: r, state, bots: bots.aimRoundBotList(actors) }, profile: { runSpeed: 5.4 }, ...(rank ? { enemyRank: rank } : {}), target: { eye: { x: 0, y: 0, z: 0 }, canSee: () => false } });
   // One tick for all bots with a mover that does nothing (positions stay; unit tests only).
   const tickAll = (tick, il = () => {}) => { const ctx = ctxAt(tick); for (const a of actors) bots.roundBotUpdate({}, a, ctx, 1 / TPS, il); return ctx; };
@@ -869,6 +869,7 @@ test('B3 info rotation: a mid bot latches once on an A/B bot\'s sighting of the 
   assert.equal(run('gold', { seenTick: 500 }).actors[1].behavior.roundBot.rotN, -1, 'only seenTick === tick - 1 counts');
   assert.equal(run('gold', { seenTick: 480 }).actors[1].behavior.roundBot.rotN, -1, 'an old sighting does not');
   assert.equal(run('gold', { phase: 'barrier' }).actors[1].behavior.roundBot.rotN, -1, 'not in the barrier phase');
+  assert.equal(run('gold', { extra: (T) => { T.state.liveTick = 500; } }).actors[1].behavior.roundBot.rotN, -1, 'not from a sighting on the last barrier tick');
   assert.equal(run('gold', { phase: 'planted', extra: (T) => { T.state.plantTick = 400; T.state.spike.planted = A_SPIKE; } }).actors[1].behavior.roundBot.rotN, -1, 'not after the plant');
   // Both sites the same tick: the lowest-id trigger's site (bot 1 = A site default, bot 3 = B default).
   let T = run('gold', { seer: [3, 1] });
@@ -941,10 +942,10 @@ test('B3 flat, both movement modes: gold -> the mid bot leaves 6 s after an A/B 
       }
       const q = s.saveState(), ma = q.actors.find((a) => a.spawnerId === midSid), m = ma.behavior.roundBot;
       assert.equal(q.aimRound.phase, 'live', 'the player survived the peek');
+      assert.ok(seenA >= 0, `${rank}: A/B bots saw the peek (not vacuous)`);
       if (rank === 'iron') { assert.equal(m.rotN, -1, 'iron never rotates'); continue; }
-      assert.ok(seenA >= 0, 'A/B bots saw the peek');
       assert.ok(m.rotN >= 0, 'rotated');
-      assert.ok(m.rotTrig >= live - 1 && m.rotTrig <= seenA, `trigger tick ${m.rotTrig} (live ${live}, first live sighting ${seenA})`);
+      assert.ok(m.rotTrig >= live && m.rotTrig <= seenA, `trigger tick ${m.rotTrig} (live ${live}, first live sighting ${seenA}): a live-phase sighting`);
       assert.equal(m.rotT - m.rotTrig, 6 * TPS, 'gold delay 6 s');
       assert.ok(Math.abs(moveAt - m.rotT) <= 1, `left at ${moveAt} vs ${m.rotT}`);
       assert.equal(m.mode, I.MODE.stage, 'stands at the staging point');
