@@ -385,3 +385,76 @@ test('install: text field focus blocks R/Esc; an extra card button (routine bar)
   assert.equal(retry.clicks, 1);
   assert.equal(next.clicks, 0);
 });
+
+// Fake window + page for the install path; returns press() and the page map.
+function installed(page) {
+  const clock = { t: 0 };
+  const handlers = {};
+  const doc = fakeDoc(page);
+  doc.elementFromPoint = () => page.__top;
+  const win = {
+    document: doc,
+    performance: { now: () => clock.t },
+    addEventListener(type, fn) { handlers[type] = fn; },
+    MutationObserver: class { constructor() {} observe() {} },
+  };
+  keys.install(win, doc);
+  const press = (code) => {
+    const e = { ...ev(code), target: null, prevented: false, preventDefault() { this.prevented = true; } };
+    handlers.keydown(e);
+    return e;
+  };
+  return { clock, handlers, press };
+}
+
+test('install: MomentResult layout uses the data-action buttons', () => {
+  const retry = fakeButton();
+  const back = fakeButton();
+  const page = {
+    '.al-result-overlay': {},
+    '.al-result-overlay .al-mr-btn[data-action=retry]': retry,
+    '.al-result-overlay .al-mr-btn[data-action=exit]': back,
+  };
+  const { clock, handlers, press } = installed(page);
+  handlers['aim-round-phase']({ detail: { phase: 'result' } });
+  clock.t = 1000;
+  page.__top = retry;
+  assert.equal(press('KeyR').prevented, true);
+  page.__top = back;
+  assert.equal(press('Escape').prevented, true);
+  assert.equal(retry.clicks, 1);
+  assert.equal(back.clicks, 1);
+});
+
+test('install: Q does nothing while the result shows, even with the pause exit button present', () => {
+  const quit = fakeButton();
+  const page = {
+    '.al-result-overlay': {},
+    '.al-pause-overlay .al-pause-acts .al-pause-act.is-exit': quit,
+  };
+  const { clock, handlers, press } = installed(page);
+  handlers['aim-round-phase']({ detail: { phase: 'result' } });
+  clock.t = 2000;
+  page.__top = quit;
+  assert.equal(press('KeyQ').prevented, false);
+  assert.equal(quit.clicks, 0);
+});
+
+test('install: R waits for the result card animation to finish', () => {
+  const retry = fakeButton();
+  let anims = [{ playState: 'running' }];
+  const page = {
+    '.al-result-overlay': {},
+    '.al-result-overlay .al-result-modal': { getAnimations: () => anims },
+    '.al-result-overlay .al-run-actions .al-primary-btn': retry,
+  };
+  const { clock, handlers, press } = installed(page);
+  handlers['aim-round-phase']({ detail: { phase: 'result' } });
+  clock.t = 1500;
+  page.__top = retry;
+  assert.equal(press('KeyR').prevented, false);
+  assert.equal(retry.clicks, 0);
+  anims = [{ playState: 'finished' }];
+  assert.equal(press('KeyR').prevented, true);
+  assert.equal(retry.clicks, 1);
+});
