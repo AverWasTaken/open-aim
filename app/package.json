@@ -17,7 +17,8 @@
     "test:variants": "node --test ../scripts/test-drill-variants.cjs",
     "test:spots": "node --test ../scripts/test-spot-bias.cjs",
     "test:vary": "node --test ../scripts/test-spot-vary.cjs",
-    "test:round": "node --test ../scripts/test-round.mjs ../scripts/test-round-sim.mjs"
+    "test:round": "node --test ../scripts/test-round.mjs ../scripts/test-round-sim.mjs",
+    "test:feelxprof": "node --test ../scripts/test-feel-xprofiles.cjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
@@ -48,6 +49,7 @@
       "valorant-import.js",
       "valorant-import-ui.js",
       "valorant-import-ipc.js",
+      "feel-crosshair-profiles.js",
       "valorant-import.css",
       "backups.js",
       "local-guard.js",

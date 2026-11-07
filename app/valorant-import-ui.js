@@ -3,6 +3,9 @@
   if (window.__aimValorantImporter || !window.__aimDesktop?.valorant) return;
   const api = window.__aimDesktop.valorant, converter = window.aimValorantImport;
   const HIDE = "aim-valorant-import-hide-startup-v1", SHOWN = "aim-valorant-import-shown", UNDO = "aim-valorant-import-undo-v1";
+  // Crosshair profile list (feel-crosshair-profiles.js). Kept out of converter.keys; undo saves
+  // made before it existed have no entry for it and leave the list alone.
+  const PROFILES = "es-crosshair-profiles-v1", profileList = () => window.__aimCrosshairProfiles;
   const escape = value => String(value).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   let shade = null;
   // After a successful import the startup prompt stays away (it is still in Settings);
@@ -64,8 +67,16 @@
         pendingFiles = files;
         shade.querySelector("details").open = false;
         const selected = result.profiles.findIndex(p => p.selected);
+        let listNote = "";
+        if (result.profiles.length && profileList()) {
+          const n = result.profiles.length, m = profileList().mergeImported(profileList().load(localStorage), result.profiles);
+          listNote = m.added === n ? `All ${n} crosshair profiles will be added to your profile list.`
+            : `${m.added} of ${n} crosshair profiles will be added to your profile list` +
+              [m.duplicates ? `${m.duplicates} already there` : "", m.notAdded ? `${m.notAdded} not added (limit ${profileList().MAX})` : ""].filter(Boolean).map(t => "; " + t).join("") + ".";
+        }
         preview.innerHTML = `<h3>Review import</h3><p>${files.map(f => escape(f.name)).join(", ")}</p>
           ${result.profiles.length ? `<label>Crosshair profile <select data-profile>${result.profiles.map((p, i) => `<option value="${i}" ${i === selected ? "selected" : ""}>${escape(p.name)}${p.selected ? " (active in VALORANT)" : ""}</option>`).join("")}</select></label>` : ""}
+          ${listNote ? `<p data-profile-list>${escape(listNote)}</p>` : ""}
           <ul>${result.changes.map(c => `<li>${escape(c.label)}: <b>${escape(c.value === null ? "Unbound" : c.value)}</b></li>`).join("")}</ul>
           <details><summary>Skipped settings and limitations (${result.unhandled} other saved entries)</summary><ul>${result.warnings.map(w => `<li>${escape(w)}</li>`).join("")}</ul></details>
           <p>Other trainer settings will keep their current values. Applying reloads the trainer and ends any current drill. VSync changes also require an app restart.</p>
@@ -96,7 +107,7 @@
     };
     // Prevent dropping a file outside the target from navigating away from the app.
     shade.addEventListener("dragover", e => e.preventDefault()); shade.addEventListener("drop", e => e.preventDefault());
-    const storageKeys = Object.values(converter.keys);
+    const storageKeys = [...Object.values(converter.keys), PROFILES];
     function snapshot() { return Object.fromEntries(storageKeys.map(k => [k, localStorage.getItem(k)])); }
     function restore(values) { for (const k of storageKeys) { if (values[k] === null) localStorage.removeItem(k); else if (typeof values[k] === "string") localStorage.setItem(k, values[k]); } }
     async function apply() {
@@ -135,6 +146,8 @@
           }
         }
         if (result.profiles.length) pending[converter.keys.crosshair] = result.profiles[Number(preview.querySelector("[data-profile]").value)].code;
+        // Keep every imported crosshair in the profile list, not just the picked one.
+        if (result.profiles.length && profileList()) pending[PROFILES] = JSON.stringify(profileList().mergeImported(profileList().load(localStorage), result.profiles).state);
         localStorage.setItem(UNDO, JSON.stringify({ values: before, vsync: oldVsync }));
         for (const [key, value] of Object.entries(pending)) localStorage.setItem(key, typeof value === "string" ? value : JSON.stringify(value));
         if (typeof vsync === "boolean") await api.setVsync(vsync);
@@ -150,7 +163,7 @@
       busy = true; undoButton.disabled = true;
       try {
         const saved = JSON.parse(localStorage.getItem(UNDO));
-        if (!saved?.values || !storageKeys.every(k => saved.values[k] === null || typeof saved.values[k] === "string")) throw new Error("No valid import backup found.");
+        if (!saved?.values || !storageKeys.every(k => saved.values[k] === undefined || saved.values[k] === null || typeof saved.values[k] === "string")) throw new Error("No valid import backup found.");
         await window.__aimDesktop.backups.create();
         if (typeof saved.vsync === "boolean") await api.setVsync(saved.vsync);
         restore(saved.values); localStorage.removeItem(UNDO); location.reload();
