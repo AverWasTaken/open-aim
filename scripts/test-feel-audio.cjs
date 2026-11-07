@@ -173,6 +173,31 @@ test('scheduler: landing after a jump', () => {
   assert.deepEqual(events.map((e) => e.kind), ['land']);
 });
 
+// The sim's bot `jump` behaviour (BiMsX6Xn aN): gravity 18, launch speed sqrt(2*g*h), so the arc
+// peaks at exactly `height` (0.8 m in every shipped drill) and lasts 2*v/g.
+function jumpArc(t, start, height = 0.8, g = 18) {
+  const v = Math.sqrt(2 * g * height), a = t - start;
+  return a > 0 && a < 2 * v / g ? Math.max(0, v * a - g * a * a / 2) : 0;
+}
+
+test('scheduler: every real bot jump lands; stairs, ledge drops and tiny hops do not', () => {
+  // Three 0.8 m jumps, sampled at ~19 fps (hidden copy) and 60 fps.
+  for (const dt of [1 / 19, 1 / 60]) {
+    const track = (t) => [bot(1, 3, 3, { offset: { x: 0, y: jumpArc(t, 0.5) + jumpArc(t, 2) + jumpArc(t, 3.5), z: 0 } })];
+    const events = runTrack(core.createStepScheduler(), track, 4.5, { dt });
+    assert.deepEqual(events.map((e) => e.kind), ['land', 'land', 'land'], `dt ${dt}`);
+  }
+  // Walking down 0.3 m stairs and dropping off a 1.5 m ledge: position.y only, offset stays 0.
+  const stairs = (t) => [bot(1, 3, 3, { position: { x: 3 + 0.6 * C.RUN * t, y: -0.3 * Math.floor(t * 4), z: 3 } })];
+  assert.equal(runTrack(core.createStepScheduler(), stairs, 3).filter((e) => e.kind === 'land').length, 0);
+  const ledge = (t) => [bot(1, 3, 3, { position: { x: 3, y: t < 1 ? 1.5 : Math.max(0, 1.5 - 9 * (t - 1) ** 2), z: 3 } })];
+  assert.equal(runTrack(core.createStepScheduler(), ledge, 2).length, 0);
+  // A hop lower than LAND_OFFSET stays silent.
+  const hop = (t) => [bot(1, 3, 3, { offset: { x: 0, y: jumpArc(t, 0.5, 0.25), z: 0 } })];
+  assert.equal(C.LAND_OFFSET, 0.3);
+  assert.equal(runTrack(core.createStepScheduler(), hop, 1.5).length, 0);
+});
+
 test('HRTF goes to the nearest 8', () => {
   const list = Array.from({ length: 12 }, (_, i) => ({ id: i, dist: [9, 3, 30, 1, 7, 12, 2, 40, 5, 6, 8, Infinity][i] }));
   assert.deepEqual([...core.hrtfNearest(list)].sort((a, b) => a - b), [0, 1, 3, 4, 6, 8, 9, 10]);
