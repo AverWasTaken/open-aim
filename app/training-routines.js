@@ -73,7 +73,11 @@
   let pending = null; // launch watch: {at, picker, layer, timer}
   let leaving = null; // "Next drill" waiting for the lobby
 
-  const layerOpen = () => !!document.querySelector(".hall-train-layer") || document.body.classList.contains("al-training-active");
+  // A drill counts as open from its loading screens on: the workshop loading panel (.al-wkload,
+  // shown from the click) and the trainer download fallback (.hall-train-loading). 'aim-local-scene'
+  // fires before the trainer layer mounts, so checking .hall-train-layer alone would pause the
+  // routine on the first drill after the app opens.
+  const layerOpen = () => !!document.querySelector(".hall-train-layer, .hall-train-loading, .al-wkload") || document.body.classList.contains("al-training-active");
   const lobbyReady = () => {
     const root = document.querySelector(".hall-root");
     return !layerOpen() && !!root && !root.inert;

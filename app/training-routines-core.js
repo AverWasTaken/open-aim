@@ -39,12 +39,12 @@
         { code: "e3c17ccb9f5a1500", seconds: 60 }, // Micro flicks
         // Tiny targets one small step apart.
         { code: "d43f842fb33e4d46", seconds: 60 }, // Micro tiles
+        // Sheriff vs strafing bots: wait for the stop, tap the head.
+        { code: "44e40db6736c1916", seconds: 60 }, // Sheriff one-taps
         // Small heads in a tight row at head height.
         { code: "406d6e47ebc89bc3", seconds: 60 }, // Head-level micro
         // Bots 35 to 50 m away: line up the head, first shot counts.
         { code: "f12ecead87952aa4", seconds: 60 }, // Long-range taps
-        // Sheriff vs strafing bots: wait for the stop, tap the head.
-        { code: "44e40db6736c1916", seconds: 60 }, // Sheriff one-taps
         // Finish against the clock: Sheriff taps down Haven C Long.
         { code: "8e3c439a53c4dc6b", seconds: 40 }, // Erv's Sheriff 5k in 7 seconds
       ],
