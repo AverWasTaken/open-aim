@@ -22,6 +22,7 @@ Run them from the repository root with Python 3.
 | `peekmove_patch.py` | Pre-aim bots react and move: with Human-like bots and an explicit enemy rank, the static shooting bots of the shipped pre-aim drills walk ADAD along their checked lane once they see you, by rank (`aimPeekRanks` next to `aimBotRanks`; saved in the replay meta as `peekMove` and `spotLane`). Edits the mods `BiMsX6Xn.js`, `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details and the rank table in the script's docstring. |
 | `round_patch.py` | Round mode: the round controller in the sim (barrier phase, spike plant / defuse, outcomes, save/restore), the play page side (held keys, no replay, round end, result text, barrier and spike visuals) and `window.__aimLaunchScene` for the lobby panel. Edits the mods `CnrSARj_.js`, `OkAdunfX.js`, `ChJ6FlD4.js` and `Hwnlm6zD.js` (both copies). Only acts on scenes with `rules.round`. Details in the script's docstring. |
 | `feel_audio_patch.py` | Audio buses for the volume mixer and hooks for `app/feel-audio.js`: the sound engine gets five category buses (weapon, enemy, footsteps, hits, round/UI) and a soft clipper after the master volume (no change below 0.8), publishes `window.__aimAudio`, `__aimAudioEngine` and `__aimStepBuffers`, passes 3D info for bot shots, asks the shell for headshot / kill cues and calls it every frame. Render side only (no sim or replay change); without `app/feel-audio.js` every sound plays as before. Edits the mods `OkAdunfX.js` (both copies). Details in the script's docstring. |
+| `feel_xbloom_patch.py` | Crosshair spread: the in-game crosshair lines move out while you move or spray, like VALORANT, following each line's Movement/Firing error settings (see the patch order below). |
 | `round_author.mjs` | Writes `app/mods/aim-rounds/<map>.json` (Round mode map data: spawns, barriers, plant zones, defender setups, retake staging points) from the map files in `site/aim-maps/`, node only. `--plot <file.svg>` draws it (also a `.png`), `--check` fails when the stored file is out of date. See [Round mode data](#round-mode-data). |
 | `round_terrain.mjs` | Round mode helper (node module, no CLI): `loadTerrain(map)` rebuilds the game's real pawn and projectile collision in plain node with the game's own code (meshopt decoder, terrain worker, BVH builder and raycast, all lifted from the repo files at runtime). Triangle sets are cached in `%TEMP%/open-aim-round-cache/`. Used by `round_nav.mjs` and the round tests. |
 | `round_navdata.mjs`, `round_navlib.mjs`, `round_png.mjs` | Helpers for `round_nav.mjs`, `round_author.mjs` and the round tests: nav header data (setup facings, staging and zone checks, travel report, plots, retake staging candidates), graph searches (floods, Dijkstra, barrier edge mask), a small PNG canvas. |
@@ -55,6 +56,17 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 11. `peekmove_patch.py` (needs `spotvary_patch.py`; refuses to run twice: it looks for `aimPeekUpdate`)
 12. `round_patch.py` (after `peekmove_patch.py`; refuses to run twice: it looks for `/aim-rounds/round-core.mjs`). It keeps each copy's own line ends.
 13. `feel_audio_patch.py` (after `round_patch.py`; refuses to run twice: it looks for `__aimAudioBuild`). It keeps each copy's own line ends.
+14. `feel_xbloom_patch.py` (after `feel_audio_patch.py`, order 13; refuses to run twice: it looks for `aimErrDeg` /
+    `__aimXbloomStep`). Crosshair spread: a read-only `aimErrDeg()` on the sim object (`CnrSARj_.js`)
+    returns the firing error above the gun's resting error and the movement error, in degrees (no RNG
+    draw, no state write: runs and replays are unchanged). The play page (`OkAdunfX.js`) turns them into
+    pixels from the camera FOV each frame and `StageCrosshair` adds them to the inner/outer line offsets
+    per the profile's `inner/outerMovementError(Scale)` and `inner/outerFiringError(Scale)` (rounded to
+    0.5 px, a line's offset capped at 60 px; a still crosshair never re-renders). Game recoil and game
+    movement only (the live defaults). `fadeWithFiringError` and `overrideErrorOffset` aren't modelled.
+    It doesn't touch the regions of `feel_audio_patch.py`: the two apply in either order, but the bytes
+    differ; run them in the listed order. Test:
+    `npm run test:feelxbloom` in `app/`.
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
