@@ -26,6 +26,9 @@ Run them from the repository root with Python 3.
 | `round_terrain.mjs` | Round mode helper (node module, no CLI): `loadTerrain(map)` rebuilds the game's real pawn and projectile collision in plain node with the game's own code (meshopt decoder, terrain worker, BVH builder and raycast, all lifted from the repo files at runtime). Triangle sets are cached in `%TEMP%/open-aim-round-cache/`. Used by `round_nav.mjs` and the round tests. |
 | `round_navdata.mjs`, `round_navlib.mjs`, `round_png.mjs` | Helpers for `round_nav.mjs`, `round_author.mjs` and the round tests: nav header data (setup facings, staging and zone checks, attacker route / plant / post-plant data, travel report, plots, retake and attacker staging candidates, plant spot candidates), graph searches (floods, Dijkstra, barrier edge mask), a small PNG canvas. |
 | `round_nav.mjs` | Writes `app/mods/aim-rounds/<map>.nav.bin`, the Round mode nav graph: the game's own nav builder run on the real collision from both spawns (2-3 min, below-normal priority). `--reuse` keeps the graph and only rewrites the header (setup facings, staging and zone checks, which need sight rays; helpers in `round_navdata.mjs`). See [Round mode nav graph](#round-mode-nav-graph). |
+| `round_author.mjs` | Writes `app/mods/aim-rounds/<map>.json` (Round mode map data: spawns, barriers, plant zones, defender setups) from the map files in `site/aim-maps/`, node only. `--plot <file.svg>` draws it (also a `.png`), `--check` fails when the stored file is out of date. See [Round mode data](#round-mode-data). |
+| `maps_callouts.mjs` | Writes `app/mods/aim-maps/<map>.minimap.json` for every map: the game's callout list with Riot's in-game English names ("A Main", "B Boat House") in place of the Chinese ones, from `tools/maps-callouts-en.json`, node only. Only the names change; every spot and every other byte stays as in `site/aim-maps/` (juliett, which only exists in `app/mods/aim-maps/`, is renamed in place). `--check` fails when a file is out of date. See [Callout names](#callout-names). |
+| `maps_callout_patch.py` | Keeps the space in English callout names ("A Main", not "AMain") in the place line of the workshop cards and the workshop detail: the nearest-callout lookup `$u` in the mods `Dc2Dm9E6.js` (both copies) now removes only whitespace next to a non-ASCII character, so Chinese names give the same text as before. Details in the script's docstring. |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
@@ -55,6 +58,7 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 11. `peekmove_patch.py` (needs `spotvary_patch.py`; refuses to run twice: it looks for `aimPeekUpdate`)
 12. `round_patch.py` (after `peekmove_patch.py`; refuses to run twice: it looks for `/aim-rounds/round-core.mjs`). It keeps each copy's own line ends.
 13. `round_bots_patch.py` (after `round_patch.py`, it refuses to run without it; refuses to run twice: it looks for `/aim-rounds/round-bots.mjs` in `BiMsX6Xn.js`/`CnrSARj_.js` and `a.kind==="roundBot"` in `D_iGclxB.js`). It keeps each copy's own line ends. Normal drills are unchanged: `scripts/test-round-bots-parity.mjs` rebuilds the un-patched files from the script's own pairs and compares drills tick for tick.
+14. `maps_callout_patch.py` (after `round_patch.py`; only touches `Dc2Dm9E6.js`; refuses to run twice: it looks for its new regex `/\s+(?=[^\x00-\x7f])|(?<=[^\x00-\x7f])\s+/g`).
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
@@ -223,3 +227,22 @@ points, zone coverage and the attacker data (staging never on the defender side,
 entry, plant spots defusable all around, post-plant spots re-checked with real sight rays when the
 terrain cache exists).
 
+
+## Callout names
+
+The game's map files name their callouts in Chinese (`site/aim-maps/<map>.minimap.json`, e.g.
+"A区 大厅"). `tools/maps-callouts-en.json` lists, per map and in the same order, each Chinese name
+and Riot's in-game English name for it (valorant-api.com, `zh-CN` vs `en-US` map data: same
+callouts, same order, on all 9 maps). `maps_callouts.mjs` writes the English copies into
+`app/mods/aim-maps/`, which the app serves in place of `site/` at the same URL, so the big map
+(M), the workshop cards and the pre-aim result all show "A Lobby", "B Boat House", "Mid Tiles".
+It stops if a map file's names don't match the data (name, count or order), and juliett's spots
+must match the x / z kept in the data file. After changing the data:
+
+```bash
+node tools/maps_callouts.mjs          # write app/mods/aim-maps/<map>.minimap.json
+node tools/maps_callouts.mjs --check  # what scripts/test-maps-callouts.mjs runs (npm run test:maps)
+```
+
+The English names replace the Chinese ones for every UI language, so the Vietnamese UI shows
+the English callouts too.
