@@ -91,6 +91,8 @@ const FRAME_METER_JS = fs.readFileSync(path.join(__dirname, "frame-meter.js"), "
 const STARTUP_SCREEN_JS = fs.readFileSync(path.join(__dirname, "startup-screen.js"), "utf-8");
 // Shared page watcher for the UI scripts below; sleeps while the mouse is locked in a round.
 const PAGE_WATCH_JS = fs.readFileSync(path.join(__dirname, "page-watch.js"), "utf-8");
+// Result screen keys (R = play again, Esc = back) and Q in the Tab menu.
+const UX_KEYS_JS = fs.readFileSync(path.join(__dirname, "ux-keys.js"), "utf-8");
 const SMOOTH_SCROLL_JS = fs.readFileSync(path.join(__dirname, "smooth-scroll.js"), "utf-8");
 const VIDEO_SETTINGS_JS = fs.readFileSync(path.join(__dirname, "video-settings.js"), "utf-8");
 // Map lighting setting (Enhanced / Original), read by the patched BiMsX6Xn.js. Optional:
@@ -126,6 +128,7 @@ const SHOT_GRAPH_JS = fs.readFileSync(path.join(__dirname, "shooting-error.js"),
 // listener for each UI script while the page is still loading.
 const UI_SCRIPTS = [
   ["PAGE WATCH", PAGE_WATCH_JS],
+  ["UX KEYS", UX_KEYS_JS],
   ["SMOOTH SCROLL", SMOOTH_SCROLL_JS],
   ["SNIPER SCOPES", SNIPER_SCOPES_JS],
   ["FAN AUDIO", FAN_AUDIO_JS],
