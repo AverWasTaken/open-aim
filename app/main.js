@@ -84,7 +84,7 @@ const UI_CSS = fs.readFileSync(path.join(__dirname, "ui.css"), "utf-8");
 const THEME_CSS = fs.readFileSync(path.join(__dirname, "theme-esports.css"), "utf-8");
 // Offline only: hides sign-in, leaderboards, cloud sync and the site's play counts.
 const OFFLINE_CSS = fs.readFileSync(path.join(__dirname, "offline.css"), "utf-8");
-// Moves the lobby sidebar (Quick start, Favorites, Creator, Manual) into the top bar.
+// Moves the lobby sidebar (Quick start, Favorites, Studio, Manual) into the top bar.
 const LOBBY_BAR_JS = fs.readFileSync(path.join(__dirname, "lobby-bar.js"), "utf-8");
 const FRAME_METER_JS = fs.readFileSync(path.join(__dirname, "frame-meter.js"), "utf-8");
 // Startup screen over the half-loaded lobby until its training list is in.
