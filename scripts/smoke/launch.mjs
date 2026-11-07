@@ -161,8 +161,17 @@ export async function startLauncher({ cfg, port, cdp, outDir, log = console.log,
       if (!ok) await sleep(2000);
     }
     if (!ok) {
-      await h.stop(log);
-      throw new Error(`CDP ${cdp} did not answer within ${Math.round(cdpWaitMs / 1000)} s after the launcher started pid ${h.pid}`);
+      const wasPreempted = preempted(h);
+      const st = await h.stop(log);
+      if (wasPreempted || st.preempted) {
+        const e = new Error(`preempted: the copy (pid ${h.pid}) was stopped by someone else while it was starting`);
+        e.exitCode = EXIT.busy;
+        e.preempted = true;
+        throw e;
+      }
+      throw new Error(pidAlive(h.pid) || st.stopped
+        ? `CDP ${cdp} did not answer within ${Math.round(cdpWaitMs / 1000)} s after the launcher started pid ${h.pid}`
+        : `the copy (pid ${h.pid}) exited before CDP ${cdp} answered (see electron.log / main.log)`);
     }
   }
   return h;

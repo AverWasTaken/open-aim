@@ -236,6 +236,7 @@ async function main() {
   log(cfg ? `launcher mode: ${cfg.starter}` : `direct mode (untested), profile ${profile}`);
   let fatal = null;
   let fatalCode = null;
+  let startPreempted = false;
   let session = null;
   let leftovers = null;
   try {
@@ -314,6 +315,7 @@ async function main() {
   } catch (e) {
     fatal = String(e.message || e);
     fatalCode = e.exitCode ?? null;
+    if (e.preempted) startPreempted = true;
     log(`FATAL: ${fatal}`);
   }
   currentStep = "stopping";
@@ -321,7 +323,7 @@ async function main() {
   const st = await cleanup("run finished");
   if (finishing) return null; // bail() owns the exit now
   finishing = true;
-  const pre = wasPreempted || !!st?.preempted;
+  const pre = startPreempted || wasPreempted || !!st?.preempted;
   if (pre) log("the copy was stopped by someone else during the run (preempted)");
   if (app?.mode === "launcher" && st?.stopped) {
     await sleep(1000);
