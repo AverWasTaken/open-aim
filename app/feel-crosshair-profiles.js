@@ -177,7 +177,7 @@
         const match = bad || kept || (code ? findByCode(s, code) : null);
         lastCode = code;
         const opts = [];
-        if (!match) { const o = document.createElement("option"); o.value = ""; o.text = s.list.length ? "— (edited)" : "— (no profiles yet)"; opts.push(o); }
+        if (!match) { const o = document.createElement("option"); o.value = ""; o.text = s.list.length ? "(edited)" : "(no profiles yet)"; opts.push(o); }
         for (const p of s.list) { const o = document.createElement("option"); o.value = p.id; o.text = p === bad ? p.name + " (not applied)" : p.name; opts.push(o); }
         select.replaceChildren(...opts);
         select.value = match ? match.id : "";
@@ -214,11 +214,13 @@
         const p = state().list.find(x => x.id === id);
         if (!p || busy) { render(); return; }
         busy = true;
-        let applied = false;
+        let applied = false, area = null, before = null;
         try {
           const message = panel.querySelector('[data-role="crosshair-code-message"]');
-          const target = importButton(panel), area = panel.querySelector("textarea");
+          const target = importButton(panel);
+          area = panel.querySelector("textarea");
           if (!target || !area) throw new Error();
+          before = area.value;
           area.value = p.code; area.dispatchEvent(new Event("input", { bubbles: true }));
           target.click();
           await tick();
@@ -234,7 +236,11 @@
         finally {
           // Only a profile that really applied counts as chosen; a failed one keeps the old choice.
           if (applied) { chosen = { id: p.id, code: current() }; failed = null; }
-          else failed = { id: p.id, code: current() };
+          else {
+            failed = { id: p.id, code: current() };
+            // Put the rejected code out of the code box, so it can't be saved as the current crosshair.
+            if (area && before !== null) { area.value = before; area.dispatchEvent(new Event("input", { bubbles: true })); }
+          }
           busy = false; render();
           if (applied) say("Applied " + p.name);
           else say("Could not apply " + p.name + ". Your crosshair did not change.", true);
