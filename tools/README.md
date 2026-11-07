@@ -21,6 +21,8 @@ Run them from the repository root with Python 3.
 | `spot_alts.mjs` | Writes `app/mods/aim-ranks/spot-alts.json`: up to 5 checked alternative positions per static spot of every shipped pre-aim drill, and a sideways movement lane per position (ground, ledges, walls, sight lines and spacing tested with the game's own collision and sight test). `--check` re-tests the stored file. Runs against a test copy of the app (rerun steps below). |
 | `peekmove_patch.py` | Pre-aim bots react and move: with Human-like bots and an explicit enemy rank, the static shooting bots of the shipped pre-aim drills walk ADAD along their checked lane once they see you, by rank (`aimPeekRanks` next to `aimBotRanks`; saved in the replay meta as `peekMove` and `spotLane`). Edits the mods `BiMsX6Xn.js`, `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details and the rank table in the script's docstring. |
 | `round_patch.py` | Round mode: the round controller in the sim (barrier phase, spike plant / defuse, outcomes, save/restore), the play page side (held keys, no replay, round end, result text, barrier and spike visuals) and `window.__aimLaunchScene` for the lobby panel. Edits the mods `CnrSARj_.js`, `OkAdunfX.js`, `ChJ6FlD4.js` and `Hwnlm6zD.js` (both copies). Only acts on scenes with `rules.round`. Details in the script's docstring. |
+| `graphics_fx_patch.py` | Combat feedback effects (render only): wall impact sparks + dust, bot hit sparks, kill burst, optional enemy muzzle flash. Hooks the play page `Jy` in the mods `OkAdunfX.js` (both copies) into `app/mods/aim-fx/fx.mjs` (loaded with a dynamic import; until it loads every call is a no-op). See [Graphics effects](#graphics-effects). |
+| `graphics_holes_patch.py` | Bullet holes from a fixed pool of 64 meshes (same look, no new mesh/material per hole). Edits `l1` in the mods `OkAdunfX.js` (both copies). Run after `graphics_fx_patch.py`. |
 | `round_author.mjs` | Writes `app/mods/aim-rounds/<map>.json` (Round mode map data: spawns, barriers, plant zones, defender setups) from the map files in `site/aim-maps/`, node only. `--plot <file.svg>` draws it (also a `.png`), `--check` fails when the stored file is out of date. See [Round mode data](#round-mode-data). |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
@@ -50,6 +52,8 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 10. `spotvary_patch.py` (needs `spotbias_patch.py`; refuses to run twice: it looks for `aimSpotApply`)
 11. `peekmove_patch.py` (needs `spotvary_patch.py`; refuses to run twice: it looks for `aimPeekUpdate`)
 12. `round_patch.py` (after `peekmove_patch.py`; refuses to run twice: it looks for `/aim-rounds/round-core.mjs`). It keeps each copy's own line ends.
+13. `graphics_fx_patch.py` (after `round_patch.py`; refuses to run twice: it looks for `__aimFxBoot`)
+14. `graphics_holes_patch.py` (needs `graphics_fx_patch.py`; refuses to run twice: it looks for `__aimHoleFree`)
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
@@ -137,3 +141,32 @@ heights), and a flood fill over the navmesh checks that each team's barriers clo
 callout. A new map needs its own entry in `MAPS` at the top of the script (callout names, label and
 mark pixels from a reference picture, setup spots) and then the same two commands.
 
+## Graphics effects
+
+`graphics_fx_patch.py` and `graphics_holes_patch.py` (run in that order, after `round_patch.py`)
+add render-only combat feedback to the play page (`OkAdunfX.js`, both copies). No sim, replay or
+RNG change: the effects read the page's events and snapshots, nothing is written back.
+
+- `app/mods/aim-fx/fx.mjs` draws everything from 4 fixed GPU pools (one mesh and one draw call
+  each, hidden while idle; spark streaks and kill rings are shaped in the shaders, no textures):
+  - wall impacts (every `Us` call, bullet holes on or off, penetration holes too): 7 short
+    orange-white streaks along the ricochet direction and a faint grey dust puff;
+  - bot hits (not grid dots): 4 small white-hot streaks toward the shooter, 6 for the head;
+  - kills (not grid dots; Round spike-blast kills too): a white ring + flash at chest height,
+    about 250 ms, gold for a headshot kill;
+  - enemy muzzle flash (off by default).
+- Settings: localStorage `aim-fx-settings-v1`, e.g.
+  `{"impactSparks":true,"killBurst":true,"enemyMuzzle":false,"hitSpark":true}` (missing keys use
+  these defaults). Read when the drill starts or restarts. There's no menu for it yet.
+- `window.__aimFxStats` = `{loaded, spawned:{wall,hit,kill,enemy}, active, frameMs}` for tests and
+  the bench; `__aimFxStats.api` is the effects object (debug: call `api.kill({position,headshot})`
+  etc. by hand).
+- The page's wall-impact normal is only computed when it costs nothing extra: when bullet holes
+  are on (as before) or the projectile collision is already built. Otherwise the sparks use the
+  reversed shot direction, so the lazy collision build never starts mid-drill for them.
+- Tests: `cd app && npm run test:graphics-fx` (hooks present once in both copies, scripts refuse a
+  second run, fx.mjs imports cold in node, pools never allocate after start-up, the real pooled
+  bullet hole code capped at 64 and reused).
+
+To redo them: `git checkout` both mods `OkAdunfX.js` copies at the commit before the graphics
+patches, then run both scripts again.
