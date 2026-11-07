@@ -74,6 +74,8 @@ html[data-aim-local]:not(#es) body .aim-loading-title { flex: 1 !important; min-
 html[data-aim-local]:not(#es) body .aim-loading-title small { color: var(--es-red) !important; font: 800 11px var(--es-head) !important; letter-spacing: .14em !important; text-transform: uppercase !important; }
 html[data-aim-local]:not(#es) body .aim-loading-name { font: italic 900 22px/1.1 var(--es-head) !important; text-transform: uppercase !important; letter-spacing: .01em !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
 html[data-aim-local]:not(#es) body .aim-loading-name:empty::before { content: "Getting ready" !important; }
+/* ui-polish.css labels the difficulty chips in Vietnamese ("Độ khó"); CSS text never reaches the translator. */
+html[data-aim-local]:not(#es) body .pw-dchips::before { content: "Difficulty" !important; }
 html[data-aim-local]:not(#es) body .aim-loading-time { flex: none !important; color: var(--es-muted) !important; font: 700 14px var(--es-head) !important; font-variant-numeric: tabular-nums !important; }
 html[data-aim-local]:not(#es) body .aim-loading-integrated { margin-top: 12px !important; }
 html[data-aim-local]:not(#es) body .aim-loading-integrated:not(.is-failed) :is(.aim-loading-stage, .aim-loading-track) { display: none !important; }
