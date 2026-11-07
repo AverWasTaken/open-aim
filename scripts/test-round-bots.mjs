@@ -790,7 +790,7 @@ test('B3 retake latch: staged in place on site, the rest to staging slots (2 s p
 });
 
 test('B3 defuse while seen: Default (no enemyRank) and iron..gold keep defusing; platinum and up stop to fight', () => {
-  for (const r of [undefined, null, '', 'iron', 'bronze', 'silver', 'gold']) assert.equal(I.keepsDefusingSeen(r), true, `${r}`);
+  for (const r of [undefined, null, '', 'unknown-rank', 'iron', 'bronze', 'silver', 'gold']) assert.equal(I.keepsDefusingSeen(r), true, `${r}`);
   for (const r of ['platinum', 'diamond', 'ascendant', 'immortal', 'radiant']) assert.equal(I.keepsDefusingSeen(r), false, r);
 });
 

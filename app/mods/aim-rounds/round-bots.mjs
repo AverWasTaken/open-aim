@@ -207,8 +207,9 @@ const DEFUSE_XZ = 1.5, DEFUSE_DY = 1.9, DEFUSE_FULL_M = 0.005, DEFUSE_FULL_DY = 
 const FACE_SPIKE_M = 15;
 const PLANT_LRU = 8;
 const LOW_RANKS = new Set(['iron', 'bronze', 'silver', 'gold']); // keep defusing while seen
-// Default (no ctx.enemyRank) is a mid/low rank here (reaction 0.35-0.5 s): it keeps defusing like iron..gold.
-const keepsDefusingSeen = (rank) => typeof rank !== 'string' || rank === '' || LOW_RANKS.has(rank);
+// Default (no ctx.enemyRank; also '' / an unknown id, as for the rotation delay) is a mid/low rank
+// here (reaction 0.35-0.5 s): it keeps defusing like iron..gold.
+const keepsDefusingSeen = (rank) => typeof rank !== 'string' || !Object.prototype.hasOwnProperty.call(ROT_DELAY, rank) || LOW_RANKS.has(rank);
 const ROT_DELAY = { iron: -1, bronze: -1, silver: 6, gold: 6, platinum: 4, diamond: 4, ascendant: 3, immortal: 3, radiant: 2 };
 const ROT_DEFAULT = 5;
 const ROUND_DEF = { spikeSec: 45, defuseSec: 7, defuseCheckpointSec: 3.5 }; // = round-core ROUND_DEFAULTS
