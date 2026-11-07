@@ -268,7 +268,10 @@ function setup(settings = {}, mixSettings = {}, weaponSounds = []) {
   const mix = core.createFeelAudio({ storage: memoryStorage({ 'al-audio-mix-v1': JSON.stringify(mixSettings) }), voices: spy.voices });
   return { engine, mix, calls: spy.calls };
 }
-// How the game script uses cue() (tools/feel_audio_patch.py): a stand-in for the shot branch.
+// How the game script uses cue() (tools/feel_audio_patch.py, OkAdunfX shot branch):
+//   kill:  __aimHS && cue(re,"headshot",true); re.playKill(...) || cue(re,"kill",__aimHS) || re.playHit(true)
+//   hit:   (__aimHS && cue(re,"headshot",true)) || re.playHit()
+//   dot-only kill: re.playKill(...) only.
 function shotBranch(mix, engine, { kill, head, skinPlayed = false, dotOnly = false }) {
   const played = [];
   const playHit = (isKill = false) => {
@@ -279,8 +282,7 @@ function shotBranch(mix, engine, { kill, head, skinPlayed = false, dotOnly = fal
   const playKill = () => { if (skinPlayed) played.push('skin'); return skinPlayed; };
   if (kill) {
     if (dotOnly) playKill();
-    else if (playKill()) { if (head) mix.cue(engine, 'headshot', true); }
-    else if (!mix.cue(engine, 'kill', head)) playHit(true);
+    else { if (head) mix.cue(engine, 'headshot', true); playKill() || mix.cue(engine, 'kill', head) || playHit(true); }
   } else if (!(head && mix.cue(engine, 'headshot', true))) playHit();
   return played;
 }

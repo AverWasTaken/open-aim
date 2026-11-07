@@ -293,12 +293,11 @@
               voice.dink(out.context, busOf(out, 'hits'), out.context.currentTime); stats.headshots++;
               return true;
             }
-            if (kind !== 'kill') return false;
-            let out = null;
-            if (head && s.hitSound !== false) { out = engine.ensure && engine.ensure(); if (out) { voice.dink(out.context, busOf(out, 'hits'), out.context.currentTime); stats.headshots++; } }
-            if (!mix.killConfirm) return false;
+            // Kill with no skin sample. The game script asks for the headshot dink on its own
+            // (cue "headshot" first), so this plays the kill cue only.
+            if (kind !== 'kill' || !mix.killConfirm) return false;
             if (!killDingAllowed(s, engine)) return true;
-            out = out || (engine.ensure && engine.ensure());
+            const out = engine.ensure && engine.ensure();
             if (!out) return false;
             voice.kill(out.context, busOf(out, 'hits'), out.context.currentTime); stats.kills++;
             return true;
