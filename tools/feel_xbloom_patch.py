@@ -1,14 +1,15 @@
 """In-game crosshair shows movement and firing error (spread), like VALORANT.
 
 Edits the mods copies in place (both paths of each file, kept byte-identical), like
-tools/round_patch.py. Run it after round_patch.py (order in tools/README.md):
+tools/round_patch.py. Patch order 14: run it after feel_audio_patch.py (order in tools/README.md):
 
     python -I tools/feel_xbloom_patch.py
     python -I tools/feel_xbloom_patch.py --mods <dir>   # testing: patch another copy of app/mods
 
 Refuses to run twice (marker aimErrDeg in CnrSARj_.js, __aimXbloomStep in OkAdunfX.js). Every
 match is checked in every file before anything is written. It doesn't touch the audio regions
-patched by tools/feel_audio_patch.py, so the two apply in either order.
+patched by tools/feel_audio_patch.py: the two apply in either order, but the bytes differ; run
+them in the listed order.
 
 1. Sim (CnrSARj_.js, nf): a read-only method aimErrDeg() on the object the sim returns:
    {fire, fireRaw, move} in degrees.

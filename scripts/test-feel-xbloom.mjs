@@ -175,7 +175,7 @@ test('patch: markers once in both copies, copies identical, main.js strings inta
   assert.equal(count(oka, 'xe.kind==="shot"&&(Kt.push(xe.tick*ve)'), 1);
 });
 
-test('patch: a second run refuses and writes nothing', () => {
+test('patch: a second run refuses and writes nothing', (t) => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'xbloom-'));
   try {
     for (const d of DIRS) {
@@ -184,7 +184,7 @@ test('patch: a second run refuses and writes nothing', () => {
     }
     const before = DIRS.map((d) => fs.readFileSync(path.join(tmp, d, 'OkAdunfX.js')));
     const r = spawnSync('python', ['-I', path.join(root, 'tools', 'feel_xbloom_patch.py'), '--mods', tmp], { encoding: 'utf-8' });
-    if (r.error) return; // no python on this machine: nothing to check
+    if (r.error) return t.skip(`python not found (${r.error.code}): refusal not checked`);
     assert.notEqual(r.status, 0);
     assert.match(r.stderr + r.stdout, /already patched/);
     DIRS.forEach((d, i) => assert.ok(fs.readFileSync(path.join(tmp, d, 'OkAdunfX.js')).equals(before[i])));
