@@ -333,6 +333,8 @@ function pageChipAfter(code) {
 
 function pageRestorePicks(picks) {
   try { picks == null ? localStorage.removeItem("aim-rank-picks") : localStorage.setItem("aim-rank-picks", picks); } catch {}
+  // Same-window writes fire no storage event: send one so rank-picker.js redraws the chips.
+  dispatchEvent(new StorageEvent("storage", { key: "aim-rank-picks" }));
   return true;
 }
 
@@ -401,6 +403,7 @@ async function checkChip(send, fails, info) {
   if (c.error) { fails.push(`rank chip: ${c.error}`); return; }
   await evaluate(send, pageRafs);
   const c2 = await evaluate(send, pageChipPrep); // after the drill list scrolled
+  if (c2.error) { fails.push(`rank chip: ${c2.error}`); return; }
   info.chip = { tag: c2.tag, label: c2.label, key: c2.key };
   if (c2.tag !== "BUTTON" || c2.type !== "button") fails.push(`rank chip is a <${c2.tag.toLowerCase()} type="${c2.type}">, not a <button type="button">`);
   if (!c2.label.trim()) fails.push("rank chip has no aria-label");

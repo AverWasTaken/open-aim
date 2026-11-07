@@ -352,7 +352,9 @@
       return true;
     };
     if (variants) return show();
-    load()?.then(show);
+    // The list is slow to arrive: open only if it came within 3 s (like a waiting play).
+    const at = Date.now();
+    load()?.then(() => { if (Date.now() - at <= 3000) show(); });
     return false;
   };
 
