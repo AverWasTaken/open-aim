@@ -316,7 +316,7 @@
           if (st.emitters.size && actors) {
             for (const a of actors) {
               const e = st.emitters.get(a.id);
-              if (!e || !a.position) continue;
+              if (!e || !a.position || !a.alive) continue;
               e.seen = now;
               const off = a.offset, x = a.position.x + (off ? off.x : 0), y = a.position.y + (off ? off.y : 0) + 1.45, z = a.position.z + (off ? off.z : 0);
               moveEmitter(e, x, y, z, ctx, true);
@@ -351,7 +351,7 @@
         async soundCheck(opts = {}) {
           if (checkRunning) return { ok: false, reason: 'busy' };
           let engine = api.liveEngine(), temp = null;
-          const prev = win.__aimAudio, restore = () => { if (temp) win.__aimAudio = prev; };
+          const prev = win.__aimAudio, restore = () => { if (temp && win.__aimAudio === temp) win.__aimAudio = prev; };
           if (!engine) {
             const Engine = win.__aimAudioEngine;
             if (typeof Engine !== 'function') return { ok: false, reason: 'no-engine' };
@@ -432,6 +432,7 @@
   const SLIDERS = [['weapon', 'Weapon', 'Your shots, reload and knife.'], ['enemy', 'Enemy shots', 'Bot gunfire and flashes.'], ['steps', 'Footsteps', 'Yours and the bots’.'], ['hits', 'Hits & kills', 'Hit, headshot, kill and target sounds.'], ['ui', 'Round & UI', 'Round beeps and the sound check.']];
   const SWITCHES = [['headshot', 'Headshot sound', 'A sharper ding when you hit the head.'], ['killConfirm', 'Kill sound', 'Two short notes when a bot dies.'], ['spatial', '3D enemy sound', 'Hear where bot shots come from.'], ['botSteps', 'Enemy footsteps', 'Hear running bots.']];
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  let unsubscribeMounted = null;
   function add() {
     const anchor = document.querySelector('[data-setting="volume"]');
     if (!anchor || !anchor.parentElement || anchor.parentElement.querySelector('.aim-audio-mix')) return;
@@ -475,7 +476,8 @@
       if (!busy && !can) status.textContent = 'Start a drill first';
       else if (!busy && status.textContent === 'Start a drill first') status.textContent = '';
     }
-    const unsubscribe = mixer.subscribe(render);
+    if (unsubscribeMounted) unsubscribeMounted();
+    const unsubscribe = unsubscribeMounted = mixer.subscribe(render);
     anchor.after(block);
     render();
   }

@@ -370,6 +370,7 @@ test('sound check: needs an engine; runs with a stand-in engine in the lobby', a
   assert.deepEqual(await none.soundCheck(), { ok: false, reason: 'no-engine' });
   const played = [];
   let disposed = 0;
+  const REAL = { context: null, real: true };
   const win = { __aimAudio: undefined };
   class Engine {
     constructor(settings) { this.settings = settings; this.context = null; this.weaponSounds = null; }
@@ -377,7 +378,8 @@ test('sound check: needs an engine; runs with a stand-in engine in the lobby', a
     playFire() { played.push('fire'); }
     playEnemyFire(d, w, sp) { played.push('enemy'); if (sp) win.__aimAudioMix.enemyDest(this.ensure(), sp); }
     playFootstep() { played.push('step'); }
-    playHit() { played.push('hit'); }
+    // The drill's real engine appears mid-check (a bot shot): the check must not undo it.
+    playHit() { played.push('hit'); win.__aimAudio = REAL; }
     dispose() { disposed++; this.context = null; this.bus = null; }
   }
   win.__aimAudioEngine = Engine;
@@ -390,6 +392,6 @@ test('sound check: needs an engine; runs with a stand-in engine in the lobby', a
   assert.deepEqual(played, ['fire', 'enemy', 'enemy', 'step', 'step', 'step', 'step', 'step', 'step', 'hit']);
   assert.deepEqual(names(spy.calls), ['dink', 'kill']);
   assert.equal(disposed, 1);
-  assert.equal(win.__aimAudio, undefined);
+  assert.equal(win.__aimAudio, REAL);
   assert.equal(mix._stats.spatialShots, 2);
 });
