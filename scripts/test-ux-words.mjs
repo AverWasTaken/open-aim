@@ -24,6 +24,45 @@ const GOLDEN = [
   ['Toàn cầu', 'Global'],
   ['Đóng', 'Close'],
   ['Đang gửi…', 'Sending…'],
+  // lobby header (assembled around the map count)
+  ['无畏契约创意工坊地图 · 9 张图的真实点位，练预瞄、架枪、背闪', 'VALORANT maps · 9 maps with real spots to practice pre-aim, holding angles and dodging flashes'],
+  // search
+  [' 没有对得上「zzzz」的项目。 ', ' No drills match “zzzz”. '],
+  ['清空搜索', 'Clear search'],
+  // Records drawer
+  ['这台设备上的记录', 'Records on this PC'],
+  ['这台设备上的最好', 'Best on this PC'],
+  ['还没打过', 'Not played yet'],
+  ['打完一局，这里就会记下来。', 'Finish a run and it shows up here.'],
+  ['分数高的在前 · 同分比用时', 'Highest score first · ties go to the faster time'],
+  // replay viewer
+  ['精彩时刻', 'Highlights'],
+  ['失误复盘', 'Misses'],
+  ['本局数据', 'Run stats'],
+  ['准星轨迹', 'Crosshair path'],
+  ['最优路径', 'Best path'],
+  ['连中 3 在这里断掉', 'Streak 3 ends here'],
+  ['后半程慢了 12%——体力或专注在掉', 'Second half slower by 12%: tiring or losing focus'],
+  // settings (Audio hit sound, Control help, header)
+  ['打中目标时的声音，小球项目和瓦工坊通用。当前：', 'The sound when you hit a target, in Target drills and VALORANT Training. Current: '],
+  ['都能绑定，按', ' can be bound. Press'],
+  ['完成', 'Done'],
+  ['改动立即保存，本局马上生效', 'Changes save right away and apply to this run.'],
+  // Tab menu, buy menu, result
+  ['继续', 'Resume'],
+  ['准星设置', 'Crosshair settings'],
+  [' 分 · 6 命中 ', ' pts · 6 Hits '],
+  ['雄鹿', 'Bucky'],
+  ['战神', 'Ares'],
+  ['冥驹', 'Operator'],
+  ['9.5 发/秒', '9.5 rounds/s'],
+  ['爆头率', 'Headshot %'],
+  ['看本局回放', 'Watch replay'],
+  ['瓦工坊 · 训练完成', 'Drill complete'],
+  ['返回小球项目', 'Back to Target drills'],
+  // base terms
+  ['小球项目', 'Target drills'],
+  ['瓦创意工坊', 'Studio'],
 ];
 
 test('wrapper merges english-fixes then translations, no VN pre-pass', () => {
