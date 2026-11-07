@@ -21,6 +21,7 @@ Run them from the repository root with Python 3.
 | `spot_alts.mjs` | Writes `app/mods/aim-ranks/spot-alts.json`: up to 5 checked alternative positions per static spot of every shipped pre-aim drill, and a sideways movement lane per position (ground, ledges, walls, sight lines and spacing tested with the game's own collision and sight test). `--check` re-tests the stored file. Runs against a test copy of the app (rerun steps below). |
 | `peekmove_patch.py` | Pre-aim bots react and move: with Human-like bots and an explicit enemy rank, the static shooting bots of the shipped pre-aim drills walk ADAD along their checked lane once they see you, by rank (`aimPeekRanks` next to `aimBotRanks`; saved in the replay meta as `peekMove` and `spotLane`). Edits the mods `BiMsX6Xn.js`, `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details and the rank table in the script's docstring. |
 | `round_patch.py` | Round mode: the round controller in the sim (barrier phase, spike plant / defuse, outcomes, save/restore), the play page side (held keys, no replay, round end, result text, barrier and spike visuals) and `window.__aimLaunchScene` for the lobby panel. Edits the mods `CnrSARj_.js`, `OkAdunfX.js`, `ChJ6FlD4.js` and `Hwnlm6zD.js` (both copies). Only acts on scenes with `rules.round`. Details in the script's docstring. |
+| `graphics_botfx_patch.py` | Bot hit flash and death animation (render side only): a white hit pulse on bots (stronger and longer on a headshot) and a short "drop" when a bot dies (humanoids sink, squash and glow white-hot, gone after 220 ms; spheres pop, gone after 120 ms). Edits the actor renderer `Uf` in the mods `CnrSARj_.js` (both copies), so the game and the replay player both get it. No sim change. See [Graphics](#graphics). |
 | `round_author.mjs` | Writes `app/mods/aim-rounds/<map>.json` (Round mode map data: spawns, barriers, plant zones, defender setups) from the map files in `site/aim-maps/`, node only. `--plot <file.svg>` draws it (also a `.png`), `--check` fails when the stored file is out of date. See [Round mode data](#round-mode-data). |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
@@ -50,6 +51,7 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 10. `spotvary_patch.py` (needs `spotbias_patch.py`; refuses to run twice: it looks for `aimSpotApply`)
 11. `peekmove_patch.py` (needs `spotvary_patch.py`; refuses to run twice: it looks for `aimPeekUpdate`)
 12. `round_patch.py` (after `peekmove_patch.py`; refuses to run twice: it looks for `/aim-rounds/round-core.mjs`). It keeps each copy's own line ends.
+13. `graphics_botfx_patch.py` (after `round_patch.py`; refuses to run twice: it looks for `/* graphics-botfx */`). It keeps each copy's own line ends.
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
@@ -64,6 +66,28 @@ either order. `app/main.js` also patches `OkAdunfX.js` while serving it (`SHOT_L
 
 To start the bot patch over: `git checkout` the three mods files, delete both mods
 `C_VPDXvn.js` copies, then run `python -I tools/bot_patch.py`.
+
+## Graphics
+
+Combat visuals, render side only (nothing the sim or a replay depends on changes).
+
+`graphics_botfx_patch.py` edits only the actor renderer `Uf` in `CnrSARj_.js` (its per-frame
+`apply`), right before `function Uf(` and inside its two actor loops:
+
+- Hit flash: on a shot event that hits a bot, its material's `emissive` (and `emissiveIntensity`
+  for the older skins that use the albedo as emissive map) goes towards white and eases out over
+  14 ticks; a headshot (`hitPart === "head"`) is brighter and lasts 20 ticks. Humanoids no longer
+  get the inverted-colour tint; spheres keep their hit colour with the pulse on top. Only uniform
+  values change (no shader recompile), and only while a pulse runs.
+- Death: alive -> dead while still visible (kills, Round mode spike blast; not time-outs) keeps the
+  bot drawn for 220 ms (humanoid: pose frozen, sinks 0.32 m, squashes, tips back, white-hot, then
+  shrinks away) or 120 ms (sphere: 1 -> 1.25 -> 0). Wall-clock timed, so it finishes even when the
+  drill ends on that kill. A respawn cancels it; `clear()` (retry, replay seek) drops it.
+- `aimBfxSpheres` in the injected code turns the sphere part off (spheres are the "grid dot"
+  targets of `__aimIsGridTargetActor`).
+
+Test: `npm run test:graphics-botfx` (in `app/`) checks the patch is in both copies once and only
+inside `Uf`, and drives the real patched renderer headless with real sim snapshots.
 
 ## Spot scores (rank-biased spots)
 
