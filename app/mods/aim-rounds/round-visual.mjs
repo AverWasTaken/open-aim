@@ -2,6 +2,9 @@
 // the spike prop (plain three.js shapes, red light that blinks faster in the last 10 s; a flash
 // when it goes off). Created by the play page (tools/round_patch.py) with the game's own three.js
 // classes passed in, updated every frame from snapshot().round, disposed when the run ends.
+// Also owns globalThis.__aimRoundMarks, the minimap markers (round-minimap.mjs).
+import { createRoundMarks, updateRoundMarks } from './round-minimap.mjs';
+
 export function createRoundVisual(THREE, scene, cfg) {
   const { Mesh, Group, PlaneGeometry, SphereGeometry, BoxGeometry, CylinderGeometry, MeshBasicMaterial, DoubleSide } = THREE;
   const owned = [];
@@ -71,9 +74,14 @@ export function createRoundVisual(THREE, scene, cfg) {
   scene.add(root);
   root.updateMatrixWorld(true);
 
+  // Minimap markers (site letters now, spike per frame).
+  const marks = createRoundMarks(cfg);
+  globalThis.__aimRoundMarks = marks;
+
   return {
     update(view, now) {
       if (!view) return;
+      updateRoundMarks(marks, view);
       walls.visible = view.phase === 'barrier';
       const s = view.spike ?? {};
       const at = s.planted ?? s.dropped ?? null;
@@ -99,6 +107,7 @@ export function createRoundVisual(THREE, scene, cfg) {
       root.updateMatrixWorld(true);
     },
     dispose() {
+      if (globalThis.__aimRoundMarks === marks) globalThis.__aimRoundMarks = null;
       scene.remove(root);
       for (const o of owned) try { o.dispose(); } catch {}
     },
