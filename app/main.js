@@ -10,6 +10,7 @@ const studio = require("./studio-store");
 const guard = require("./local-guard");
 const variants = require("./drill-variants");
 const rounds = require("./round-scene");
+const practice = require("./practice-scene");
 
 // Testing only: AIM_PROFILE=<folder> keeps all player data and backups in that folder,
 // so test runs never touch the real save.
@@ -109,6 +110,8 @@ const RANK_PICKER_JS = fs.readFileSync(path.join(__dirname, "rank-picker.js"), "
 // Round mode (round-scene.js builds the scenes): lobby panel and in-game HUD.
 const ROUND_PANEL_JS = fs.readFileSync(path.join(__dirname, "round-panel.js"), "utf-8");
 const ROUND_HUD_JS = fs.readFileSync(path.join(__dirname, "round-hud.js"), "utf-8");
+// Practice mode (practice-scene.js builds the scenes): lobby panel.
+const PRACTICE_PANEL_JS = fs.readFileSync(path.join(__dirname, "practice-panel.js"), "utf-8");
 const VALORANT_IMPORT_JS = ["valorant-import.js", "valorant-import-ui.js"]
   .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
 const VALORANT_IMPORT_CSS = fs.readFileSync(path.join(__dirname, "valorant-import.css"), "utf-8");
@@ -140,6 +143,7 @@ const UI_SCRIPTS = [
   ["RANK PICKER", RANK_PICKER_JS],
   ["ROUND PANEL", ROUND_PANEL_JS],
   ["ROUND HUD", ROUND_HUD_JS],
+  ["PRACTICE PANEL", PRACTICE_PANEL_JS],
   ["LOBBY BAR", LOBBY_BAR_JS],
   ["STUDIO LAUNCH", STUDIO_LAUNCH_JS],
   ["SHOT GRAPH", SHOT_GRAPH_JS],
@@ -427,8 +431,9 @@ function handleRequest(req, res) {
   if (requested.startsWith(SCENE_PREFIX)) {
     const code = requested.slice(SCENE_PREFIX.length);
     const own = mine.find((e) => e.item.shareCode === code);
-    // Round mode scenes (round-<map>-<side>-<weapon>-<barrierSec>) are built on request.
-    const scene = own ? own.scene : trainingSet.scenes[code] || rounds.roundScene(MODS, code);
+    // Round mode scenes (round-<map>-<side>-<weapon>-<barrierSec>) and Practice scenes
+    // (practice-<map>-<area>-<weapon>-<bots>-<count>) are built on request.
+    const scene = own ? own.scene : trainingSet.scenes[code] || rounds.roundScene(MODS, code) || practice.practiceScene(MODS, code);
     if (scene) {
       sendJson(req, res, { code: "00000", data: scene, msg: "", local: true });
       return;

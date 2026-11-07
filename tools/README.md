@@ -24,6 +24,8 @@ Run them from the repository root with Python 3.
 | `round_author.mjs` | Writes `app/mods/aim-rounds/<map>.json` (Round mode map data: spawns, barriers, plant zones, defender setups) from the map files in `site/aim-maps/`, node only. `--plot <file.svg>` draws it (also a `.png`), `--check` fails when the stored file is out of date. See [Round mode data](#round-mode-data). |
 | `maps_callouts.mjs` | Writes `app/mods/aim-maps/<map>.minimap.json` for every map: the game's callout list with Riot's in-game English names ("A Main", "B Boat House") in place of the Chinese ones, from `tools/maps-callouts-en.json`, node only. Only the names change; every spot and every other byte stays as in `site/aim-maps/` (juliett, which only exists in `app/mods/aim-maps/`, is renamed in place). `--check` fails when a file is out of date. See [Callout names](#callout-names). |
 | `maps_callout_patch.py` | Keeps the space in English callout names ("A Main", not "AMain") in the place line of the workshop cards and the workshop detail: the nearest-callout lookup `$u` in the mods `Dc2Dm9E6.js` (both copies) now removes only whitespace next to a non-ASCII character, so Chinese names give the same text as before. Details in the script's docstring. |
+| `practice_areas.mjs` | Writes `app/mods/aim-practice/areas.json` (Practice mode: per map the areas, i.e. player spawn and bot spots with their checked strafe lanes) from `app/mods/aim-ranks/spot-alts.json` and the shipped pre-aim drills, node only. `--check` fails when the stored file is out of date. See [Practice areas](#practice-areas). |
+| `practice_patch.py` | Practice mode on the play page: no replay recorder for scenes with `rules.practice`, `window.__aimPracticeOn` set while one is loaded, and the HUD shows score and accuracy only (no timer). Edits the mods `OkAdunfX.js` (both copies). Details in the script's docstring. |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
@@ -53,6 +55,7 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 11. `peekmove_patch.py` (needs `spotvary_patch.py`; refuses to run twice: it looks for `aimPeekUpdate`)
 12. `round_patch.py` (after `peekmove_patch.py`; refuses to run twice: it looks for `/aim-rounds/round-core.mjs`). It keeps each copy's own line ends.
 13. `maps_callout_patch.py` (after `round_patch.py`; only touches `Dc2Dm9E6.js`; refuses to run twice: it looks for its new regex `/\s+(?=[^\x00-\x7f])|(?<=[^\x00-\x7f])\s+/g`).
+14. `practice_patch.py` (after `round_patch.py`: it works next to round_patch's replay-recorder line and in its `__aimRoundStart` / `__aimRoundStop`; only touches `OkAdunfX.js`; refuses to run twice: it looks for `__aimPracticeOn`). It keeps each copy's own line ends.
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
@@ -139,6 +142,32 @@ snapped to the narrowest closed choke within 3 m (rays against the pawn + greybo
 heights), and a flood fill over the navmesh checks that each team's barriers close off every neutral
 callout. A new map needs its own entry in `MAPS` at the top of the script (callout names, label and
 mark pixels from a reference picture, setup spots) and then the same two commands.
+
+## Practice areas
+
+Practice mode (lobby: **Practice**) plays any map with no timer. `app/practice-scene.js` builds the
+scene for a code `practice-<map>-<area>-<weapon>-<none|static|strafe>-<count>` (main.js serves it
+like the Round codes) from `app/mods/aim-practice/areas.json`:
+
+- One area per route of the shipped pre-aim drills in `spot-alts.json` (easy and hard variants
+  merged). The English route name comes from the drill name ("DDY's pre-aim: Haven A Long attack"
+  -> "A Long"); a few names are fixed by hand in `RENAME` at the top of the script. Two routes with
+  the same name get the nearest callout to their spawn added ("A Retake from A Tower").
+- Spawn = the drill's player spawn, environment = the drill's lighting.
+- Spots = the drill's static bot spots (authored points), 0.8 m apart at least, nearest to the
+  spawn first; the scene takes the first N. Spots inside one of the drill's own solid blocks are
+  dropped (Practice scenes have no blocks).
+- Strafing bots only stand on spots with a checked lane (`spot_alts.mjs`, at least 0.6 m long and
+  not crossing another spot's lane): their home is the middle of the lane and they swing at most
+  +-0.75 m along it, so every point they reach was checked.
+
+Bots never shoot and come back 1.5 s after a kill (`respawn` behaviour: `inPlace` for standing
+bots, `reSpawner` for strafing ones, as Studio does). After changing spot-alts or the drills:
+
+```bash
+node tools/practice_areas.mjs          # write app/mods/aim-practice/areas.json
+node tools/practice_areas.mjs --check  # what scripts/test-practice.mjs runs (npm run test:practice)
+```
 
 ## Callout names
 

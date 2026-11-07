@@ -19,7 +19,8 @@
     "test:vary": "node --test ../scripts/test-spot-vary.cjs",
     "test:round": "node --test ../scripts/test-round.mjs ../scripts/test-round-sim.mjs",
     "test:feelsens": "node --test ../scripts/test-feel-sens.cjs",
-    "test:maps": "node --test ../scripts/test-maps-callouts.mjs"
+    "test:maps": "node --test ../scripts/test-maps-callouts.mjs",
+    "test:practice": "node --test ../scripts/test-practice.mjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
@@ -41,6 +42,8 @@
       "round-panel.js",
       "round-hud.js",
       "round-scene.js",
+      "practice-scene.js",
+      "practice-panel.js",
       "drill-variants.js",
       "interface-mode.js",
       "startup-screen.js",

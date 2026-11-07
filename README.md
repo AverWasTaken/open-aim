@@ -153,6 +153,20 @@ checked in game on every corner. How the map data is made: [tools/README.md](too
 
 <br>
 
+## Practice
+
+Free play on any of the 9 maps. Open it with **Practice** in the lobby's top bar, pick the map, an
+area (where you start, e.g. Sunset B Main), your weapon and the bots: none (just walk the map),
+standing or strafing, 1 to 12 of them. Press **Start**.
+
+- No timer. Bots don't shoot and come back 1.5 s after you kill them.
+- The bots stand on the spots of the map's pre-aim drills. Strafing bots only use spots with room
+  to move; if you ask for more than that, the rest stand still.
+- Esc opens the menu; quit from there to go back to the lobby. Nothing is saved: no drill
+  history, no replay.
+
+<br>
+
 ## Every shot counts
 
 Track score, time and hit rate while you play. The rebuilt **shooting-error graph**
