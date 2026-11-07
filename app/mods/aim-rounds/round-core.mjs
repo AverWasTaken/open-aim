@@ -37,6 +37,10 @@ function shuffle(list, r) { const a = list.slice(); for (let i = a.length - 1; i
 // Called by the sim on the scene before anything else (every run gets a new seed, so every
 // restart re-rolls): the player's spawn point and which enemy setup spawners stay.
 // cfg.setups = { groups: { A: [spawnerId…], mid: […], B: […] }, splits: [[2,1,2], …], count: 5 }
+// cfg.botStart === 'spawn': the kept spawners then move onto distinct enemy spawn points (a seeded
+// shuffle of cfg.spawns[enemy side], given out in kept order; round-robin if there are fewer points
+// than bots); the roundBot behaviour walks them to their setup (cfg.setupBySpawner). These draws
+// come after the M1 ones, so the player spawn and the kept setups are the same as without it.
 export function roundPrepare(doc, seed) {
   const cfg = doc?.rules?.round;
   if (!cfg || typeof cfg !== 'object' || cfg.prepared) return doc; // prepared docs pass through
@@ -64,6 +68,12 @@ export function roundPrepare(doc, seed) {
     while (keep.size > count) keep.delete([...keep].pop());
     const all = new Set(names.flatMap((g) => groups[g] ?? []));
     spawners = doc.spawners.filter((s) => !all.has(s.id) || keep.has(s.id));
+    const pts = cfg.botStart === 'spawn' ? cfg.spawns?.[cfg.side === 'defense' ? 'attack' : 'defense'] : null;
+    if (Array.isArray(pts) && pts.length) {
+      const order = shuffle(pts, r), at = new Map();
+      [...keep].forEach((id, i) => at.set(id, order[i % order.length]));
+      spawners = spawners.map((s) => { const p = at.get(s.id); return p ? { ...s, position: { x: p.x, y: p.y, z: p.z } } : s; });
+    }
   }
   return { ...doc, playerSpawn, spawners, rules: { ...doc.rules, round: { ...cfg, prepared: true } } };
 }

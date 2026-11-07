@@ -19,7 +19,7 @@ const read = (...p) => fs.readFileSync(path.join(root, ...p), 'utf-8').replace(/
 const MODS = path.join(root, 'app', 'mods');
 const JS = [path.join('app', 'mods', 'next', 'js'), path.join('app', 'mods', '_assets', 'r20261021-1', 'next', 'js')];
 const core = await import(pathToFileURL(path.join(MODS, 'aim-rounds', 'round-core.mjs')).href);
-const { roundScene, parseCode } = require(path.join(root, 'app', 'round-scene.js'));
+const { roundScene, parseCode, buildDoc } = require(path.join(root, 'app', 'round-scene.js'));
 const data = JSON.parse(read('app', 'mods', 'aim-rounds', 'ascent.json'));
 const HAVE_SITE = fs.existsSync(path.join(root, 'site', 'aim-maps', 'ascent.collision.json'));
 
@@ -102,6 +102,27 @@ test('generated scene: envelope, rules.round, 5 kept spawners after prep, no res
   assert.equal(new Set(ids).size, doc.spawners.length);
   const prepped = core.roundPrepare(doc, 12345);
   assert.equal(prepped.spawners.length, 5);
+});
+
+test('generated scene: round bots walk from the defender spawns (roundBot after the shooter, faceTarget off, setups by spawner)', () => {
+  const doc = JSON.parse(roundScene(MODS, 'round-ascent-attack-vandal-20').doc);
+  assert.deepEqual(doc.actors[0].behaviors.map((b) => b.kind), ['shooter', 'roundBot', 'respawn']);
+  assert.ok(doc.spawners.every((s) => s.faceTarget === false));
+  const r = doc.rules.round;
+  assert.equal(r.botStart, 'spawn');
+  assert.deepEqual(Object.keys(r.setupBySpawner).sort(), doc.spawners.map((s) => s.id).sort());
+  for (const [g, spots] of Object.entries(data.setups.defense)) spots.forEach((p, i) => {
+    assert.deepEqual(r.setupBySpawner[`round-${g}-${i + 1}`], { name: p.name, group: g, x: p.x, y: p.y, z: p.z });
+  });
+  assert.equal('retake' in r, !!data.retake);
+  const retake = { A: [{ name: 'A1', x: 1, y: 2, z: 3 }], B: [] };
+  assert.deepEqual(buildDoc({ ...data, retake }, { side: 'attack', weapon: 'vandal', barrierSec: 20 }).rules.round.retake, retake);
+  // Prepared: the 5 kept bots start on the 5 defender spawn points, one each.
+  for (const seed of [1, 2, 3, 99]) {
+    const p = core.roundPrepare(doc, seed);
+    const at = p.spawners.map((s) => data.spawns.defense.findIndex((q) => q.x === s.position.x && q.y === s.position.y && q.z === s.position.z));
+    assert.deepEqual([...at].sort(), [0, 1, 2, 3, 4], `seed ${seed}: ${at}`);
+  }
 });
 
 test('generated scene passes the game\'s own scene validator', { skip: !fs.existsSync(path.join(root, JS[0], 'D_iGclxB.js')) && 'no validator' }, async () => {
