@@ -284,6 +284,96 @@ const MAPS = {
       },
     },
   },
+  // Split. Rays use the real pawn world (bonsai.collision.json has only 589 greybox boxes, no walls of
+  // the art meshes). The map's 9 SM_Barrier planes are all parked at the world origin, so the barriers
+  // are world MARKS (MARK_TEAMS: the strict flood rule must give each mark's team) and ROPES are links.
+  bonsai: {
+    name: 'Split',
+    WORLD: 'terrain', MINIMAP: 'mod', FACING: 'Mid Bottom',
+    SPAWNS: { attack: 'Attacker Spawn', defense: 'Defender Spawn' },
+    // Floor under each spawn callout (vertical rays against the pawn world).
+    SPAWN_Y: { 'Attacker Spawn': 3, 'Defender Spawn': 5 },
+    MARK_TEAMS: true,
+    ROPES: true,
+    // A's marker centre stands on the 4 m site box (no floor node within the defuse range): moved 3 m
+    // south onto the open site floor.
+    SITE_CENTER: { A: [-64.97, -79.58] },
+    NOTES: {
+      barriers: '9 world marks at the nav chokes between the sides (the 9 SM_Barrier planes are parked at the origin). Each snaps to the narrowest closed choke within 3 m; the flood rule (one team per barrier, >= 5 cut walk edges, none bypassed with every barrier up) gives the mark team, and the seal check (ropes included) passes. The chokes are narrower than the plane lengths (15.4 .. 4 m): warning only',
+      sides: "A Ramps neutral (the attackers' second way to A; defender barrier at the A Tower door); Mid Mail and Mid Vent defense; A Sewer attack (sewer room and its ropes are behind atk-a-sewer, reached by dropping from A Lobby)",
+      ropes: "7 ropes (bonsai.ropes.json) are two-way links in the seal and barrier-team floods (no rope edges in the nav graph); a rope within 8 m of a barrier of team T must not cross it and both ends must be on T's side (authoring.ropes)",
+      setupSpawnT: "setups: spawnT <= 10 s (shortest barrier) + attackers' fastest barrier -> zone time - 1 s (A 14 s, B 14.82 s; mid 11.5 s); the defender spawn is 9-12 s from both sites",
+      setupsInZone: 'A has no setup inside the zone: no spot in it sees a defender barrier within 30 m; the A setups stand on the site front band (0-8 m south of the zone) and at the A Main door',
+      mid: "mid group: Mail and Mail door (watch def-mid-mail / def-mid-vent) and A tower (watches def-a-tower, the A Ramps door; it is more than 12 m from the A zone, so it can't be an A setup)",
+      aRamps: 'A Ramps route: the bots cannot drop from A Tower to the site (more than 4.5 m), so their path goes back down the ramps stairs and through the A Main door; its entry waypoint is the ramps stairs (the path passes it), not a barrier doorway',
+      plant: 'second plant spots are 5 m from the default (Ascent: about 6 m)',
+    },
+    // Barrier marks [x, z] (world), by hand from the nav graph plot: each sits on the narrowest corridor
+    // between a team's barrier-phase area and the neutral middle; snapBarrier moves it up to 3 m across.
+    // floor = nav node height at the mark (vertical ray start hint).
+    MARKS: [
+      { id: 'atk-a-main', team: 'attack', name: 'A Lobby / A Main', a: [-38.5, -77], b: [-38.5, -64], floor: 2.5 },
+      { id: 'atk-a-sewer', team: 'attack', name: 'A Sewer / Mid Bottom', a: [-27.5, -44], b: [-20.5, -44], floor: 1.7 },
+      { id: 'atk-b-link', team: 'attack', name: 'B Lobby / B Link', a: [-23, 6.5], b: [-16.5, 6.5], floor: 3 },
+      { id: 'atk-b-garage', team: 'attack', name: 'B Lobby / B Garage', a: [-31, 9], b: [-31, 17], floor: 3 },
+      { id: 'def-a-main', team: 'defense', name: 'A Site / A Main', a: [-56, -68], b: [-56, -54], floor: 1.5 },
+      { id: 'def-a-tower', team: 'defense', name: 'A Tower / A Ramps', a: [-59, -50], b: [-59, -41], floor: 6.5 },
+      { id: 'def-mid-vent', team: 'defense', name: 'Mid Vent / Mid Top', a: [-58, -27.5], b: [-49.7, -27.5], floor: 6.5 },
+      { id: 'def-mid-mail', team: 'defense', name: 'Mid Mail / Mid Top', a: [-50, -15.5], b: [-43, -15.5], floor: 6.5 },
+      { id: 'def-b-garage', team: 'defense', name: 'B Site / B Garage', a: [-49, 23], b: [-49, 33], floor: 3 },
+    ],
+    // Barrier phase side of each callout, by hand from the map: lobbies, the sewer and the attacker spawn
+    // the attackers'; sites, the defender spawn and the defenders' back areas (A Back / Screens / Tower /
+    // Rafters, B Back / Alley / Rafters / Tower / Stairs, Mid Vent, Mid Mail) the defenders'; A Main, A
+    // Ramps, Mid Top / Bottom, B Garage and B Link neutral. The seal check proves it.
+    SIDES: {
+      'Attacker Spawn': 'attack', 'A Lobby': 'attack', 'B Lobby': 'attack', 'A Sewer': 'attack',
+      'Defender Spawn': 'defense', 'A Site': 'defense', 'A Back': 'defense', 'A Screens': 'defense', 'A Tower': 'defense', 'A Rafters': 'defense',
+      'B Site': 'defense', 'B Back': 'defense', 'B Alley': 'defense', 'B Rafters': 'defense', 'B Tower': 'defense', 'B Stairs': 'defense', 'Mid Vent': 'defense', 'Mid Mail': 'defense',
+      'A Main': 'neutral', 'A Ramps': 'neutral', 'Mid Bottom': 'neutral', 'Mid Top': 'neutral', 'B Garage': 'neutral', 'B Link': 'neutral',
+    },
+    // Defender setup spots, picked from `node tools/round_nav.mjs --map bonsai --setup-candidates <A|B|mid>`
+    // (mid: --near "-48,-11.5|-66,-46"): top candidates, 3+ m apart, every defender barrier watched by one
+    // group (A: def-a-main; B: def-b-garage; mid: def-mid-mail, def-mid-vent, def-a-tower); all are
+    // hidden from the attacker barriers. Drill spots checked as hints (split-a-main-hold-vs-flashes player
+    // spot = A screens, split-b-heaven-retake-peekers): they see no barrier, so none is used.
+    SETUPS: {
+      A: [[-69.33, 0.04, -69.83, 'A site'], [-63.33, 1, -65.83, 'A front'], [-75.33, 1, -63.33, 'A screens'],
+        [-55.33, 1.92, -62.83, 'A main door'], [-66.83, 1, -61.83, 'A site south']],
+      mid: [[-51.33, 8, -13.83, 'Mail'], [-47.33, 6.56, -14.83, 'Mail door'], [-62.83, 6.5, -42.33, 'A tower']],
+      B: [[-67.33, 3.66, 23.67, 'B site'], [-64.33, 3.16, 24.67, 'B site front'], [-56.83, 3, 19.67, 'B right'],
+        [-72.33, 3, 28.17, 'B back'], [-53.83, 3, 22.67, 'B corner']],
+    },
+    SPLITS: [[2, 1, 2], [2, 1, 2], [3, 0, 2], [2, 0, 3], [1, 1, 3], [3, 1, 1]],
+    // Retake staging points (`--candidates <site>`): best of two approach groups from different sides:
+    // A back (west, no detour) and A screens door (south band, 0.3 s); B alley (north-west, 0.06 s) and
+    // B back south (south corridor, 4.7 s detour).
+    RETAKE: {
+      A: [[-79.83, 0.62, -68.33, 'A back'], [-72.83, 1, -61.83, 'A screens door']],
+      B: [[-80.83, 4.83, 5.67, 'B alley'], [-74.83, 3, 30.17, 'B back south']],
+    },
+    // Attacker bot data (`--attack-candidates <site> --near "x,z|x,z"`): staging = candidates nearest the
+    // near point, 1.5 m apart (all neutral); entry = the defender barrier doorway the route passes (A Main
+    // door = def-a-main, B Garage door = def-b-garage, Mail door = def-mid-mail; the Mail route walks
+    // through Mail and B Tower and drops onto B), except A Ramps (see NOTES.aRamps). Plant: default =
+    // nearest the site goal, the second 5 m away on another part of the site.
+    ATTACK: {
+      routes: {
+        A: [
+          { name: 'A Main', entry: [-52.83, 2, -61.83, 'A Main door'], staging: [[-44.83, 2, -63.83, 'A Main 1'], [-43.33, 2, -63.83, 'A Main 2'], [-44.83, 2, -65.33, 'A Main 3']] },
+          { name: 'A Ramps', entry: [-45.83, 4, -51.33, 'A Ramps stairs'], staging: [[-50.33, 6.5, -44.83, 'A Ramps 1'], [-51.83, 6.5, -44.83, 'A Ramps 2'], [-50.33, 6.5, -43.33, 'A Ramps 3']] },
+        ],
+        B: [
+          { name: 'B Garage', entry: [-45.83, 3, 27.83, 'B Garage door'], staging: [[-38.33, 3, 22.17, 'B Garage 1'], [-36.83, 3, 22.17, 'B Garage 2'], [-38.33, 3, 23.67, 'B Garage 3']] },
+          { name: 'Mid Mail', entry: [-46.33, 6.5, -15.83, 'Mail door'], staging: [[-46.33, 6.5, -18.83, 'Mid Mail 1'], [-44.83, 6.5, -18.83, 'Mid Mail 2'], [-46.33, 6.5, -20.33, 'Mid Mail 3']] },
+        ],
+      },
+      plant: {
+        A: [[-64.83, 0, -79.83, 'A default'], [-68.83, 0, -76.83, 'A behind box']],
+        B: [[-66.33, 4, 16.67, 'B default'], [-66.33, 4, 11.67, 'B north']],
+      },
+    },
+  },
 };
 const M = MAPS[MAP];
 if (!M) throw new Error(`no hand input for map ${MAP}`);

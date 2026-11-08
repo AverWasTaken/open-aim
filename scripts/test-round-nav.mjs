@@ -23,6 +23,7 @@ const ROUNDS = path.join(root, "app", "mods", "aim-rounds");
 const EXPECT = {
   ascent: { count: 21746, edgeCount: 161371, notWalk: ["B site front"], routes: { A: ["A Main", "Mid Cubby"], B: ["B Main", "Mid Market"] }, setupTiming: false, minTris: [1e6, 1e6] },
   rook: { count: 21693, edgeCount: 162053, notWalk: [], routes: { A: ["A Main", "A Link"], B: ["B Main", "B Link"] }, setupTiming: true, minTris: [1e6, 1e6] },
+  bonsai: { count: 17913, edgeCount: 131407, notWalk: [], routes: { A: ["A Main", "A Ramps"], B: ["B Garage", "Mid Mail"] }, setupTiming: true, minTris: [1e6, 1e6], ropes: 7 },
 };
 const MAPS = fs.readdirSync(ROUNDS).filter((f) => /^[a-z0-9]+\.json$/.test(f)).map((f) => f.slice(0, -5))
   .filter((m) => fs.existsSync(path.join(ROUNDS, `${m}.nav.bin`))).sort();
