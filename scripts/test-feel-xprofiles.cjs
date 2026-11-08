@@ -134,3 +134,22 @@ test('mergeImported gives repeated names a number, within 32 chars', () => {
   assert.deepEqual(m.state.list.map(p => p.name), ['Main', 'main (2)', 'Main (3)', long, 'L'.repeat(28) + ' (2)']);
   assert.ok(m.state.list.every(p => Array.from(p.name).length <= 32));
 });
+
+// valorant-import-ui.js: the startup prompt stays away while ux-welcome's banner offers the import.
+test('startup prompt skipped for new players (welcome banner offers the import)', () => {
+  const fs = require('fs'), path = require('path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'app', 'valorant-import-ui.js'), 'utf-8');
+  const m = src.match(/function welcomeOffersImport\(\) \{[\s\S]*?\n  \}\r?\n/);
+  assert.ok(m, 'welcomeOffersImport found');
+  const make = (store) => {
+    const localStorage = { getItem: (k) => (k in store ? store[k] : null) };
+    return new Function('localStorage', m[0] + 'return welcomeOffersImport;')(localStorage);
+  };
+  assert.equal(make({ 'ux-welcome-v1': 'shown' })(), true);
+  assert.equal(make({ 'ux-welcome-v1': 'done' })(), false);
+  assert.equal(make({})(), true, 'not decided yet, no runs = new player');
+  assert.equal(make({ 'al-workshop-runs-v1': '[{"id":1}]' })(), false, 'has runs = existing player');
+  assert.equal(make({ 'al-pw-runs-v1': '[{"id":1}]' })(), false);
+  assert.equal(make({ 'al-workshop-runs-v1': 'garbage' })(), true);
+  assert.match(src, /if \(!welcomeOffersImport\(\)\) \{ sessionStorage\.setItem\(SHOWN, "1"\); open\(\); \}/);
+});

@@ -11,6 +11,18 @@
   // After a successful import the startup prompt stays away (it is still in Settings);
   // reopening it every launch made the import look like it hadn't been saved.
   let startupDone = localStorage.getItem(HIDE) === "1" || !!localStorage.getItem(UNDO) || !!sessionStorage.getItem(SHOWN);
+  // New players get ux-welcome.js's "New here?" banner, which has its own "Import from VALORANT"
+  // button, so the prompt doesn't also pop up for them. New = the banner is showing ("shown"), or
+  // it hasn't decided yet and there are no runs (the same rule it uses). Everyone else: as before.
+  function welcomeOffersImport() {
+    try {
+      const w = localStorage.getItem("ux-welcome-v1");
+      if (w === "shown") return true;
+      if (w !== null) return false;
+      const runs = k => { try { const v = JSON.parse(localStorage.getItem(k) || "null"); return Array.isArray(v) && v.length > 0; } catch { return false; } };
+      return !runs("al-workshop-runs-v1") && !runs("al-pw-runs-v1");
+    } catch { return false; }
+  }
   function open() {
     if (shade) { shade.querySelector("button").focus(); return; }
     const previousFocus = document.activeElement;
@@ -184,7 +196,8 @@
     // Not over the startup screen, a drill's loading screen or a round.
     if (!startupDone && document.querySelector(".hall-root") &&
         !document.querySelector('[role="dialog"], .hall-dialog, .es-tool-shade, .es-startup, .al-wkload, .aim-loading-compact, .al-aimlab-root')) {
-      startupDone = true; sessionStorage.setItem(SHOWN, "1"); open();
+      startupDone = true;
+      if (!welcomeOffersImport()) { sessionStorage.setItem(SHOWN, "1"); open(); }
     }
   }
   let scheduled = false;
