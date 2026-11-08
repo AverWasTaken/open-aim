@@ -39,7 +39,8 @@
     const v = parseFloat(sensInput()?.value);
     return Number.isFinite(v) && v > 0 ? v : NaN;
   }
-  // Same as player-tools.js useSens(): hand the value to the lobby field.
+  // Like player-tools.js useSens(), but without the Enter keydown: the field saves on input/change,
+  // and a synthetic Enter reaches window and would start a drill waiting on its start screen.
   function setSens(value) {
     const input = sensInput();
     if (!input) return false;
@@ -47,7 +48,6 @@
     setter.call(input, String(value));
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     input.blur();
     return true;
   }
@@ -135,7 +135,13 @@ html[data-aim-local]:not(#es) body .feel-sf-card button.feel-sf-primary { clip-p
     roundOn: () => !!window.__aimRoundOn,
     routineActive: () => session.get(C.ROUTINE_KEY) !== null,
     aidsOn,
-    launch: (code) => typeof window.__aimLaunchWorkshop === "function" && window.__aimLaunchWorkshop(code) === true,
+    // Full item, not just the code: the lobby only fills a bare code from drills the player has
+    // already played, so a first-time Drift Click/Track launch would fail.
+    launch: (code) => {
+      const d = C.DRILLS.find((x) => x.code === code);
+      const item = d ? { shareCode: code, name: d.drill, type: d.type, mapId: null } : code;
+      return typeof window.__aimLaunchWorkshop === "function" && window.__aimLaunchWorkshop(item) === true;
+    },
     leave: () => typeof window.__aimLeaveTraining === "function" && window.__aimLeaveTraining() === true,
     loadRun: () => local.get(C.RUN_KEY),
     saveRun: (json) => local.set(C.RUN_KEY, json),

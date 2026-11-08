@@ -121,6 +121,7 @@ test('both drills exist in the training set, last 60 s and get no rank picker', 
     const item = ts.items.find((x) => x.shareCode === d.code);
     assert.ok(item, `${d.code} in items`);
     assert.equal(item.name, d.drill);
+    assert.equal(item.type, d.type, 'launch item type matches the catalogue (first-time launch needs it)');
     assert.equal(parseName(item.name).label, null, 'no Easy/Hard twin');
     const scene = ts.scenes[d.code];
     assert.ok(scene, `${d.code} in scenes`);
@@ -135,6 +136,12 @@ test('both drills exist in the training set, last 60 s and get no rank picker', 
     assert.equal(botsOf(item).length, 0, 'no bots that shoot back');
     assert.ok(!(d.code in variants), 'not a key of /aim/drill-variants.json');
   }
+});
+
+test('page script launches with a full item and never sends a synthetic Enter', () => {
+  const src = fs.readFileSync(path.join(APP, 'feel-sens-finder.js'), 'utf-8');
+  assert.doesNotMatch(src, /KeyboardEvent\("keydown"/, 'a synthetic Enter starts a drill waiting on its start screen');
+  assert.match(src, /shareCode: code, name: d\.drill, type: d\.type, mapId: null/);
 });
 
 // ---------- shell wiring ----------

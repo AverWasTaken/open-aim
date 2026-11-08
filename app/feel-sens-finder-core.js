@@ -16,8 +16,8 @@
   "use strict";
 
   const DRILLS = [
-    { id: "click", label: "Clicking", drill: "Drift Click", code: "d355a344c819596d" },
-    { id: "track", label: "Tracking", drill: "Drift Track", code: "ea9dd90bd251f6ba" },
+    { id: "click", label: "Clicking", drill: "Drift Click", code: "d355a344c819596d", type: "basic" },
+    { id: "track", label: "Tracking", drill: "Drift Track", code: "ea9dd90bd251f6ba", type: "basic" },
   ];
   const RUN_KEY = "es-sens-finder-run"; // localStorage: the session in progress
   const HISTORY_KEY = "es-sens-finder-v1"; // localStorage: last 10 finished sessions
