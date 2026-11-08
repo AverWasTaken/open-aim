@@ -40,6 +40,7 @@ function checkRun(m, label) {
   assert.equal(m.crossings, 0, `${tag}: crossed an attacker barrier in the barrier phase`);
   assert.equal(m.outside, 0, `${tag}: left the attacker side in the barrier phase`);
   assert.equal(m.offFloor, 0, `${tag}: off the nav floors ${JSON.stringify(m.offFloorAt)}`);
+  assert.equal(m.lowN, 0, `${tag}: under-floor recoveries (the safety net should never be needed)`);
   assert.equal(m.stuck, 0, `${tag}: stuck ${JSON.stringify(m.stuckAt)}`);
   assert.ok(m.maxPlanters <= 1 && m.plantingNotCarrier === 0, `${tag}: one planter, the carrier`);
   assert.ok(m.minStillBarrier >= 0.8, `${tag}: waiting bots ${m.minStillBarrier} m apart`);
@@ -64,9 +65,8 @@ test('R4d real Split: the sweep module runs on Split; the defense doc carries Sp
 
 // Both of Split's A routes (A Main, A Ramps) pass the one attacker barrier atk-a-main, and
 // round-bots.mjs atkInit picks one wait node per route (the masked-reachable node nearest the route's
-// first staging point; the same node for both A routes) with slots per route: on an A plan with bots
-// on both routes and a barrier long enough to reach it (>= ~12 s), two bots wait on the same node.
-// Known bot-code issue (reported for R5); the strict check for it is the todo test below.
+// first staging point; the same node for both A routes). The slots around it are counted over every
+// bot whose route waits there (R4e; before, per route: two bots stood on the same node).
 test('R4d real Split: A and B, both movement modes, with and without a lurker: wait behind the barriers, stage, go together, plant within 40 s of the drop, distinct post-plant spots', { skip }, async () => {
   const cases = [
     { planSeed: SW.planSeedFor('A', { lurker: false }), barrierSec: 10, extra: {} },
@@ -82,10 +82,13 @@ test('R4d real Split: A and B, both movement modes, with and without a lurker: w
   }
 });
 
-test('R4d real Split: A plan with bots on both A routes, 20 s barrier: waiting bots stand >= 0.8 m apart (known bot issue: one wait node per route, both A routes share atk-a-main)', { skip, todo: !skip && 'round-bots.mjs atkInit: wait slots per route, not per wait node (R5)' }, async () => {
+test('R4e real Split: A plan with bots on both A routes, 20 s barrier: waiting bots stand >= 0.8 m apart (both A routes share the wait node behind atk-a-main; slots counted per wait node)', { skip }, async () => {
   const c = { planSeed: SW.planSeedFor('A', { lurker: true }), barrierSec: 20, extra: { movement: 'game' } };
   const m = await run({ doc: SW.defenseDoc(c), seed: 3, extra: c.extra });
   console.log(`Split shared A wait node: plan ${JSON.stringify(m.plan.routeBySpawner)}, min distance between waiting bots ${m.minStillBarrier} m ${JSON.stringify(m.minStillAt)}`);
+  const routes = new Set(Object.values(m.plan.routeBySpawner));
+  assert.ok(routes.size >= 2, `bots on both A routes: ${[...routes].join(', ')}`);
+  assert.ok(m.waitSeen, 'some bot waited behind the barrier');
   checkRun(m, 'Split A both routes barrier 20');
 });
 

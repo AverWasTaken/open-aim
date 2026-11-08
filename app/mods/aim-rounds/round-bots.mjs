@@ -268,9 +268,23 @@ const FETCH_XZ = 1.0, FETCH_DY = 1.8, FETCH_LRU = 8;
 // The game mover's step-up (il / JU: a walking bot climbs at most 0.45 m; the nav was baked with
 // 0.5): attackers path only over walk edges that rise <= STEP_MAX, and a straight line may not cross
 // a floor step of more than RISER (up or down) between two 0.1 m samples (an oblique crossing of a
-// ramp's side, or a line along a step's seam, where the mover's headroom rule can drop the bot
-// through the floor; ramps rise ~0.21 per 0.5 m cell and pass). The bot then takes the next nav edge.
+// ramp's side, or a line along a step's seam; ramps rise ~0.21 per 0.5 m cell and pass). The bot
+// then takes the next nav edge. (The drops through the floor this was first blamed on are the
+// sub-millimetre gaps between floor and ramp triangles, fixed by groundCtx below.)
 const STEP_MAX = 0.45, RISER = 0.25;
+// Ground gaps (R4e): some maps (Split) leave 0.3-0.8 mm strips between a flat floor's triangles and a
+// ramp's. ctx.ground casts one vertical ray, which misses inside such a strip; il's mover (JU) then
+// finds the surface far below (Split: y 2.42 under the map) and drops the bot through. groundCtx
+// gives il a ctx whose ground is unchanged when the ray hits; on a miss it probes GAP_EPS to both
+// sides along x and along z (fixed order) and, only when BOTH probes of one axis hit (a hole
+// narrower than 2 * GAP_EPS, not a ledge edge or an overhang's rim), returns the highest probe hit.
+// st.gfix counts the rescues. A run with no rescue is bit-identical to plain ctx.ground.
+const GAP_EPS = 0.002;
+// Safety net (R4e): a real-floor bot, not airborne, with no nav node of its floor within LOW_XZ
+// (|dy| <= LOW_DY; the sweeps' off-floor rule) but nav floor above it, for LOW_TICKS ticks in a
+// row, is under the floor: it stands (no il) meanwhile, then is put back on its last on-floor node
+// st.okN (st.lowN counts it); without one it gives up (stuck).
+const LOW_XZ = 0.75, LOW_DY = 0.5, LOW_TICKS = 16;
 // Edge e (from -> to) usable: drop edges always; walk edges unless strict and rising > STEP_MAX.
 const stepOk = (g, e, from, to, strict) => !strict || g.edgeType[e] !== NAV_WALK || g.y[to] - g.y[from] <= STEP_MAX;
 
@@ -278,6 +292,24 @@ const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 const num = (v, d) => (finite(v) ? v : d);
 const tickSecOf = (ctx) => (ctx.tick > 0 && finite(ctx.elapsed) && ctx.elapsed > 0 ? ctx.elapsed / ctx.tick : 1 / 128);
 const ticksOf = (sec, ts) => Math.max(1, Math.round(sec / ts)); // round-core's T()
+// ctx for il with the gap-safe ground (GAP_EPS above); ctx itself when there is no ground.
+function groundCtx(ctx, st) {
+  const ground = ctx.ground;
+  if (typeof ground !== 'function') return ctx;
+  const g2 = (x, z, y, up, down) => {
+    const h = ground(x, z, y, up, down);
+    if (h !== null && h !== undefined) return h;
+    const xp = ground(x + GAP_EPS, z, y, up, down), xm = ground(x - GAP_EPS, z, y, up, down);
+    const zp = ground(x, z + GAP_EPS, y, up, down), zm = ground(x, z - GAP_EPS, y, up, down);
+    const hit = (v) => v !== null && v !== undefined;
+    if (!(hit(xp) && hit(xm)) && !(hit(zp) && hit(zm))) return h;
+    let best = null;
+    for (const v of [xp, xm, zp, zm]) if (hit(v) && (best === null || v > best)) best = v;
+    st.gfix = (st.gfix | 0) + 1;
+    return best;
+  };
+  return Object.create(ctx, { ground: { value: g2 } });
+}
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 function setupOf(ctx, actor) {
@@ -780,7 +812,7 @@ function navInit(actor, ctx, s, st) {
     nav: 1, mode: MODE.walk, spawn, setup, goal, wait, cur: spawn, tgt: -1, tx: p.x, ty: p.y, tz: p.z,
     goT: ctx.elapsed + actor.rng.range(0, STAGGER_SEC), arrived: 0, arriveT: -1, fk: -1, best: FAR, bestT: ctx.elapsed,
     replans: 0, yieldT: 0, yieldCd: -1, face, face2, face2On: hs && finite(hs.face2) ? 1 : 0, faceSel: 0, altT: -1,
-    at: -1, gk: GK.setup, lx: FAR, lz: FAR, retries: 0, real: 0,
+    at: -1, gk: GK.setup, lx: FAR, lz: FAR, retries: 0, real: 0, gfix: 0, okN: -1, lowT: 0, lowN: 0,
     pk: -1, sgi: -2, slotT: 0, ipT: -1, covT: -1, cand: -1, pushed: 0, staged: 0, rotN: -1, rotT: -1, rotI: -1, rotTrig: -1,
     index: 0, speed: 0, finished: false,
   });
@@ -820,21 +852,30 @@ function atkInit(actor, ctx, st) {
   if (!reach[goal] || !finite(fieldFor(N, goal, null, 1).dist[spawn])) return false;
   const mask = maskFor(N, barriersOf(cfg));
   // Slot beyond an active barrier: wait behind it. One wait node per route (the barrier-side node
-  // with the lowest time to the route's first staging point), slot nodes around it for the members.
+  // with the lowest time to the route's first staging point), slot nodes around it. Routes can share
+  // a wait node (Split: A Main and A Ramps both wait at atk-a-main), so the slots are counted over
+  // every bot whose route has this wait node (by spawnerId), not over the route's members only.
   let wait = -1, waitT = 0;
   if (mask && !finite(fieldFor(N, goal, mask, 1).dist[spawn])) {
-    const rm = maskedReachUnion(N, cfg, mask), Fu = fieldFor(N, stg[0], null, 1);
-    let w0 = -1, bt = Infinity;
-    if (rm) for (let i = 0; i < g.count; i++) if (rm[i] && Fu.dist[i] < bt) { bt = Fu.dist[i]; w0 = i; }
-    const ws = w0 >= 0 ? slotNodes(N, [w0], mine.length, rm)[k] : -1;
+    const rm = maskedReachUnion(N, cfg, mask);
+    const waitOf = (r) => {
+      const Fu = fieldFor(N, A.routes[r].staging[0], null, 1);
+      let w = -1, bt = Infinity;
+      if (rm) for (let i = 0; i < g.count; i++) if (rm[i] && Fu.dist[i] < bt) { bt = Fu.dist[i]; w = i; }
+      return w;
+    };
+    const w0 = waitOf(ri), wr = new Map([[ri, w0]]);
+    const grp = ids.filter((id) => { const r = routeOf(id); if (!wr.has(r)) wr.set(r, waitOf(r)); return wr.get(r) === w0; });
+    const kw = w0 >= 0 ? grp.indexOf(actor.spawnerId) : k; // no wait node: per route, as before
+    const ws = w0 >= 0 ? slotNodes(N, [w0], grp.length, rm)[kw] : -1;
     if (ws >= 0 && finite(fieldFor(N, ws, mask, 1).dist[spawn])) wait = ws;
     else {
       // Fallback (no route wait node reachable from here): this bot's own best node, a field-time row.
       const own = reachFor(N, spawn, mask, 1), Fg = fieldFor(N, goal, null, 1);
-      bt = Infinity;
+      let bt = Infinity;
       for (let i = 0; i < g.count; i++) if (own[i] && Fg.dist[i] < bt) { bt = Fg.dist[i]; wait = i; }
       if (wait < 0) return false;
-      waitT = (k * STAGE_SLOT) / RUN_SPEED;
+      waitT = (kw * STAGE_SLOT) / RUN_SPEED;
     }
     fieldFor(N, wait, mask, 1);
   }
@@ -852,7 +893,7 @@ function atkInit(actor, ctx, st) {
     nav: 1, mode: MODE.walk, spawn, setup: goal, goal, wait, cur: spawn, tgt: -1, tx: p.x, ty: p.y, tz: p.z,
     goT: ctx.elapsed + actor.rng.range(0, STAGGER_SEC), arrived: 0, arriveT: -1, fk: -1, best: FAR, bestT: ctx.elapsed,
     replans: 0, yieldT: 0, yieldCd: -1, face, face2: face, face2On: 0, faceSel: 0, altT: -1,
-    at: -1, gk: GK.astage, lx, lz, retries: 0, real: 0,
+    at: -1, gk: GK.astage, lx, lz, retries: 0, real: 0, gfix: 0, okN: -1, lowT: 0, lowN: 0,
     pk: -1, sgi: -2, slotT: 0, ipT: -1, covT: -1, cand: -1, pushed: 0, staged: 0, rotN: -1, rotT: -1, rotI: -1, rotTrig: -1,
     atk: 1, ri, sk: k, stopT, waitT, ci,
     lurk: cfg.attack.lurker === actor.spawnerId ? 1 : 0, go: 0, atStage: 0, planting: 0, pi: -1, fetch: -1, lost: 0, ppk: -1, pn: -1,
@@ -1206,6 +1247,27 @@ function navUpdate(actor, ctx, dt, il, st) {
   if (st.real !== 1 && st.air !== 1 && Math.abs(g.y[st.cur]) > 1 && Math.abs(p.y - g.y[st.cur]) < 0.05) st.real = 1;
   st.cur = trackNode(N, st.cur, p.x, p.z, mask, st.real === 1 ? p.y : null);
   if (dxz(g, st.cur, p.x, p.z) > 1) { const k = refindNode(N, p.x, p.y, p.z, 2.5, st.cur, okNodes); if (k >= 0) st.cur = k; }
+  const gctx = groundCtx(ctx, st);
+
+  // Safety net (LOW_* above): under the nav floor -> stand, then back onto the last on-floor node.
+  if (st.real === 1 && gctx !== ctx && st.air !== 1) {
+    if (Math.abs(p.y - g.y[st.cur]) < LOW_DY && dxz(g, st.cur, p.x, p.z) <= 1) { st.okN = st.cur; st.lowT = 0; }
+    else if (nodesNear(N, p.x, p.z, LOW_XZ, p.y, LOW_DY).length === 0 && nodesNear(N, p.x, p.z, LOW_XZ).some((k) => g.y[k] > p.y + LOW_DY)) {
+      st.lowT = (st.lowT | 0) + 1; st.speed = 0;
+      if (st.lowT >= LOW_TICKS) {
+        st.lowT = 0;
+        const k = Number.isInteger(st.okN) ? st.okN : -1;
+        if (k >= 0) {
+          const y = gctx.ground(g.x[k], g.z[k], g.y[k], 0.5, 0.5);
+          actor.position = { x: g.x[k], y: finite(y) ? y : g.y[k], z: g.z[k] };
+          delete st.air; delete st.vy; delete st.jy; delete st.jb; delete st.stuck;
+          st.cur = k; st.tgt = -1; st.best = FAR; st.bestT = ctx.elapsed; st.lowN = (st.lowN | 0) + 1;
+        } else st.mode = MODE.stuck;
+      }
+      faceIdle(actor, ctx, st, dt, calm);
+      return;
+    } else st.lowT = 0;
+  }
 
   // Goal descriptor {field, stopT}: barrier phase -> masked to the setup, or to the wait node when
   // the setup is beyond a barrier; after the drop -> unmasked to the setup; B3 goals override.
@@ -1243,7 +1305,7 @@ function navUpdate(actor, ctx, dt, il, st) {
   const way = [{ x: p.x, y: p.y, z: p.z }, { x: st.tx, y: st.ty, z: st.tz }];
   if (t2 >= 0) way.push({ x: g.x[t2], y: g.y[t2], z: g.z[t2] });
   st.finished = false; st.index = 1;
-  if (typeof il === 'function') il(st, { waypoints: way, loop: false, speed: runSpeed(ctx, barrier), finish: t2 >= 0 ? 'run' : 'stop', ...(brake ? { brake: true } : {}) }, actor, ctx, dt);
+  if (typeof il === 'function') il(st, { waypoints: way, loop: false, speed: runSpeed(ctx, barrier), finish: t2 >= 0 ? 'run' : 'stop', ...(brake ? { brake: true } : {}) }, actor, gctx, dt);
   if (t2 < 0 && st.finished === true && st.air !== 1) arrive(actor, ctx, st, G.kind, t);
 
   // Stuck: no progress down the field in STUCK_SEC of free walking -> re-plan, then give up.
@@ -1307,7 +1369,7 @@ export function roundBotUpdate(cfg, actor, ctx, dt, il) {
       if (st.air === 1 && typeof il === 'function') {
         st.finished = false; st.index = 1;
         const p = actor.position;
-        il(st, { waypoints: [{ x: p.x, y: p.y, z: p.z }, { x: st.tx, y: st.ty, z: st.tz }], loop: false, speed: 0, brake: true }, actor, ctx, dt);
+        il(st, { waypoints: [{ x: p.x, y: p.y, z: p.z }, { x: st.tx, y: st.ty, z: st.tz }], loop: false, speed: 0, brake: true }, actor, groundCtx(ctx, st), dt);
       }
     }
     return;
@@ -1317,7 +1379,7 @@ export function roundBotUpdate(cfg, actor, ctx, dt, il) {
   if (st.nav === 1) { navUpdate(actor, ctx, dt, il, st); return; }
   if (st.snap === 1 && typeof ctx.ground === 'function') {
     const p = actor.position;
-    const g = ctx.ground(p.x, p.z, p.y, 2.5, 4); // the spawn snap's reach (BiMsX6Xn db: up 2.5, down 4)
+    const g = groundCtx(ctx, st).ground(p.x, p.z, p.y, 2.5, 4); // the spawn snap's reach (BiMsX6Xn db: up 2.5, down 4)
     if (g !== null && finite(g)) actor.position = { x: p.x, y: g, z: p.z };
     st.snap = 0;
   }
@@ -1356,6 +1418,7 @@ export function aimRoundIoBots(actors) {
 export const roundBotsInternals = {
   resetCaches() { NAVS = new WeakMap(); MASK_IDS = new WeakMap(); BARS = new WeakMap(); BAR_KEYS = new WeakMap(); },
   navFor, maskFor, fieldFor, fieldMulti, reachFor, barriersOf, nearestNode, nodesNear, cellHasFloor, lineCut, pickTarget, trackNode,
+  groundCtx, GAP_EPS, LOW_TICKS,
   stagingFor, reachUnion, spikeData, electCand, keepsDefusingSeen, plantCacheSize: (N) => N.plant.size,
   atkData, fetchData, zoneAt, fetchCacheSize: (N) => N.fetch.size,
   MODE, GK, RUN_SPEED, TURN_RATE, YIELD_DIST, YIELD_MAX, STAGGER_SEC, STUCK_MAX, ROT_DELAY, ROT_DEFAULT, PLANT_LRU,

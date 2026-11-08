@@ -7,10 +7,12 @@
 // The retakes also check: no bot off the nav floors (offFloor 0) and, with the player hidden, no
 // bot ever sees it (seen 0). Split has ropes and a vent room; bots never use ropes (the nav has no
 // rope edges) and the wait test picks only spots the bots can walk or drop to.
-// Known issue (R4d, reported for R5; the "game" movement 20 s test is a todo): a bot can be pinned
-// exactly on a seam where a flat floor meets a ramp (x -72.0 z -11.3 on the way to Mail, x -58.0
-// z 13.3 next to B), fall through it to the surface below (y 2.42) and then follow the upper-floor
-// nav from underneath (round-bots has no off-floor recovery). The player walks over these seams.
+// Ground gaps (R4e): Split leaves sub-millimetre strips between flat-floor and ramp triangles (x
+// -72.0 z -11.3 on the way to Mail, x -58.0 z 13.3 next to B). A bot whose step landed in one used to
+// fall through to the surface below (y 2.42) and follow the upper-floor nav from underneath;
+// round-bots' groundCtx now probes 2 mm to the sides on a miss (st.gfix counts it) and a safety net
+// puts a bot that is under the nav floor back on it (st.lowN). Both R4d repros are strict tests here
+// (gfix > 0, off the floor 0), plus a forced under-the-floor test for the safety net.
 // Uses scripts/round-bots-sweep.mjs with ROUND_MAP=bonsai (its ASCENT / NAV_AB then hold Split's
 // data). Needs the game files in site/ (skipped without them). Heavy: run it on hp
 // (npm run test:round in app/). The first loadTerrain('bonsai') builds the triangle cache in the OS
@@ -151,12 +153,13 @@ test('real Split: the sweep runs on bonsai data (ROUND_MAP=bonsai), the 3 test s
 });
 
 async function setups20(modes, sets = [0, 1, 2]) {
-  const seen = new Set();
+  const seen = new Set(), all = [];
   for (const [mode, extra] of modes) {
     for (const k of sets) {
       const label = `20s ${mode} set ${k}`;
       const { res } = await runReal(realDoc({ barrierSec: 20, set: SETS[k] }), { seed: 41 + k, extra, ticks: TPS * 30 });
       checkRun(res, label);
+      all.push(...res);
       for (const r of res) {
         seen.add(r.name);
         arrivals.push({ barrier: 20, mode, setup: r.name, field: +r.field.toFixed(2), start: +r.b.goT.toFixed(2), arrive: r.b.arriveT, air: r.airTicks, waited: r.waited });
@@ -170,14 +173,19 @@ async function setups20(modes, sets = [0, 1, 2]) {
   }
   const want = new Set(sets.flatMap((k) => SETS[k]));
   assert.equal(seen.size, want.size, 'every setup of these sets walked to');
+  for (const r of all) assert.equal(r.b.lowN, 0, `${r.name}: under-floor recoveries`);
+  return all;
 }
 test('real Split, 20 s barrier, default movement (all 3 sets: the 13 setups) and "game" movement (sets 1, 2: 10 setups): every setup reached (nav mode every tick, no wait, arrived before 20 s and by 1.25 x field + 1 s), on the real floor, inside the defender side, never across a barrier', { skip }, async () => { await setups20([MODES[0]]); await setups20([MODES[1]], [1, 2]); });
 
-// Known issue (bot / sim, reported for R5): in "game" movement the Mail bot of set 0 (seed 41) is
-// pushed to x = -72.000 exactly at the foot of the ramp at (-72, 5, -11.3) (a flat floor meets a 31
-// degree ramp there), goes airborne on that seam, falls through it to the level below (y 2.42) and
-// then follows the upper-floor nav from underneath, holding 5.6 m under its setup (offNode ticks).
-test('real Split, 20 s barrier, "game" movement, set 0: all 5 setups reached, on the real floor (known issue: the Mail bot falls through the floor/ramp seam at -72, 5, -11.3)', { skip, todo: !skip && 'game-movement bot falls through the seam at (-72, 5, -11.3) (R5)' }, () => setups20([MODES[1]], [0]));
+// R4d repro: in "game" movement the Mail bot of set 0 (seed 41) steps into the 0.8 mm gap at the foot
+// of the ramp at (-72, 5, -11.3) (x -71.99978); the plain ground ray misses there and the bot used to
+// fall to y 2.42 and hold 5.6 m under its setup. Now the gap probe catches it (gfix > 0).
+test('R4e real Split, 20 s barrier, "game" movement, set 0: all 5 setups reached on the real floor; the Mail bot crosses the floor/ramp gap at (-72, 5, -11.3) (gap rescue, no fall)', { skip }, async () => {
+  const all = await setups20([MODES[1]], [0]);
+  const mail = all.find((r) => r.name === 'Mail');
+  assert.ok(mail.b.gfix > 0, `Mail bot: ground-gap rescues ${mail.b.gfix} (the repro must still hit the gap)`);
+});
 
 test('real Split, 10 s barrier, both movement modes: late bots keep walking through the drop, then hold', { skip }, async () => {
   for (const [mode, extra] of MODES) {
@@ -279,6 +287,7 @@ function checkRetake(m, label) {
   assert.ok(m.end < 45, `${tag}: defused ${m.end.toFixed(2)} s after the plant`);
   assert.ok(m.candArrive >= 0 && m.defuseStart >= m.candArrive, `${tag}: candidate arrived ${m.candArrive}, defuse ${m.defuseStart}`);
   assert.equal(m.offFloor, 0, `${tag}: off the nav floors ${JSON.stringify(m.offFloorAt)}`);
+  assert.equal(m.lowN, 0, `${tag}: under-floor recoveries (the safety net should never be needed)`);
   if (m.player === 'hidden') assert.equal(m.seen, 0, `${tag}: a bot saw the hidden player ${JSON.stringify(m.seenAt)}`);
 }
 
@@ -321,4 +330,74 @@ test('real Split: determinism across the plant tick: restore the planted state -
   s.restoreState(S1);
   assert.ok(run(TPS) === b, 'mid-retake save -> same continuation');
   assert.ok(S1.actors.some((x) => x.behavior.roundBot.pk >= 0), 'the save is past the latch');
+});
+
+// ---------------------------------------------------------------- R4e: ground gaps + safety net
+// R4d repro: sweep run seed 1475 (B site, 20 s barrier, player dead): a retaking bot stepped into the
+// 0.35 mm gap between the floor (edge x -58.0) and the ramp (edge x -58.00035) next to B at z 13.3
+// and fell to y 2.42. Now: rescued by the gap probe (gfix > 0), never off the nav floors.
+test('R4e real Split: sweep run 1475 (B retake, player dead): the bot crossing the floor/ramp gap at (-58, 13.3) stays on the floor (gap rescue), no recovery needed', { skip }, async () => {
+  const N = SW.useNav(), spots = { A: SW.zoneSpots(N, 'A'), B: SW.zoneSpots(N, 'B') };
+  const c = SW.retakeCase(N, spots, 4, 'B', 20, 'dead');
+  assert.equal(c.seed, 1475);
+  const m = SW.retakeRun({ sim, W: await terrain(), doc: c.doc, seed: c.seed, extra: c.extra, plantAfter: c.plantAfter, spike: c.spike, player: c.player, maxSec: c.maxSec });
+  const tag = `Split sweep run 1475 (${c.game ? 'game' : 'default'} movement, rank ${c.rank ?? 'default'})`;
+  console.log(`${tag}: kind ${m.kind} outcome ${m.outcome} gfix ${m.gfix} lowN ${m.lowN} offFloor ${m.offFloor}`);
+  assert.equal(m.offFloor, 0, `${tag}: off the nav floors ${JSON.stringify(m.offFloorAt)}`);
+  assert.equal(m.lowN, 0, `${tag}: under-floor recoveries`);
+  assert.ok(m.gfix > 0, `${tag}: ground-gap rescues ${m.gfix} (the repro must still hit the gap)`);
+  assert.equal(m.crossings, 0, `${tag}: barrier crossings`);
+  assert.equal(m.stuck, 0, `${tag}: stuck bots`);
+  if (m.kind === 'defuse') assert.equal(m.outcome, 'defused', `${tag}: outcome`);
+});
+
+// Safety net: a walking bot is put under its floor (onto the surface below it, else 3 m down, not
+// airborne). It must stand (no il: x/z unchanged) while flagged, be put back on its last on-floor node
+// (st.okN) within 16 ticks (st.lowN 1), and then still reach and hold its setup.
+test('R4e real Split: a bot forced under the nav floor stands, is put back on its last on-floor node within 16 ticks, then reaches its setup', { skip }, async () => {
+  const N = SW.useNav(), g = N.g, H = navlib.nodeIndex(g), W = await terrain();
+  let forced = null;
+  const log = [];
+  const { res } = await runReal(realDoc({ barrierSec: 20, set: SETS[0] }), { seed: 41, ticks: TPS * 30, each: (s, st, i) => {
+    if (!forced) {
+      if (i < TPS * 4) return;
+      for (const a of st.actors) {
+        const b = a.behavior.roundBot, p = a.position;
+        if (b.mode !== I.MODE.walk || b.air === 1 || b.real !== 1 || !(b.okN >= 0)) continue;
+        let y = p.y - 3, top = p.y - 0.3, surface = false;
+        for (let n = 0; n < 6; n++) {
+          const t = W.ray(W.pawn, [p.x, top, p.z], [0, -1, 0], 15);
+          if (t < 0) break;
+          if (top - t <= p.y - 1.5) { y = top - t; surface = true; break; }
+          top = top - t - 0.05;
+        }
+        if (navlib.nodesNear(g, H, p.x, p.z, 0.75, y, 0.5).length) continue; // a real lower floor: not "under the map"
+        a.position = { x: p.x, y, z: p.z };
+        delete b.air; delete b.vy;
+        forced = { id: a.id, tick: i, x: p.x, z: p.z, y, okN: b.okN, surface };
+        s.restoreState(st);
+        return;
+      }
+    } else if (log.length < 24) {
+      const a = st.actors.find((x) => x.id === forced.id), b = a.behavior.roundBot;
+      log.push({ i, x: a.position.x, y: a.position.y, z: a.position.z, lowT: b.lowT, lowN: b.lowN, cur: b.cur });
+    }
+  } });
+  assert.ok(forced, 'found a walking bot to push under the floor');
+  console.log(`forced bot ${forced.id} at tick ${forced.tick} to y ${forced.y.toFixed(2)} (${forced.surface ? 'surface below' : '3 m down'}), okN ${forced.okN}; ${JSON.stringify(log.slice(0, 18).map((l) => [l.i - forced.tick, +l.y.toFixed(2), l.lowT, l.lowN]))}`);
+  const k = log.findIndex((l) => l.lowN === 1);
+  assert.ok(k >= 0, 'recovered');
+  const back = log[k];
+  assert.ok(back.i - forced.tick <= 16, `recovered ${back.i - forced.tick} ticks after (<= 16)`);
+  for (const l of log.slice(0, k)) {
+    assert.ok(l.x === forced.x && l.z === forced.z, `tick +${l.i - forced.tick}: no il while flagged (x/z unchanged)`);
+    assert.ok(l.lowT >= 1 && l.lowN === 0, `tick +${l.i - forced.tick}: flagged (lowT ${l.lowT})`);
+  }
+  assert.ok(Math.abs(back.x - g.x[forced.okN]) < 1e-9 && Math.abs(back.z - g.z[forced.okN]) < 1e-9, 'put on its okN node');
+  assert.ok(Math.abs(back.y - g.y[forced.okN]) < 0.6, `on okN's floor (y ${back.y.toFixed(2)} vs node ${g.y[forced.okN].toFixed(2)})`);
+  assert.equal(back.cur, forced.okN);
+  const r = res.find((x) => x.id === forced.id);
+  assert.equal(r.b.lowN, 1, 'one recovery');
+  assert.equal(r.b.arrived, 1, `${r.name}: reached its setup after the recovery`);
+  assert.equal(r.b.mode, I.MODE.hold, `${r.name}: holds`);
 });

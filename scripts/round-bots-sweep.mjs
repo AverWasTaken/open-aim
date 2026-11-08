@@ -8,6 +8,8 @@
 // Also off-floor ticks (a bot not airborne with no nav node of its floor within 0.75 m, as in the
 // attacker runs; summary offFloorRuns, must be 0) and, in hidden runs, ticks on which a bot sees the
 // player (summary seenTicksHidden; the hide spot must be out of every defender's sight).
+// Both modes also sum the bots' ground-gap rescues (st.gfix, summary gfixTotal) and under-floor
+// recoveries (st.lowN, summary lowRecoveries) from round-bots.mjs (R4e).
 // Split, rank and movement mode vary with the seed.
 //
 // Heavy (about 6 s per run on hp): run it on hp only, one CPU job at a time:
@@ -176,6 +178,8 @@ export function retakeRun({ sim, W, doc, seed, extra = {}, plantAfter = 0.5, spi
   const fin = s.saveState();
   m.stuck = stuckIds.size;
   m.retries = fin.actors.reduce((n, a) => n + (a.behavior.roundBot.retries ?? 0), 0);
+  m.gfix = fin.actors.reduce((n, a) => n + (a.behavior.roundBot.gfix ?? 0), 0); // ground-gap rescues (round-bots groundCtx)
+  m.lowN = fin.actors.reduce((n, a) => n + (a.behavior.roundBot.lowN ?? 0), 0); // under-floor recoveries (safety net)
   m.cands = [...m.cands];
   m.s = s;
   return m;
@@ -325,6 +329,8 @@ export function attackRun({ sim, W, doc, seed = 1, extra = {}, kill = null, maxS
   const fin = s.saveState();
   m.stuck = stuckIds.size;
   m.retries = fin.actors.reduce((n, a) => n + (a.behavior.roundBot?.retries ?? 0), 0);
+  m.gfix = fin.actors.reduce((n, a) => n + (a.behavior.roundBot?.gfix ?? 0), 0);
+  m.lowN = fin.actors.reduce((n, a) => n + (a.behavior.roundBot?.lowN ?? 0), 0);
   m.s = s;
   return m;
 }
@@ -335,6 +341,15 @@ function rng(seed) {
   return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 const RANKS = [undefined, 'iron', 'gold', 'platinum', 'radiant'];
+// One retake run of the sweep (seed k, site, barrier, player): seed, spike spot, rank, movement, plant
+// time, all from the seed (tests replay single sweep runs with it: spots = { A: zoneSpots(N, 'A'), B: … }).
+export function retakeCase(N, spots, k, site, barrierSec, player) {
+  const seed = 1000 + k * 100 + (site === 'B' ? 50 : 0) + (barrierSec === 20 ? 20 : 0) + (player === 'dead' ? 5 : 0), R = rng(seed); // unique per run
+  const box = R() < 0.25 && spots[site].box.length > 0, pool = box ? spots[site].box : spots[site].all;
+  const node = pool[Math.floor(R() * pool.length)], rank = RANKS[Math.floor(R() * RANKS.length)], game = R() < 0.5;
+  const plantAfter = 2 + R() * 10;
+  return { seed, box, rank, game, plantAfter, doc: realDoc({ barrierSec }), extra: { ...(rank ? { enemyRank: rank } : {}), ...(game ? { movement: 'game' } : {}) }, spike: spotOf(N, node, site), player, maxSec: barrierSec + plantAfter + 50 };
+}
 
 async function main() {
   const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
@@ -351,14 +366,11 @@ async function main() {
   console.log(`${MAP} zone spots: A ${spots.A.all.length} (${spots.A.box.length} box), B ${spots.B.all.length} (${spots.B.box.length} box)`);
   outer: for (let k = 0; k < seeds; k++) for (const site of ['A', 'B']) for (const barrierSec of [10, 20]) for (const player of ['hidden', 'dead']) {
     if (Date.now() - t0 > maxMin * 60e3) { console.log(`time budget (${maxMin} min) reached, stopping`); break outer; }
-    const seed = 1000 + k * 100 + (site === 'B' ? 50 : 0) + (barrierSec === 20 ? 20 : 0) + (player === 'dead' ? 5 : 0), R = rng(seed); // unique per run
+    const c = retakeCase(N, spots, k, site, barrierSec, player), { seed, box, rank, game } = c;
     if (only && !only.has(seed)) continue;
-    const box = R() < 0.25 && spots[site].box.length > 0, pool = box ? spots[site].box : spots[site].all;
-    const node = pool[Math.floor(R() * pool.length)], rank = RANKS[Math.floor(R() * RANKS.length)], game = R() < 0.5;
-    const plantAfter = 2 + R() * 10;
-    const doc = realDoc({ barrierSec });
+    const doc = c.doc;
     const w0 = Date.now();
-    const m = retakeRun({ sim: sim, W, doc, seed, extra: { ...(rank ? { enemyRank: rank } : {}), ...(game ? { movement: 'game' } : {}) }, plantAfter, spike: spotOf(N, node, site), player, maxSec: barrierSec + plantAfter + 50,
+    const m = retakeRun({ sim: sim, W, doc, seed, extra: c.extra, plantAfter: c.plantAfter, spike: c.spike, player, maxSec: c.maxSec,
       onTick: debug ? (q, st, mm, info) => {
         if (mm.plant < 0) return;
         const dtk = info.tick - mm.plant;
@@ -372,7 +384,7 @@ async function main() {
       spike: [+m.spike.x.toFixed(2), +m.spike.y.toFixed(2), +m.spike.z.toFixed(2)], plantMs: m.plantMs === null ? null : +m.plantMs.toFixed(1),
       candArrive: m.candArrive < 0 ? null : +m.candArrive.toFixed(2), defuseStart: m.defuseStart < 0 ? null : +m.defuseStart.toFixed(2),
       outcome: m.outcome, end: +m.end.toFixed(2), stuck: m.stuck, retries: m.retries, crossings: m.crossings, fireWhileDefusing: m.fireWhileDefusing,
-      offFloor: m.offFloor, offFloorAt: m.offFloorAt, seen: m.seen, seenAt: m.seenAt,
+      offFloor: m.offFloor, offFloorAt: m.offFloorAt, seen: m.seen, seenAt: m.seenAt, gfix: m.gfix, lowN: m.lowN,
       flagGap: m.flagGap, maxDefusers: m.maxDefusers, overdue: m.overdue, minStillTick: Number.isFinite(m.minStillTick) ? +m.minStillTick.toFixed(2) : null, push: m.firstPush < 0 || m.staged2 < 0 ? null : +((m.firstPush - m.staged2) / TPS).toFixed(2), maxExcess: +m.maxExcess.toFixed(2),
       minStill: Number.isFinite(m.minStill) ? +m.minStill.toFixed(2) : null, wall: +((Date.now() - w0) / 1000).toFixed(1),
     };
@@ -395,7 +407,7 @@ async function main() {
     outcomes: rows.reduce((o, r) => ({ ...o, [`${r.kind}:${r.outcome}`]: (o[`${r.kind}:${r.outcome}`] ?? 0) + 1 }), {}),
     candArrive: q(ok, (r) => r.candArrive), defuseStart: q(ok, (r) => r.defuseStart), defuseEnd: q(defused, (r) => r.end),
     stuckBots: rows.reduce((s, r) => s + r.stuck, 0), crossings: rows.reduce((s, r) => s + r.crossings, 0),
-    offFloorRuns: rows.filter((r) => r.offFloor > 0).length, seenTicksHidden: rows.filter((r) => r.player === 'hidden').reduce((s, r) => s + r.seen, 0),
+    offFloorRuns: rows.filter((r) => r.offFloor > 0).length, gfixTotal: rows.reduce((s, r) => s + r.gfix, 0), lowRecoveries: rows.reduce((s, r) => s + r.lowN, 0), seenTicksHidden: rows.filter((r) => r.player === 'hidden').reduce((s, r) => s + r.seen, 0),
     fireWhileDefusing: rows.reduce((s, r) => s + r.fireWhileDefusing, 0), flagGapRuns: rows.filter((r) => r.flagGap > 0).length,
     maxDefusers: Math.max(...rows.map((r) => r.maxDefusers)), overdue: rows.reduce((s, r) => s + r.overdue, 0), minStillTick: q(rows, (r) => r.minStillTick),
     plantMs: q(rows, (r) => r.plantMs), maxExcess: Math.max(...rows.map((r) => r.maxExcess)),
@@ -430,7 +442,7 @@ async function defenseMain() {
       gather: m.plan.gatherSec, goAfterLive: m.goAfterLive, stagedAtGo: `${m.stagedAtGo}/${m.members}`, lurkerStaged: m.lurkerStaged,
       planted: m.plant >= 0 ? 1 : 0, plantAfterLive: m.plantAfterLive, plantSiteOk: m.plant >= 0 ? (m.plantSite === m.site ? 1 : 0) : null, plantNodeDist: m.plantNodeDist === null ? null : +m.plantNodeDist.toFixed(3),
       drops: m.drops.length, fetcher: m.fetcher, newCarrier: pk ? pk.id : null, fetchOk: m.drops.length ? (pk && pk.id === m.fetcher ? 1 : 0) : null, fetchWalk: m.fetchWalk,
-      botPlantBeforeKill: m.botPlantBeforeKill, outcome: m.outcome, crossings: m.crossings, outside: m.outside, offFloor: m.offFloor, offFloorAt: m.offFloorAt, stuck: m.stuck, retries: m.retries, seen: m.seen, shots: m.shots,
+      botPlantBeforeKill: m.botPlantBeforeKill, outcome: m.outcome, crossings: m.crossings, outside: m.outside, offFloor: m.offFloor, offFloorAt: m.offFloorAt, gfix: m.gfix, lowN: m.lowN, stuck: m.stuck, retries: m.retries, seen: m.seen, shots: m.shots,
       minStill: Number.isFinite(m.minStill) ? +m.minStill.toFixed(2) : null, minStillBarrier: Number.isFinite(m.minStillBarrier) ? +m.minStillBarrier.toFixed(2) : null, post: m.post, maxPlanters: m.maxPlanters, plantingNotCarrier: m.plantingNotCarrier, routeOk: m.routeOk ? 1 : 0, nav: m.nav ? 1 : 0, waitSeen: m.waitSeen ? 1 : 0,
       dropMs: m.dropMs === null ? null : +m.dropMs.toFixed(1), firstMs: +m.firstMs.toFixed(1), wall: +((Date.now() - w0) / 1000).toFixed(1),
     };
@@ -445,7 +457,7 @@ async function defenseMain() {
     runs: rows.length, minutes: +((Date.now() - t0) / 60e3).toFixed(1),
     perKind: Object.fromEntries(Object.entries(kinds).map(([k, a]) => [k, { runs: a.length, planted: a.filter((r) => r.planted).length, plantedWithin40: a.filter((r) => r.planted && r.plantAfterLive <= 40).length, plantAfterLive: q(a, (r) => r.plantAfterLive), fetchOk: a.filter((r) => r.fetchOk === 1).length, drops: a.filter((r) => r.drops > 0).length, fetchWalk: q(a, (r) => r.fetchWalk) }])),
     plantSiteOk: rows.filter((r) => r.plantSiteOk === 1).length, plantNodeDistMax: Math.max(0, ...rows.map((r) => r.plantNodeDist ?? 0)),
-    crossings: rows.reduce((s, r) => s + r.crossings, 0), outside: rows.reduce((s, r) => s + r.outside, 0), offFloorRuns: rows.filter((r) => r.offFloor > 0).length, stuckBots: rows.reduce((s, r) => s + r.stuck, 0), retries: rows.reduce((s, r) => s + r.retries, 0),
+    crossings: rows.reduce((s, r) => s + r.crossings, 0), outside: rows.reduce((s, r) => s + r.outside, 0), offFloorRuns: rows.filter((r) => r.offFloor > 0).length, gfixTotal: rows.reduce((s, r) => s + r.gfix, 0), lowRecoveries: rows.reduce((s, r) => s + r.lowN, 0), stuckBots: rows.reduce((s, r) => s + r.stuck, 0), retries: rows.reduce((s, r) => s + r.retries, 0),
     seenTicks: rows.reduce((s, r) => s + r.seen, 0), shots: rows.reduce((s, r) => s + r.shots, 0), minStill: q(rows, (r) => r.minStill),
     barrierOverlapRuns: rows.filter((r) => r.minStillBarrier !== null && r.minStillBarrier < 0.8).length, maxPlanters: Math.max(...rows.map((r) => r.maxPlanters)), plantingNotCarrier: rows.reduce((s, r) => s + r.plantingNotCarrier, 0),
     post: { runs: posts.length, allHeld: posts.filter((r) => r.post.held === r.post.assigned && r.post.distinct === r.post.assigned && r.post.assigned === Math.min(r.post.alive, r.post.spots)).length, held: posts.reduce((s, r) => s + r.post.held, 0), assigned: posts.reduce((s, r) => s + r.post.assigned, 0) },

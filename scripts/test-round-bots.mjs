@@ -431,6 +431,64 @@ test('B2 init: nav mode for every Ascent setup, no teleport, il state as lN.init
   useNav();
 });
 
+test('R4e groundCtx: a ray hit is returned unchanged; a miss inside a gap narrower than 2 x GAP_EPS (both probes of one axis hit) returns the highest probe and counts st.gfix; a ledge edge / overhang rim (one side only) or open air stays null; no ground -> ctx itself', () => {
+  const E = I.GAP_EPS;
+  assert.equal(E, 0.002);
+  // Split's B seam: floor (y 3) for x >= -58, ramp (y 3.0002 at its edge) for x <= -58.00035, a gap between.
+  const seen = [];
+  const ground = (x, z, y, up, down) => { seen.push([x, z, y, up, down]); return x >= -58 ? 3 : x <= -58.00035 ? 3.0002 : null; };
+  const ctx = { ground, profile: { runSpeed: 5.4 }, tick: 7, gameMovement: true }, st = { gfix: 0 };
+  const c = I.groundCtx(ctx, st);
+  assert.notEqual(c, ctx);
+  assert.equal(c.profile, ctx.profile); assert.equal(c.tick, 7); assert.equal(c.gameMovement, true);
+  assert.equal(c.ground(-57.5, 1, 3.45, 0, 0.9), 3); assert.equal(st.gfix, 0, 'hit: no rescue');
+  assert.deepEqual(seen, [[-57.5, 1, 3.45, 0, 0.9]], 'hit: one ray, same arguments');
+  seen.length = 0;
+  assert.equal(c.ground(-58.0002, 1, 3.45, 0, 0.9), 3.0002, 'gap: the highest probe hit');
+  assert.equal(st.gfix, 1);
+  assert.deepEqual(seen.map((q) => [q[0] - -58.0002, q[1] - 1].map((v) => +v.toFixed(6))), [[0, 0], [E, 0], [-E, 0], [0, E], [0, -E]], 'probe order: centre, +x, -x, +z, -z');
+  assert.ok(seen.every((q) => q[2] === 3.45 && q[3] === 0 && q[4] === 0.9), 'probes use the same window');
+  // The same gap along z.
+  const st2 = { gfix: 0 }, c2 = I.groundCtx({ ground: (x, z) => (z >= 4 ? 1 : z <= 3.9995 ? 1.5 : null) }, st2);
+  assert.equal(c2.ground(0, 3.9998, 1.4, 0, 0.9), 1.5); assert.equal(st2.gfix, 1);
+  // A ledge edge: floor only on one side -> still a miss (a real drop), no rescue.
+  const st3 = { gfix: 0 }, c3 = I.groundCtx({ ground: (x) => (x >= 0 ? 1 : null) }, st3);
+  assert.equal(c3.ground(-0.001, 0, 1.45, 0, 0.9), null); assert.equal(st3.gfix, 0);
+  // A ledge corner: floor for x >= 0 and z >= 0 only.
+  const c4 = I.groundCtx({ ground: (x, z) => (x >= 0 && z >= 0 ? 1 : null) }, st3);
+  assert.equal(c4.ground(-0.001, -0.001, 1.45, 0, 0.9), null); assert.equal(st3.gfix, 0);
+  // Open air (headroom probes: null = clear) stays null; a gap wider than 2 x GAP_EPS too.
+  const c5 = I.groundCtx({ ground: () => null }, st3);
+  assert.equal(c5.ground(0, 0, 1, 1.8, 0), null);
+  const c6 = I.groundCtx({ ground: (x) => (Math.abs(x) >= 0.003 ? 1 : null) }, st3);
+  assert.equal(c6.ground(0, 0, 1.45, 0, 0.9), null); assert.equal(st3.gfix, 0);
+  // undefined from ground counts as a miss too; a 0 floor is a hit.
+  assert.equal(I.groundCtx({ ground: () => 0 }, st3).ground(1, 1, 0.45, 0, 0.9), 0); assert.equal(st3.gfix, 0);
+  // No ground (flat test scenes, init): ctx itself.
+  const plain = { tick: 1 };
+  assert.equal(I.groundCtx(plain, {}), plain);
+});
+
+test('R4e update passes il the gap-safe ground (il, dead-mid-air il, spawn snap): same ctx fields, ground bridged over a gap with st.gfix counted', () => {
+  useNav();
+  const { a, ctx, st } = initBot('B default');
+  const base = (x) => (x >= 0.5 ? 0 : x <= 0.4997 ? 0.0001 : null); // a 0.3 mm gap at x 0.4997..0.5
+  ctx.ground = (x, z, y, up, down) => base(x);
+  let got = null;
+  const il = (state, opts, actor, c) => { got = { c, gap: c.ground(0.4999, 0, 0.45, 0, 0.9), hit: c.ground(1, 0, 0.45, 0, 0.9) }; };
+  for (let i = 0; i < 4 * TPS && !got; i++) { ctx.tick++; ctx.elapsed = ctx.tick / TPS; ctx.round.state.phase = 'barrier'; bots.roundBotUpdate({}, a, ctx, 1 / TPS, il); }
+  assert.ok(got, 'il called');
+  assert.notEqual(got.c, ctx);
+  assert.equal(got.c.round, ctx.round); assert.equal(got.c.profile, ctx.profile); assert.equal(got.c.elapsed, ctx.elapsed);
+  assert.equal(got.gap, 0.0001); assert.equal(got.hit, 0);
+  assert.equal(st.gfix, 1);
+  // Dead in the air: the finishing il call gets the same wrapper.
+  a.alive = false; st.air = 1; got = null;
+  bots.roundBotUpdate({}, a, ctx, 1 / TPS, il);
+  assert.ok(got && got.gap === 0.0001, 'dead-mid-air il: gap bridged');
+  assert.equal(st.gfix, 2);
+});
+
 test('B2 update drives il like lN: [here, target, next] + finish run + index 1 while walking, [here, goal] + stop at the end; brake on combatHold only after the barrier; yield max 0.75 s', () => {
   const N = useNav(), g = N.g;
   const { a, ctx, st } = initBot('B default');
