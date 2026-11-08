@@ -184,6 +184,9 @@ export const PAGE_LIB = String.raw`(() => {
   qa.tl = [];
   qa.mark = (w) => { qa.tl.push((performance.now() / 1000).toFixed(1) + ' ' + w); if (qa.tl.length > 120) qa.tl.splice(0, 40); };
   qa.sawLoad = false;
+  // A launch ended back in the lobby: a load was seen, and now the lobby shows with no loader
+  // on top (the lobby stays underneath the loader for its first moments).
+  qa.fellBack = () => qa.sawLoad && qa.inLobby() && !document.querySelector('section.al-wkload, .aim-scenario-loading');
   let tlState = '';
   setInterval(() => {
     const w = document.querySelector('section.al-wkload'), p = document.querySelector('.aim-scenario-loading');
@@ -359,7 +362,7 @@ async function startDrill(ctx, { loadTimeout = 120000 } = {}) {
   const t0 = Date.now();
   const watchLobby = !!ctx.launched;
   ctx.launched = false;
-  await waitFor(ctx, `(()=>{const s=__qa.status(); if(s.failed) return 'FAILED'; if(s.picker) return 'PICKER'; if(${watchLobby} && s.lobby && __qa.sawLoad) return 'LOBBY'; return s.ready ? 'READY' : (s.phase==='running' && s.locked ? 'RUNNING' : false)})()`, { timeout: loadTimeout, what: "drill start screen" }).then((v) => {
+  await waitFor(ctx, `(()=>{const s=__qa.status(); if(s.failed) return 'FAILED'; if(s.picker) return 'PICKER'; if(${watchLobby} && __qa.fellBack()) return 'LOBBY'; return s.ready ? 'READY' : (s.phase==='running' && s.locked ? 'RUNNING' : false)})()`, { timeout: loadTimeout, what: "drill start screen" }).then((v) => {
     if (v === "FAILED") throw new Error("drill failed to load (al-wkload says it won't open)");
     if (v === "PICKER") throw new Error("rank picker showed up unexpectedly");
     if (v === "LOBBY") throw Object.assign(new Error("drill load fell back to the lobby without an error"), { fellBack: true });
@@ -829,7 +832,7 @@ const round = {
       await clickSel(ctx, ".aim-round-start");
       await waitFor(ctx, "window.__aimRoundOn===true", { timeout: 20000, what: "__aimRoundOn" });
       t0 = Date.now();
-      const v = await waitFor(ctx, "__qa.status().failed ? 'FAILED' : (__qa.sawLoad && __qa.inLobby()) ? 'LOBBY' : __qa.readyToStart()", { timeout: 150000, every: 1000, what: "round start screen" });
+      const v = await waitFor(ctx, "__qa.status().failed ? 'FAILED' : __qa.fellBack() ? 'LOBBY' : __qa.readyToStart()", { timeout: 150000, every: 1000, what: "round start screen" });
       if (v === "FAILED") throw new Error("round scene failed to load");
       if (v !== "LOBBY") break;
       ctx.log(`round load fell back to the lobby; timeline: ${JSON.stringify(await ctx.cdp.evaluate("__qa.tl").catch(() => null))}`);
