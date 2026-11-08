@@ -39,6 +39,7 @@ Run them from the repository root with Python 3.
 | `graphics_holes_patch.py` | Bullet holes from a fixed pool of 64 meshes (same look, no new mesh/material per hole). Edits `l1` in the mods `OkAdunfX.js` (both copies). Run after `graphics_fx_patch.py`. |
 | `graphics_botfx_patch.py` | Bot hit flash and death animation (render side only): a short white hit pulse on humanoid bots (stronger and longer on a headshot) and a short "drop" when a humanoid dies (sinks, squashes and glows white-hot, gone after 220 ms). Spheres (grid dots) are left exactly as before. Edits the actor renderer `Uf` in the mods `CnrSARj_.js` (both copies), so the game and the replay player both get it. No sim change. See [Graphics](#graphics). |
 | `map_sky_patch.py` | Daytime sky per map: map scenes take their sky (background) colour from one per-map table instead of each scene's own `skyColor` (white or night navy on most maps before). Edits the mods `BiMsX6Xn.js` (both copies); render only. Details in the script's docstring and below. |
+| `map_salt_patch.py` | Corrode salt crystals: the untextured magenta glTF material `MI_RockSalt` (roof ridges on rook) is recoloured pale salt in the map material conversion. Edits the mods `BiMsX6Xn.js` (both copies); render only. Details below. |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
@@ -99,6 +100,7 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 23. `graphics_holes_patch.py` (needs `graphics_fx_patch.py`; refuses to run twice: it looks for `__aimHoleFree`)
 24. `graphics_botfx_patch.py` (after `graphics_holes_patch.py`; refuses to run twice: it looks for `/* graphics-botfx */`). It keeps each copy's own line ends.
 25. `map_sky_patch.py` (BiMsX6Xn only; independent of the others, run after `graphics_look_patch.py`; refuses to run twice: it looks for `/* maps-sky */`; keeps each copy's own line ends). See below.
+26. `map_salt_patch.py` (BiMsX6Xn only; independent of the others, run after `map_sky_patch.py`; refuses to run twice: it looks for `MI_RockSalt`; keeps each copy's own line ends). See below.
 
 ## Map sky (map_sky_patch.py)
 
@@ -115,6 +117,16 @@ the next time a drill on it loads; a value that isn't `#rrggbb` falls back to th
 To change the table for good, edit `SKY` in the script and the same `t:{...}` text after
 `/* maps-sky */` in both `BiMsX6Xn.js` copies (the test checks that they match). Test:
 `npm run test:map-sky` (in `app/`).
+
+## Corrode salt crystals (map_salt_patch.py)
+
+On Corrode (rook) the salt crystals on the roof ridges showed as flat magenta blobs. Their glTF
+material `MI_RockSalt` has no texture and a magenta base colour ([0.485, 0.072, 0.521]); it is
+used by 152 nodes, only on rook. In the map material conversion `tU`, a material named exactly
+`MI_RockSalt` with no colour map now gets a pale lilac colour (linear .78, .72, .80) before it is
+copied into the game's own map material. The lavender salt elsewhere is a real texture and stays as is;
+vertex colours are not touched. No sim, replay or scene hash change. Test: `npm run test:map-salt`
+(in `app/`).
 
 ## Range drill floor (graphics_look_patch.py)
 

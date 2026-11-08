@@ -38,7 +38,8 @@
     "test:routines": "node --test ../scripts/test-training-routines.cjs",
     "test:graphics-fx": "node --test ../scripts/test-graphics-fx.mjs",
     "test:graphics-botfx": "node --test ../scripts/test-graphics-botfx.mjs",
-    "test:map-sky": "node --test ../scripts/test-map-sky.mjs"
+    "test:map-sky": "node --test ../scripts/test-map-sky.mjs",
+    "test:map-salt": "node --test ../scripts/test-map-salt.mjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
