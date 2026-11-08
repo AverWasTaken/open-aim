@@ -43,7 +43,8 @@
     "test:hud": "node --test ../scripts/test-ux-hud.mjs",
     "test:cards": "node --test ../scripts/test-ux-cards.mjs",
     "test:theme": "node --test ../scripts/test-ux-result-theme.mjs",
-    "test:welcome": "node --test ../scripts/test-ux-welcome.mjs"
+    "test:welcome": "node --test ../scripts/test-ux-welcome.mjs",
+    "test:feelsensfinder": "node --test ../scripts/test-feel-sens-finder.cjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
@@ -77,6 +78,8 @@
       "page-watch.js",
       "smooth-scroll.js",
       "player-tools.js",
+      "feel-sens-finder-core.js",
+      "feel-sens-finder.js",
       "valorant-import.js",
       "valorant-import-ui.js",
       "valorant-import-ipc.js",

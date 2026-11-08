@@ -38,6 +38,12 @@
   addEventListener("wheel", (e) => {
     if (e.defaultPrevented || e.ctrlKey || e.shiftKey || document.pointerLockElement) return;
     if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    // Rows marked data-wheel-x (routine chip rows, training-routines.js) turn the wheel into
+    // sideways scrolling themselves while they can still move that way.
+    for (let row = e.target.closest?.("[data-wheel-x]"); row; row = row.parentElement?.closest("[data-wheel-x]")) {
+      const max = row.scrollWidth - row.clientWidth;
+      if (max > 1 && /(auto|scroll)/.test(getComputedStyle(row).overflowX) && ((e.deltaY > 0 && row.scrollLeft < max - 1) || (e.deltaY < 0 && row.scrollLeft > 1))) return;
+    }
     // Mouse wheels report whole notches (about 100 px); touchpads report small steps.
     const dy = e.deltaMode === 1 ? e.deltaY * LINE : e.deltaMode === 2 ? e.deltaY * innerHeight * PAGE : e.deltaY;
     if (e.deltaMode === 0 && Math.abs(dy) < 40) return;

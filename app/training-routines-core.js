@@ -109,9 +109,14 @@
   const sameGroup = (a, b, variants) => !!a && !!b && groupOf(a, variants) === groupOf(b, variants);
 
   // The catalogue item to launch for a code: the lobby card of its group.
-  function itemFor(code, catalogue, variants) {
+  const cardIndex = (catalogue) => {
     const byCode = new Map();
     for (const it of catalogue || []) if (it && typeof it.shareCode === "string") byCode.set(it.shareCode, it);
+    return byCode;
+  };
+  // index: optional cardIndex(catalogue), for callers that look up many codes.
+  function itemFor(code, catalogue, variants, index) {
+    const byCode = index || cardIndex(catalogue);
     const g = variants && variants[code];
     if (g && g.item && byCode.has(g.item.shareCode)) return byCode.get(g.item.shareCode);
     if (byCode.has(code)) return byCode.get(code);
@@ -377,14 +382,40 @@
   // ---------- lobby strip (pure: same markup at every window size; CSS makes it one line at
   // max-height 800px, see training-routines.css) ----------
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  // list: resolved routines; store: aim-training-routines-v1; notice: {text, until} or null.
-  function stripModel(list, run, store, now, notice) {
-    const cards = list.map((r) => {
+  // list: resolved routines (built-ins, then custom ones with custom:true); store:
+  // aim-training-routines-v1; notice: {text, until} or null; opts.custom: the custom store
+  // (readCustom) for its stored codes and read-only flag.
+  function stripModel(list, run, store, now, notice, opts) {
+    const cstore = (opts && opts.custom) || { routines: [], readOnly: false };
+    const card = (r) => {
       const last = lastDone(store, r.id, now);
       return { id: r.id, name: r.name, blurb: r.blurb, n: r.steps.length, min: minutes(r.steps), drills: r.steps.map((s) => s.name), last: last.label, days: streak(store, r.id, now) };
+    };
+    const cards = list.filter((r) => !r.custom).map(card);
+    // codes: the stored ones, so the strip redraws after an edit that resolves the same.
+    const mine = list.filter((r) => r.custom).map((r) => {
+      const stored = cstore.routines.find((x) => x.id === r.id);
+      return { ...card(r), custom: true, ok: r.steps.length > 0, codes: stored ? stored.codes : r.steps.map((s) => s.code) };
     });
     const state = run ? { id: run.id, name: run.name, phase: run.phase, i: nextIndex(run), n: run.codes.length, done: isDone(run), next: run.names[Math.min(nextIndex(run), run.codes.length - 1)] } : null;
-    return { cards, state, notice: noticeText(notice, now) };
+    // "+ New routine": hidden at CUSTOM_MAX or for a read-only store; Edit / New are disabled
+    // while a routine drill is launching.
+    const add = !cstore.readOnly && mine.length < CUSTOM_MAX;
+    return { cards, mine, add, edit: !cstore.readOnly, lock: !!run && run.phase === "launching", state, notice: noticeText(notice, now) };
+  }
+  function chipsHtml(sig) {
+    const mine = sig.mine || [];
+    if (!mine.length && !sig.add) return "";
+    const lock = sig.lock ? " disabled" : "";
+    const chips = mine.map((c) => {
+      const lastText = `Last done: ${c.last}${c.days >= 2 ? `, ${c.days} day streak` : ""}`;
+      const title = `${c.name}\n${c.ok ? c.drills.join(", ") : "No drills found"}\n${lastText}`; // names can be cut short
+      const edit = sig.edit === false ? "" : `<button type="button" class="tr-btn is-ghost" data-act="edit" data-routine="${esc(c.id)}" aria-label="Edit ${esc(c.name)}"${lock}>Edit</button>`;
+      return `<article class="tr-chip" data-routine="${esc(c.id)}" title="${esc(title)}"><span class="tr-chip-name">${esc(c.name)}</span><span class="tr-meta">${c.ok ? `${c.n} drills` : "No drills found"}</span>`
+        + `<button type="button" class="tr-btn" data-act="start" data-routine="${esc(c.id)}" aria-label="Start ${esc(c.name)}"${c.ok ? "" : " disabled"}>Start</button>${edit}</article>`;
+    }).join("");
+    const add = sig.add ? `<button type="button" class="tr-btn tr-chip-new" data-act="new"${lock}>+ New routine</button>` : "";
+    return `<div class="tr-custom" role="group" aria-label="Your routines" data-wheel-x>${chips}${add}</div>`;
   }
   function stripHtml(sig) {
     const st = sig.state;
@@ -400,7 +431,7 @@
     }
     const cards = sig.cards.map((c) => {
       const lastText = `Last done: ${c.last}${c.days >= 2 ? `, ${c.days} day streak` : ""}`;
-      return `<article class="tr-card" data-routine="${esc(c.id)}" title="${esc(`${c.drills.join(", ")}\n${lastText}`)}">
+      return `<article class="tr-card" data-routine="${esc(c.id)}" title="${esc(`${c.name}\n${c.drills.join(", ")}\n${lastText}`)}">
       <div class="tr-card-head"><h3>${esc(c.name)}</h3><span class="tr-meta"><span class="tr-meta-n">${c.n} drills</span><span class="tr-meta-min"> · ~${c.min} min</span></span></div>
       <p class="tr-blurb">${esc(c.blurb)}</p>
       <p class="tr-drills">${esc(c.drills.join(" · "))}</p>
@@ -409,7 +440,157 @@
     </article>`;
     }).join("");
     const notice = sig.notice ? `<span class="tr-notice" role="status">${esc(sig.notice)}</span>` : "";
-    return `<header class="tr-strip-head"><h2>Routines</h2><p>Play a set of drills in a row. Go to the next drill from the result screen.</p>${notice}</header>${resume}<div class="tr-cards">${cards}</div>`;
+    return `<header class="tr-strip-head"><h2>Routines</h2><p>Play a set of drills in a row. Go to the next drill from the result screen.</p>${notice}</header>${resume}<div class="tr-rows" data-wheel-x><div class="tr-cards">${cards}</div>${chipsHtml(sig)}</div>`;
+  }
+
+  // ---------- custom routines (player-made, localStorage) ----------
+  // aim-training-routines-custom-v1 = {v:1, routines:[{id:"c-<time36>", name, codes:[shareCode...],
+  // createdAt, updatedAt}]}. They run through the same state machine as the built-ins (same run
+  // key, result bar, summary, completions under their own id). Each step is 60 s here: the drill
+  // list has no run length, and the estimate uses the same overhead rule as the built-ins.
+  const CUSTOM_KEY = "aim-training-routines-custom-v1";
+  const CUSTOM_MAX = 12; // routines
+  const CUSTOM_MIN_DRILLS = 2;
+  const CUSTOM_MAX_DRILLS = 10;
+  const NAME_MAX = 32;
+  const RECORD_CODE = "00000000000000c0"; // Studio's recording slot (studio-store.js), never a step
+  const customId = (id) => typeof id === "string" && /^c-[0-9a-z]+$/.test(id);
+  // Control characters out, trimmed, at most NAME_MAX characters.
+  const cleanName = (s) => String(s == null ? "" : s).replace(/[\u0000-\u001f\u007f-\u009f]/g, "").trim().slice(0, NAME_MAX).trim();
+
+  // Tolerant read: bad entries are dropped, never throws, never writes. A store saved by a newer
+  // version (v > 1) is shown but read-only (saveCustom / deleteCustom refuse).
+  function readCustom(raw) {
+    const out = { v: 1, routines: [], readOnly: false };
+    let v = null;
+    try { v = JSON.parse(raw || "null"); } catch { return out; }
+    if (!v || typeof v !== "object" || Array.isArray(v)) return out;
+    if (typeof v.v === "number" && v.v > 1) out.readOnly = true;
+    else if (v.v !== 1) return out;
+    if (!Array.isArray(v.routines)) return out;
+    const seen = new Set();
+    for (const r of v.routines) {
+      if (out.routines.length >= CUSTOM_MAX) break;
+      if (!r || typeof r !== "object" || !customId(r.id) || seen.has(r.id)) continue;
+      const codes = Array.isArray(r.codes) ? r.codes.filter(isCode).slice(0, CUSTOM_MAX_DRILLS) : [];
+      if (!codes.length) continue;
+      seen.add(r.id);
+      out.routines.push({ id: r.id, name: cleanName(r.name) || "My routine", codes, createdAt: num(r.createdAt) || 0, updatedAt: num(r.updatedAt) || 0 });
+    }
+    return out;
+  }
+  const writeCustom = (list) => JSON.stringify({
+    v: 1,
+    routines: (list || []).slice(0, CUSTOM_MAX).map((r) => ({ id: r.id, name: cleanName(r.name), codes: r.codes.slice(0, CUSTOM_MAX_DRILLS), createdAt: r.createdAt, updatedAt: r.updatedAt })),
+  });
+  // Same shape as ROUTINES entries.
+  const customDefs = (store) => store.routines.map((r) => ({ id: r.id, name: r.name, blurb: "", steps: r.codes.map((code) => ({ code, seconds: DEFAULT_SECONDS })), custom: true }));
+  // A custom routine always gets a card, also when none of its drills is in the drill list.
+  function resolveCustom(def, catalogue, variants, warn) {
+    const r = resolve(def, catalogue, variants, warn);
+    return r ? { ...r, custom: true } : { id: def.id, name: def.name, blurb: "", steps: [], custom: true };
+  }
+  // Smallest unused N in "My routine N" (the routine being edited, except, does not count).
+  function defaultName(store, except) {
+    const used = new Set();
+    for (const r of store.routines) {
+      if (except && r.id === except) continue;
+      const m = /^my routine (\d+)$/i.exec(r.name);
+      if (m) used.add(Number(m[1]));
+    }
+    let n = 1;
+    while (used.has(n)) n++;
+    return `My routine ${n}`;
+  }
+
+  // ---------- custom routine editor (pure) ----------
+  // draft = {id: null for a new routine, name, codes[]}; the same drill may be in it more than once.
+  const TYPE_LABELS = { aim: "Pre-aim", hold: "Angle holding", flash: "Anti-flash", moment: "Scenario", basic: "Fundamentals", ball: "Target drill" };
+  const typeLabel = (type) => TYPE_LABELS[type] || "";
+  function newDraft(store, routine) {
+    return routine ? { id: routine.id, name: routine.name, codes: routine.codes.slice() } : { id: null, name: defaultName(store), codes: [] };
+  }
+  const draftAdd = (d, code) => (isCode(code) && d.codes.length < CUSTOM_MAX_DRILLS ? { ...d, codes: [...d.codes, code] } : d);
+  const draftRemove = (d, i) => (i >= 0 && i < d.codes.length ? { ...d, codes: d.codes.filter((_, k) => k !== i) } : d);
+  function draftMove(d, i, by) {
+    const j = i + by;
+    if (i < 0 || i >= d.codes.length || j < 0 || j >= d.codes.length) return d;
+    const codes = d.codes.slice();
+    [codes[i], codes[j]] = [codes[j], codes[i]];
+    return { ...d, codes };
+  }
+  // {ok, text}: what blocks Save. listLoaded false: the drill list did not load.
+  function draftCheck(d, listLoaded) {
+    if (!listLoaded) return { ok: false, text: "Drill list not loaded." };
+    if (d.codes.length < CUSTOM_MIN_DRILLS) return { ok: false, text: `Add at least ${CUSTOM_MIN_DRILLS} drills.` };
+    if (d.codes.length > CUSTOM_MAX_DRILLS) return { ok: false, text: `${CUSTOM_MAX_DRILLS} drills max.` };
+    return { ok: true, text: "" };
+  }
+  const draftMinutes = (d) => (d.codes.length ? minutes(d.codes.map(() => ({ seconds: DEFAULT_SECONDS }))) : 0);
+  // Saving changed drills of the routine that is paused ends that run; a rename keeps it.
+  function codesChanged(store, d) {
+    const old = d.id && store.routines.find((r) => r.id === d.id);
+    return !!old && JSON.stringify(old.codes) !== JSON.stringify(d.codes);
+  }
+  // Returns {store, id} or {error}. now: Date.now() (also the new id).
+  function saveCustom(store, d, now) {
+    if (store.readOnly) return { error: "Saved by a newer version. Can't change it here." };
+    const check = draftCheck(d, true);
+    if (!check.ok) return { error: check.text };
+    const name = cleanName(d.name) || defaultName(store, d.id);
+    const codes = d.codes.filter(isCode).slice(0, CUSTOM_MAX_DRILLS);
+    const list = store.routines.slice();
+    const at = d.id ? list.findIndex((r) => r.id === d.id) : -1;
+    if (at >= 0) {
+      list[at] = { ...list[at], name, codes, updatedAt: now };
+      return { store: { ...store, routines: list }, id: d.id };
+    }
+    if (list.length >= CUSTOM_MAX) return { error: `${CUSTOM_MAX} routines max.` };
+    let t = Math.max(0, Math.floor(now));
+    while (list.some((r) => r.id === "c-" + t.toString(36))) t++;
+    const id = "c-" + t.toString(36);
+    list.push({ id, name, codes, createdAt: now, updatedAt: now });
+    return { store: { ...store, routines: list }, id };
+  }
+  function deleteCustom(store, id) {
+    if (store.readOnly) return { error: "Saved by a newer version. Can't change it here." };
+    return { store: { ...store, routines: store.routines.filter((r) => r.id !== id) } };
+  }
+  // The run after a save / delete of routine id: changed drills or a delete end its run (no
+  // summary); a rename only renames it.
+  function runAfterSave(run, id, name, changed) {
+    if (!run || run.id !== id) return run;
+    return changed ? null : run.name === name ? run : { ...run, name };
+  }
+  const runAfterDelete = (run, id) => (run && run.id === id ? null : run);
+
+  // Drill picker rows: one per lobby card (twins merged), Studio's recording slot left out,
+  // filtered by name (any part, any case) or an exact pasted share code.
+  function pickerItems(catalogue, variants, query) {
+    if (!Array.isArray(catalogue)) return null;
+    const q = String(query || "").trim().toLowerCase();
+    const index = cardIndex(catalogue);
+    const qCard = isCode(q) ? itemFor(q, catalogue, variants, index) : null; // a pasted code (or its twin's)
+    const seen = new Set();
+    const out = [];
+    for (const it of catalogue) {
+      if (!it || !isCode(it.shareCode) || it.shareCode === RECORD_CODE) continue;
+      const card = itemFor(it.shareCode, catalogue, variants, index) || it;
+      if (seen.has(card.shareCode)) continue;
+      seen.add(card.shareCode);
+      const name = drillName(card);
+      if (q && !name.toLowerCase().includes(q) && card.shareCode !== q && !(qCard && qCard.shareCode === card.shareCode)) continue;
+      out.push({ code: card.shareCode, name, type: typeLabel(card.type) });
+    }
+    return out;
+  }
+  // Rows of the chosen list: codes not in the drill list stay (the player removes them).
+  function draftRows(d, catalogue, variants) {
+    const index = cardIndex(catalogue);
+    return d.codes.map((code, i) => {
+      const item = Array.isArray(catalogue) ? itemFor(code, catalogue, variants, index) : null;
+      return { i, code, name: item ? drillName(item) : "Not in drill list", type: item ? typeLabel(item.type) : "", missing: !item };
+    });
   }
 
   // ---------- result bar placement (DOM, no layout reads) ----------
@@ -459,5 +640,9 @@
     start, nextIndex, isDone, onScene, onResult, pause, advance, restore,
     summarize, better, pbStatus, parseRuns, formatValue, formatAccuracy, formatClock, playedSeconds, summary,
     readStore, addCompletion, dayDiff, lastDone, streak,
+    CUSTOM_KEY, CUSTOM_MAX, CUSTOM_MIN_DRILLS, CUSTOM_MAX_DRILLS, NAME_MAX, RECORD_CODE,
+    cleanName, readCustom, writeCustom, customDefs, resolveCustom, defaultName,
+    TYPE_LABELS, typeLabel, newDraft, draftAdd, draftRemove, draftMove, draftCheck, draftMinutes, codesChanged,
+    saveCustom, deleteCustom, runAfterSave, runAfterDelete, pickerItems, draftRows,
   };
 });
