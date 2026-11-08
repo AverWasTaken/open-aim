@@ -141,10 +141,11 @@ test('startup prompt skipped for new players (welcome banner offers the import)'
   const src = fs.readFileSync(path.join(__dirname, '..', 'app', 'valorant-import-ui.js'), 'utf-8');
   const m = src.match(/function welcomeOffersImport\(\) \{[\s\S]*?\n  \}\r?\n/);
   assert.ok(m, 'welcomeOffersImport found');
-  const make = (store) => {
+  const make = (store, innerHeight = 1000) => {
     const localStorage = { getItem: (k) => (k in store ? store[k] : null) };
-    return new Function('localStorage', m[0] + 'return welcomeOffersImport;')(localStorage);
+    return new Function('localStorage', 'window', m[0] + 'return welcomeOffersImport;')(localStorage, { innerHeight });
   };
+  assert.equal(make({ 'ux-welcome-v1': 'shown' }, 800)(), false, 'compact banner (<= 800 px) has no Import button');
   assert.equal(make({ 'ux-welcome-v1': 'shown' })(), true);
   assert.equal(make({ 'ux-welcome-v1': 'done' })(), false);
   assert.equal(make({})(), true, 'not decided yet, no runs = new player');

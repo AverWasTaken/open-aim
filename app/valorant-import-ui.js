@@ -13,9 +13,12 @@
   let startupDone = localStorage.getItem(HIDE) === "1" || !!localStorage.getItem(UNDO) || !!sessionStorage.getItem(SHOWN);
   // New players get ux-welcome.js's "New here?" banner, which has its own "Import from VALORANT"
   // button, so the prompt doesn't also pop up for them. New = the banner is showing ("shown"), or
-  // it hasn't decided yet and there are no runs (the same rule it uses). Everyone else: as before.
+  // it hasn't decided yet and there are no runs (the same rule it uses). Only when the window is
+  // taller than 800 px: below that the banner is one compact line without the Import button
+  // (ux-welcome.js COMPACT_MAX_H). Everyone else: as before.
   function welcomeOffersImport() {
     try {
+      if (!((window.innerHeight || 0) > 800)) return false;
       const w = localStorage.getItem("ux-welcome-v1");
       if (w === "shown") return true;
       if (w !== null) return false;
