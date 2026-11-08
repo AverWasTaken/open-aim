@@ -150,10 +150,10 @@ test('real Split: the sweep runs on bonsai data (ROUND_MAP=bonsai), the 3 test s
   assert.deepEqual([...new Set(SETS.flat())].sort(), [...ALL_SETUPS].sort());
 });
 
-async function setups20(modes) {
+async function setups20(modes, sets = [0, 1, 2]) {
   const seen = new Set();
   for (const [mode, extra] of modes) {
-    for (let k = 0; k < SETS.length; k++) {
+    for (const k of sets) {
       const label = `20s ${mode} set ${k}`;
       const { res } = await runReal(realDoc({ barrierSec: 20, set: SETS[k] }), { seed: 41 + k, extra, ticks: TPS * 30 });
       checkRun(res, label);
@@ -168,15 +168,16 @@ async function setups20(modes) {
       }
     }
   }
-  assert.equal(seen.size, 13, 'every setup walked to');
+  const want = new Set(sets.flatMap((k) => SETS[k]));
+  assert.equal(seen.size, want.size, 'every setup of these sets walked to');
 }
-test('real Split, 20 s barrier, default movement: all 13 setups reached (nav mode every tick, no wait, arrived before 20 s and by 1.25 x field + 1 s), on the real floor, inside the defender side, never across a barrier', { skip }, () => setups20([MODES[0]]));
+test('real Split, 20 s barrier, default movement (all 3 sets) and "game" movement (sets 1, 2): all 13 setups reached (nav mode every tick, no wait, arrived before 20 s and by 1.25 x field + 1 s), on the real floor, inside the defender side, never across a barrier', { skip }, async () => { await setups20([MODES[0]]); await setups20([MODES[1]], [1, 2]); });
 
 // Known issue (bot / sim, reported for R5): in "game" movement the Mail bot of set 0 (seed 41) is
 // pushed to x = -72.000 exactly at the foot of the ramp at (-72, 5, -11.3) (a flat floor meets a 31
 // degree ramp there), goes airborne on that seam, falls through it to the level below (y 2.42) and
 // then follows the upper-floor nav from underneath, holding 5.6 m under its setup (offNode ticks).
-test('real Split, 20 s barrier, "game" movement: all 13 setups reached, on the real floor (known issue: a bot can fall through the floor/ramp seam at -72, 5, -11.3)', { skip, todo: !skip && 'game-movement bot falls through the seam at (-72, 5, -11.3) (R5)' }, () => setups20([MODES[1]]));
+test('real Split, 20 s barrier, "game" movement, set 0: all 5 setups reached, on the real floor (known issue: the Mail bot falls through the floor/ramp seam at -72, 5, -11.3)', { skip, todo: !skip && 'game-movement bot falls through the seam at (-72, 5, -11.3) (R5)' }, () => setups20([MODES[1]], [0]));
 
 test('real Split, 10 s barrier, both movement modes: late bots keep walking through the drop, then hold', { skip }, async () => {
   for (const [mode, extra] of MODES) {
