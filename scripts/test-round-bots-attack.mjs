@@ -321,6 +321,22 @@ test('R3 real Ascent: spike dropped where no bot can reach (a stacked-crate top)
   }
 });
 
+test('R3 real Ascent: the player in sight (idle on the plan site): the attackers fight (shots, combat brake), nobody stuck or off the floor, the round ends by kills', { skip }, async () => {
+  const N = useNav(), g = N.g;
+  for (const c of [{ planSeed: PLAN.A, barrierSec: 10, extra: {} }, { planSeed: PLAN.B, barrierSec: 10, extra: { movement: 'game', enemyRank: 'gold' } }]) {
+    const doc = SW.defenseDoc(c), k = g.header.siteGoals[doc.rules.round.attack.site].node;
+    const m = await run({ doc, seed: 7, extra: c.extra, hide: false, at: { x: g.x[k], y: g.y[k], z: g.z[k] }, maxSec: 80 });
+    const tag = `visible player plan ${m.plan.site}`;
+    assert.ok(m.seen > 0 && m.shots > 0, `${tag}: the bots saw (${m.seen}) and shot (${m.shots})`);
+    assert.equal(m.crossings, 0); assert.equal(m.outside, 0);
+    assert.equal(m.stuck, 0, `${tag}: stuck ${JSON.stringify(m.stuckAt)}`);
+    assert.equal(m.offFloor, 0, `${tag}: off the floor ${JSON.stringify(m.offFloorAt)}`);
+    assert.ok(m.maxPlanters <= 1 && m.plantingNotCarrier === 0);
+    assert.ok(m.outcome === 'died' || m.plant >= 0, `${tag}: ended by kills or planted (outcome ${m.outcome})`);
+    console.log(`${tag}: seen ${m.seen} ticks, ${m.shots} shots, outcome ${m.outcome}, planted ${m.plant >= 0 ? m.plantAfterLive : '-'}`);
+  }
+});
+
 test('R3 real Ascent: determinism: restore after the go / while planting -> the same run; cold caches -> the same run', { skip }, async () => {
   const W = await terrain();
   useNav();

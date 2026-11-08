@@ -196,13 +196,14 @@ const STANDING = new Set([I.MODE.wait, I.MODE.stage, I.MODE.cover, I.MODE.post, 
 // carrier walking to its plant spot with >= 1 s of field left, and every bot within KILL_R of it)
 // | 'midplant' (the carrier once botPlant >= half the plant time). Stops postSec after the plant,
 // at the round end or after maxSec. onTick(s, st, m, info) may edit the run (save -> edit -> restore).
-export function attackRun({ sim, W, doc, seed = 1, extra = {}, kill = null, maxSec = 130, postSec = 15, onTick = null }) {
+// hide = false: the player stands idle where roundPrepare put it (the defender spawn) or at `at`.
+export function attackRun({ sim, W, doc, seed = 1, extra = {}, kill = null, maxSec = 130, postSec = 15, onTick = null, hide = true, at = null }) {
   const N = useNav(), g = N.g, cfg = doc.rules.round, plan = cfg.attack, ts = 1 / TPS, H = navlib.nodeIndex(g);
   const A = I.atkData(N, cfg);
   const mask = I.maskFor(N, I.barriersOf(cfg));
   const seal = navlib.flood(g, ASCENT.spawns.attack.map((p) => navlib.nearestNode(g, H, p.x, p.z, 1, p.y, 1.5)), { types: navlib.TYPES.all, mask });
-  const hide = g.header.siteGoals?.[plan.site === 'A' ? 'B' : 'A']?.node;
-  const runDoc = Number.isInteger(hide) ? { ...doc, playerSpawn: { position: { x: g.x[hide], y: g.y[hide], z: g.z[hide] }, yaw: 0 } } : doc;
+  const hideNode = g.header.siteGoals?.[plan.site === 'A' ? 'B' : 'A']?.node;
+  const runDoc = at ? { ...doc, playerSpawn: { position: { ...at }, yaw: 0 } } : hide && Number.isInteger(hideNode) ? { ...doc, playerSpawn: { position: { x: g.x[hideNode], y: g.y[hideNode], z: g.z[hideNode] }, yaw: 0 } } : doc;
   const s = sim.c(runDoc, { sensitivity: 1, zoomSensitivity: 1, seed, terrain: W, ...extra });
   const m = {
     offFloor: 0, offFloorAt: null,

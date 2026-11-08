@@ -807,6 +807,8 @@ function atkInit(actor, ctx, st) {
   // spawners on the same route, by spawnerId; slot k -> staging[k % len], k / len rows of 1.2 m.
   const rbs = cfg.attack.routeBySpawner && typeof cfg.attack.routeBySpawner === 'object' ? cfg.attack.routeBySpawner : {};
   const routeOf = (id) => Math.max(0, A.routes.findIndex((r) => r.name === rbs[id]));
+  // roundPrepare keys every kept spawner; a bot missing from the plan joins the list itself (two
+  // such bots could share a slot; can't happen with roundPrepare's plan).
   const ids = Object.keys(rbs).includes(actor.spawnerId) ? Object.keys(rbs).sort() : [...Object.keys(rbs), actor.spawnerId].sort();
   const ri = routeOf(actor.spawnerId), mine = ids.filter((id) => routeOf(id) === ri), k = mine.indexOf(actor.spawnerId);
   const stg = A.routes[ri].staging, slots = slotNodes(N, stg, mine.length, reachUnion(N, cfg));
@@ -1086,6 +1088,7 @@ function attackTick(N, actor, ctx, st, cfg, rs, barrier, mask) {
     }
     return { F: stageF, stopT: st.stopT, kind: GK.astage, fk: 6e8 + st.goal * 2 };
   };
+  // No clear spots on the site (never on Ascent: A 7, B 4): null -> the bot's staging slot.
   const clearGoal = () => (st.ci >= 0 ? { F: fieldFor(N, st.ci, null, 1), stopT: 0, kind: GK.clear, fk: 9e8 + st.ci } : null);
   const plantGoal = () => {
     if (st.pi < 0) { let bt = Infinity; A.plant.forEach((pl, j) => { const t = fieldFor(N, pl.node, null, 1).dist[st.cur]; if (t < bt) { bt = t; st.pi = j; } }); }
@@ -1098,7 +1101,8 @@ function attackTick(N, actor, ctx, st, cfg, rs, barrier, mask) {
   if (planted) {
     goal = st.pn >= 0 ? { F: fieldFor(N, st.pn, null, 1), stopT: 0, kind: GK.post, fk: 10e8 + st.pn } : clearGoal();
   } else if (!barrier && fd) {
-    if (fd.field && st.fetch === actor.id) goal = { F: fd.field, stopT: 0, kind: GK.fetch, fk: 11e8 + fd.set[0] };
+    // fk per drop position (a new drop re-arms a stuck fetcher even when its set starts the same).
+    if (fd.field && st.fetch === actor.id) goal = { F: fd.field, stopT: 0, kind: GK.fetch, fk: 11e8 + ((fd.set[0] * 977 + Math.round(dr.x * 10) * 131 + Math.round(dr.z * 10) * 17 + Math.round(dr.y * 10)) & 0x3ffffff) };
     else if (!fd.field || st.go === 1) goal = clearGoal(); // spike lost: everyone to the clear spots
   } else if (!barrier && st.go === 1) goal = mine ? plantGoal() : clearGoal();
   if (planted) { lx = planted.x; lz = planted.z; } else if (goal && goal.kind !== GK.fetch) { lx = A.center.x; lz = A.center.z; }
