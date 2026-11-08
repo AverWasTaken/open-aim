@@ -74,6 +74,10 @@ html[data-aim-local]:not(#es) body .aim-loading-title { flex: 1 !important; min-
 html[data-aim-local]:not(#es) body .aim-loading-title small { color: var(--es-red) !important; font: 800 11px var(--es-head) !important; letter-spacing: .14em !important; text-transform: uppercase !important; }
 html[data-aim-local]:not(#es) body .aim-loading-name { font: italic 900 22px/1.1 var(--es-head) !important; text-transform: uppercase !important; letter-spacing: .01em !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
 html[data-aim-local]:not(#es) body .aim-loading-name:empty::before { content: "Getting ready" !important; }
+/* ui-polish.css labels the difficulty chips in Vietnamese ("Độ khó"); CSS text never reaches the translator. */
+html[data-aim-local]:not(#es) body .pw-dchips::before { content: "Difficulty" !important; }
+/* Community Workshop subtitle (vi.css): drop "No VPN required", which means nothing in this offline app. */
+html[data-aim-local][lang="en"]:not(#es) { --aim-local-community: "Local community library\A Pick a drill below to start."; }
 html[data-aim-local]:not(#es) body .aim-loading-time { flex: none !important; color: var(--es-muted) !important; font: 700 14px var(--es-head) !important; font-variant-numeric: tabular-nums !important; }
 html[data-aim-local]:not(#es) body .aim-loading-integrated { margin-top: 12px !important; }
 html[data-aim-local]:not(#es) body .aim-loading-integrated:not(.is-failed) :is(.aim-loading-stage, .aim-loading-track) { display: none !important; }
@@ -190,37 +194,6 @@ html[data-aim-local]:not(#es) body :is(h1, h2, h3, .al-wk-hero-word, .al-wk-s-na
 /* ---------- lobby shell ---------- */
 html[data-aim-local]:not(#es) body .hall-topnav { background: #0c0e13 !important; border-bottom: 2px solid var(--es-red) !important; }
 html[data-aim-local]:not(#es) body .hall-bottombar { background: #0c0e13 !important; border-top: 1px solid var(--es-line) !important; }
-html[data-aim-local]:not(#es) body .es-discord-panel {
-  position: fixed;
-  right: 22px;
-  bottom: 76px;
-  z-index: 35;
-  display: grid;
-  gap: 11px;
-  width: 252px;
-  padding: 16px 18px 17px;
-  color: var(--es-text);
-  background: #10131a;
-  border-top: 3px solid var(--es-red);
-  box-shadow: 0 16px 38px rgba(0, 0, 0, .45), inset 0 0 0 1px var(--es-line-2);
-  text-decoration: none;
-  cursor: pointer;
-  transition: background-color .15s ease, transform .15s ease, border-color .15s ease;
-}
-html[data-aim-local]:not(#es) body .es-discord-panel:hover,
-html[data-aim-local]:not(#es) body .es-discord-panel:focus-visible {
-  background: var(--es-raised-2);
-  border-top-color: var(--es-red-2);
-  transform: translateY(-3px);
-  outline: 2px solid var(--es-red-2);
-  outline-offset: 2px;
-}
-html[data-aim-local]:not(#es) body .es-discord-panel-head { display: flex; align-items: center; gap: 8px; color: var(--es-red-2); font: 800 11px var(--es-head); letter-spacing: .12em; }
-html[data-aim-local]:not(#es) body .es-discord-panel-head svg { width: 21px; height: 21px; flex: none; }
-html[data-aim-local]:not(#es) body .es-discord-panel > strong { font: 800 19px/1.12 var(--es-head); text-transform: uppercase; }
-html[data-aim-local]:not(#es) body .es-discord-panel-action { display: flex; align-items: center; justify-content: space-between; padding-top: 10px; border-top: 1px solid var(--es-line-2); color: var(--es-soft); font: 800 12px var(--es-head); letter-spacing: .04em; }
-html[data-aim-local]:not(#es) body .es-discord-panel-action span { color: var(--es-red-2); font-size: 16px; }
-body.al-training-active .es-discord-panel { display: none !important; }
 
 html[data-aim-local]:not(#es) body .hall-tab {
   background: transparent !important;
@@ -278,7 +251,33 @@ html[data-aim-local]:not(#es) body .es-bar-quick {
   font-style: italic;
 }
 html[data-aim-local]:not(#es) body .es-bar-quick:hover { background: var(--es-red-2) !important; }
-html[data-aim-local]:not(#es) body .es-bar-fps.is-on { color: #fff !important; border-bottom-color: var(--es-red) !important; }
+/* FPS is an on/off switch, not a page: no tab underline, a small light that is lit when on */
+html[data-aim-local]:not(#es) body .es-bar-fps.is-on { color: var(--es-soft) !important; border-bottom-color: transparent !important; }
+html[data-aim-local]:not(#es) body .es-bar-fps.is-on:hover { color: #fff !important; }
+html[data-aim-local]:not(#es) body .es-bar-dot { display: block; flex: none; width: 6px; height: 6px; box-shadow: inset 0 0 0 1px var(--es-dim); }
+html[data-aim-local]:not(#es) body .es-bar-fps.is-on .es-bar-dot { background: var(--es-green); box-shadow: 0 0 6px rgba(74, 222, 128, .6); }
+/* Sens box arrows: two 24x16 hit areas filling the box height; not tab stops (lobby-bar.js),
+   the number box's own arrow keys change the value */
+html[data-aim-local]:not(#es) body .hall-topnav .hall-sens .hall-sens-stepper { width: 24px; gap: 0; }
+html[data-aim-local]:not(#es) body .hall-topnav .hall-sens .hall-sens-stepper button { width: 24px; height: 16px; font-size: 8px; }
+/* "Skip to drills" (lobby-bar.js): first Tab stop in the lobby, shown only while focused */
+html[data-aim-local]:not(#es) body .hall-topnav > .es-skip {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 5;
+  padding: 10px 16px;
+  color: #fff;
+  background: var(--es-red);
+  font: 800 13px/1 var(--es-head);
+  font-stretch: 75%;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+html[data-aim-local]:not(#es) body .hall-topnav > .es-skip:focus { transform: none; }
+html[data-aim-local]:not(#es) body .hall-topnav > .es-skip[hidden] { display: none; }
 
 /* Video controls inherit the native choice/button styles and scoped attributes. */
 .aim-video-panel > [data-setting="frameMode"],
@@ -302,6 +301,26 @@ html[data-aim-local]:not(#es) body .es-bar-fps.is-on { color: #fff !important; b
 .aim-frame-notice { margin-top: 5px; color: #e7b16d; }
 .aim-video-local { margin: -3px 0 10px; }
 .aim-frame-controls button:focus-visible, .aim-meter-choice button:focus-visible { outline: 2px solid #ff4655 !important; outline-offset: 2px; }
+
+/* settings page layout (ux): lobby SETTINGS page only (.hall-root .st-view), not the in-game dialog (.hall-portal) */
+/* Full setting descriptions: wrap instead of one line cut off with "...". Also covers shell-injected rows. */
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-list :is(.hall-field-text small, .al-number-field .al-number-hint) { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: break-word; font-size: 13px; line-height: 1.45; }
+/* Settings column grows on wide screens (600px at 1280, about 45% up to 880px); the preview is capped at 1.4x the 880px column. */
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-main:not(.is-wide) { grid-template-columns: minmax(460px, clamp(600px, 45%, 880px)) minmax(0, 1fr); }
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack { width: min(100cqw, (100cqh - 236px) * 16 / 9, 1232px); }
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack.is-cross { width: min(100cqw, (100cqh - 196px) * 16 / 9, 1232px); }
+/* Audio tab: the preview shows nothing related, so hide it. Not while searching (data-tab is stale then; .st-brief is only set when not searching). */
+html[data-aim-local]:not(#es) body .hall-root .st-view[data-tab="audio"] .st-main:has(> .st-list.st-brief) { grid-template-columns: minmax(0, 1fr); }
+html[data-aim-local]:not(#es) body .hall-root .st-view[data-tab="audio"] .st-main:has(> .st-list.st-brief) > .st-side { display: none; }
+html[data-aim-local]:not(#es) body .hall-root .st-view[data-tab="audio"] .st-main > .st-list.st-brief { max-width: 880px; }
+/* Preview header and stat strip: no cut-off labels in a narrow preview. */
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-bar { height: auto; min-height: 40px; }
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-bar h2 { flex: none; white-space: nowrap; }
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-bar p { white-space: normal; overflow: visible; text-overflow: clip; text-align: right; line-height: 1.35; }
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-tele dt { white-space: normal; overflow: visible; text-overflow: clip; }
+@container (max-width: 560px) {
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-tele { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 /* Single game-render counter: updated four times per second, no glass blur. */
 .aim-frame-meter { display:none;position:fixed;left:16px;top:64px;z-index:2147483000;pointer-events:none;min-width:165px;max-width:calc(100vw - 32px);padding:0;border:0;background:transparent;color:#f2f3f5;text-shadow:0 1px 3px #000,0 0 2px #000;font-family:"Bahnschrift","Segoe UI",sans-serif;font-variant-numeric:tabular-nums; }
@@ -393,11 +412,24 @@ body.al-training-active .aim-frame-meter { display:block; }
 .es-shotgraph-sum.is-moment .es-shotgraph-sum-split { margin-bottom: 6px; }
 .es-shotgraph-sum-line { margin: 2px 0 0; color: #b9bfca; }
 .es-shotgraph-sum-line b { display: inline-block; min-width: 58px; font-weight: 700; }
-/* narrower windows: icons only (names stay in the tooltip) */
-@media (max-width: 1700px) {
-  html[data-aim-local]:not(#es) body .es-bar-btn span { display: none; }
-  html[data-aim-local]:not(#es) body .es-bar-btn { padding: 0 9px !important; }
+/* Top bar widths, measured in Bahnschrift: brand + full tabs + labelled bar + Sens ~1820px,
+   with compact tabs ~1610px, compact tabs + icon-only bar ~1250px.
+   Below 1860px: compact tabs and no brand subtitle. Below 1660px: bar icons only
+   (the name stays in the title tooltip and aria-label). */
+@media (max-width: 1859px) {
+  html[data-aim-local]:not(#es) body .hall-tab { padding-inline: 12px !important; font-size: 13px !important; }
+  html[data-aim-local]:not(#es) body .hall-topnav .hall-tabs { gap: 4px; }
+  html[data-aim-local]:not(#es) body .hall-topnav .hall-brand { padding: 0 16px !important; }
+  html[data-aim-local]:not(#es) body .hall-topnav .hall-brand small { display: none !important; }
 }
+@media (max-width: 1659px) {
+  html[data-aim-local]:not(#es) body .es-bar-btn span { display: none; }
+  html[data-aim-local]:not(#es) body .es-bar-btn { padding: 0 8px !important; }
+  html[data-aim-local]:not(#es) body .es-bar-quick { padding: 0 14px !important; }
+}
+/* Safety net (other fonts, extra bar items): the tab row shrinks and scrolls inside
+   itself instead of pushing Quick start and the Sens box off the page. */
+html[data-aim-local]:not(#es) body .hall-topnav .hall-tabs { min-width: 0; overflow: auto hidden; scrollbar-width: none; }
 
 /* ---------- hero ---------- */
 html[data-aim-local]:not(#es) body .al-wk-hero-art { border-radius: 0 !important; }
@@ -688,6 +720,26 @@ html[data-aim-local]:not(#es) body :is(.al-primary-btn, .al-secondary-btn) {
 html[data-aim-local]:not(#es) body .al-primary-btn { background: var(--es-red) !important; color: #fff !important; border: none !important; font-style: italic; }
 html[data-aim-local]:not(#es) body .al-primary-btn:hover { background: var(--es-red-2) !important; }
 html[data-aim-local]:not(#es) body .al-secondary-btn { background: var(--es-raised-2) !important; border: none !important; }
+/* result screen key hints (app/ux-keys.js: R = play again, Esc = back). ::before because
+   .al-primary-btn::after is the hover shine. */
+html[data-aim-local]:not(#es) body .al-result-overlay :is(.al-run-actions .al-primary-btn, .al-run-actions .al-secondary-btn, .al-mr-btn[data-action=retry], .al-mr-btn[data-action=exit])::before {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 5px;
+  border: 1px solid var(--es-line-2);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--es-muted);
+  font-size: 11px;
+  font-weight: 700;
+  font-style: normal;
+  letter-spacing: 0.06em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}
+html[data-aim-local]:not(#es) body .al-result-overlay :is(.al-run-actions .al-primary-btn, .al-mr-btn[data-action=retry])::before { content: "R"; color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.45); background: rgba(0, 0, 0, 0.18); }
+html[data-aim-local]:not(#es) body .al-result-overlay :is(.al-run-actions .al-secondary-btn, .al-mr-btn[data-action=exit])::before { content: "Esc"; }
 html[data-aim-local]:not(#es) body :is(.al-wk-new, .al-wk-s-new) { background: var(--es-red) !important; color: #fff !important; border-radius: 0 !important; clip-path: var(--es-slant-sm) !important; padding-inline: 8px !important; }
 
 /* ---------- studio top bar ---------- */

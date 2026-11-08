@@ -12,7 +12,9 @@ const { app, dialog, session, shell } = require("electron");
 const fs = require("fs");
 const path = require("path");
 
-const DATA_DIRS = ["Local Storage", "IndexedDB", "WebStorage", "my-scenarios", "studio-drills"];
+// studio-runs: the Studio's saved runs (studio-store.js). Older backups without it restore
+// fine; the live runs are then kept (swapIn only replaces folders the backup has).
+const DATA_DIRS = ["Local Storage", "IndexedDB", "WebStorage", "my-scenarios", "studio-drills", "studio-runs"];
 const KEEP_LAUNCH = 10;
 const PENDING = "restore-pending.json";
 
@@ -118,19 +120,33 @@ function swapIn(from) {
   for (const name of names) fs.rmSync(path.join(ud, name + tag + ".old"), { recursive: true, force: true });
 }
 
-// Called once at startup, before any window opens the storage.
+// Called once at startup, before any window opens the storage. A scheduled restore is
+// applied first, then the launch backup is made; a failed restore never skips the backup.
 function onStartup() {
+  const pendingFile = path.join(root(), PENDING);
   try {
-    const pendingFile = path.join(root(), PENDING);
     if (fs.existsSync(pendingFile)) {
-      const { id } = JSON.parse(fs.readFileSync(pendingFile, "utf-8"));
-      fs.rmSync(pendingFile, { force: true });
+      let id = null;
+      try {
+        id = JSON.parse(fs.readFileSync(pendingFile, "utf-8")).id;
+      } catch (err) {
+        console.log(`BACKUP: the scheduled restore can't be read and is dropped (${err && err.message})`);
+      } finally {
+        // Removed whatever it holds, so a broken file can't fail every launch.
+        fs.rmSync(pendingFile, { force: true });
+      }
       const from = backupDir(id);
       if (from) {
         copyInto(userData(), "before restore");
         swapIn(from);
+      } else if (id != null) {
+        console.log(`BACKUP: the backup to restore is gone (${String(id).slice(0, 80)})`);
       }
     }
+  } catch (err) {
+    console.log(`BACKUP: restore failed (${err && err.message})`);
+  }
+  try {
     if (fs.existsSync(path.join(userData(), "Local Storage"))) copyInto(userData(), "launch");
     pruneLaunchBackups();
   } catch (err) {
@@ -138,11 +154,17 @@ function onStartup() {
   }
 }
 
-function scheduleRestore(id) {
+function scheduleRestore(id, { headless = false } = {}) {
   if (!backupDir(id)) throw new Error("That backup is missing its data.");
   fs.writeFileSync(path.join(root(), PENDING), JSON.stringify({ id }));
+  // Headless test copies never restart themselves (the new process would escape the test
+  // harness); the restore is applied at their next launch.
+  if (headless) return console.log("BACKUP: restore scheduled for the next launch (headless: no restart)");
   // Quit normally (not app.exit) so Chromium finishes writing the current data first.
-  setTimeout(() => { app.relaunch(); app.quit(); }, 300);
+  // The portable build runs from a temporary copy, so it relaunches the .exe itself
+  // (the same as aim:shell:restart in main.js).
+  const exe = process.env.PORTABLE_EXECUTABLE_FILE;
+  setTimeout(() => { app.relaunch(exe ? { execPath: exe } : undefined); app.quit(); }, 300);
 }
 
 // While the app runs, Chromium keeps recent localStorage changes in memory for a
@@ -155,14 +177,20 @@ async function backUpLive(reason) {
 
 // IPC handlers for the Backups panel (window.__aimDesktop.backups in preload.js).
 // allowed(event): whether the call comes from a game page; anything else is refused first.
-function register(ipcMain, getWindow, allowed) {
+// headless (test copies): nothing that opens a window or dialog on screen (folder, export, import).
+function register(ipcMain, getWindow, allowed, { headless = false } = {}) {
+  const ON_SCREEN = new Set(["aim:backups:open", "aim:backups:export", "aim:backups:import"]);
   const handle = (channel, fn) => ipcMain.handle(channel, (event, ...args) => {
     if (!allowed || !allowed(event)) throw new Error("Backups are only available in the trainer.");
+    if (headless && ON_SCREEN.has(channel)) {
+      console.log(`BACKUP: ${channel} ignored (headless)`);
+      throw new Error("Not available in headless test mode.");
+    }
     return fn(...args);
   });
   handle("aim:backups:list", () => list());
   handle("aim:backups:create", () => backUpLive("manual"));
-  handle("aim:backups:restore", (id) => scheduleRestore(String(id)));
+  handle("aim:backups:restore", (id) => scheduleRestore(String(id), { headless }));
   handle("aim:backups:open", () => { fs.mkdirSync(root(), { recursive: true }); shell.openPath(root()); });
   handle("aim:backups:export", async (id) => {
     // No id: back up the live data first, then export that.
@@ -182,9 +210,9 @@ function register(ipcMain, getWindow, allowed) {
     const from = res.filePaths[0];
     if (!fs.existsSync(path.join(from, "Local Storage"))) throw new Error("That folder isn't an AimTrainer backup (no \"Local Storage\" folder inside).");
     const id = copyInto(from, "imported");
-    scheduleRestore(id);
+    scheduleRestore(id, { headless });
     return id;
   });
 }
 
-module.exports = { onStartup, register, backupDir };
+module.exports = { onStartup, register, backupDir, DATA_DIRS };
