@@ -12,14 +12,14 @@ It is opt-in (`npm run smoke`); only its unit tests (`npm run test:smokelib`) ar
 |---|---|
 | `boot` | lobby ready on a fresh profile; the first-run "Import VALORANT settings" box shows and closes (runs in every batch) |
 | `lobby` | every top tab opens without leaving the lobby |
-| `drill:<category>` | one drill per lobby category chip (Pre-aim, Angle holding, Anti-flash, Scenarios, Fundamentals): the chip lists the pinned card, the drill loads, starts, and the aim helper gets a kill within about 10 s (the Scenarios drill ends itself after 7 s). Bot drills are launched directly (no rank picker); the `rank-picker` step covers the card path for those |
-| `result-replay` | continues from the Fundamentals drill played to its end: result screen, replay opens and plays |
+| `drill:<category>` | one drill per lobby category chip (Pre-aim, Angle holding, Anti-flash, Scenarios, Fundamentals): the chip lists the pinned card, the drill loads, starts, and the aim helper gets a kill within about 10 s (the Scenarios drill ends itself after 7 s). Drills marked `noKillOk` in `drills.json` (Pre-aim, Anti-flash: the bots are behind cover until the player walks, and the suite does not walk) only need our shots to register. Bot drills are launched directly (no rank picker); the `rank-picker` step covers the card path for those. The Fundamentals drill is launched directly too when result-replay follows (see there) |
+| `result-replay` | continues from the Fundamentals drill played to its end: result screen, replay opens and plays. The result screen only has the Watch button for runs that did not start from a workshop card (game rule: `lastReplay && (!workshopSource \|\| ball drill)`), so that drill is launched with `__aimLaunchScene` |
 | `play-again` | Play again from the result screen restarts the drill |
 | `pause` | losing the mouse lock pauses (light menu), Resume; Tab opens the full menu, Resume; Restart |
 | `settings` | sensitivity changed in the lobby survives a page reload, then is restored |
-| `rank-picker` | a card click on a bot drill shows the rank picker; Gold launches and is saved |
-| `studio` | Studio: new Flicks drill, Play opens it in the trainer, it runs, Exit returns to Studio |
-| `round` | Round (beta): panel, start, round HUD live, Exit resets the round state |
+| `rank-picker` | a card click on a bot drill shows the rank picker; Gold launches and is saved; leaves through the start screen's own Back button (`.al-scene-start-back`; the start overlay lies over `.hall-train-exit` and starts the drill on any click) |
+| `studio` | Studio: new Flicks drill, Play opens it in the trainer, it runs, Exit returns to Studio. Sets `studio-coach-done` first: on a fresh profile the first-run tour covers the editor |
+| `round` | Round: panel, start with the default map and side, round HUD live, Exit resets the round state. A load that falls back to the lobby (known app bug) is warned and started once more |
 | `probe` | only with `--only=probe`: load times (first and repeat), sim speed, frames per second |
 
 The pinned drills live in `drills.json`. If one disappears from the list, the step says so; pick
@@ -113,6 +113,8 @@ wrapper copies it to the PC):
 - `electron.log`: electron/xvfb output. Saved for debugging, never scanned for errors.
 - `guard.log`: what the cleanup guard did.
 
+Every click goes through `clickSel`, which waits until `elementFromPoint` at the target's centre is the target, so an overlay on top fails the step with "covered by ..." instead of taking the click.
+
 ## Errors and the allowlist
 
 A step fails on any uncaught page exception, any page `console.error` / network error, and any
@@ -170,7 +172,10 @@ launch. The helper fires single taps, only once the aim is on a target.
 ## Known app bugs (found by the suite; not worked around silently)
 
 - **A map drill's first load can end in the lobby with no error.** Seen on hp both quiet and busy,
-  on the first load of a map in the session (DDY's pre-aim, Ascent); the repeat load works. Load
+  on the first load of a map in the session; the repeat load works. In the full run of 2026-11-07
+  22:23 it hit every map drill after a fresh page (DDY's pre-aim and Ascent dock on Ascent, Erv's
+  Sheriff 5k on Haven) and most likely Round on Ascent. Repro: fresh page (`location.assign('/aim')`),
+  launch any map drill, wait without input: the loader closes to the lobby when the map finishes. Load
   timeline from the quiet run, no input sent: launch 51.0 s; start button disabled "LOADING MAPS..."
   from 51.3 s; `ascent.collision.json` / `ascent.lights.json` loaded at 51.4 s; workshop
   preparation "Preparing visuals" 52.7 s, "Finishing up" 56.4 s, and in the same 200 ms poll the

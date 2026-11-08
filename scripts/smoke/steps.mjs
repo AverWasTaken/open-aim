@@ -44,14 +44,18 @@ export const PAGE_LIB = String.raw`(() => {
   };
   qa.loadFailed = () => { const l = document.querySelector('section.al-wkload'); return !!l && /won't open|failed/i.test(qa.text(l)); };
   qa.center = (el) => { const r = el.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), w: r.width, h: r.height }; };
-  // Visible element -> centre point (scrolled into view) or null.
+  // Visible element -> centre point (scrolled into view) or null. Its "covered" names the element on
+  // top at that point when it is not the target (a click there would hit something else).
   qa.at = (sel, textRe) => {
     let els = [...document.querySelectorAll(sel)].filter(qa.vis);
     if (textRe) els = els.filter((e) => new RegExp(textRe, 'i').test(qa.text(e)));
     const el = els[0];
     if (!el) return null;
     el.scrollIntoView({ block: 'center', inline: 'center' });
-    return qa.center(el);
+    const c = qa.center(el);
+    const top = document.elementFromPoint(c.x, c.y);
+    c.covered = !top || top === el || el.contains(top) ? null : top.tagName + '.' + String(top.className || '').slice(0, 60);
+    return c;
   };
   qa.status = () => ({
     path: location.pathname, phase: qa.phase, locked: qa.locked(), lobby: qa.inLobby(), ready: qa.readyToStart(),
@@ -157,6 +161,12 @@ export const PAGE_LIB = String.raw`(() => {
       }
       const d = ang(cur);
       A.err = Math.hypot(d.dyaw, d.dpitch);
+      // On target when the error is under ~70% of the aim volume's angular radius (head sphere
+      // 0.12 m x scale x headSize; a sphere target's radius); never stricter than 0.003 rad.
+      const tp = qa.aimPoint(cur), body = qa.bodies[cur.templateId] || {};
+      const sc0 = Number.isFinite(cur.scale) ? cur.scale : 1, hs = body.headSize > 0 ? body.headSize : 1;
+      const r = body.shape === 'humanoid' ? 0.12 * sc0 * hs : (body.radius != null ? body.radius : 0.36 * hs) * sc0;
+      A.tol = Math.max(0.003, 0.7 * Math.atan2(r, Math.max(0.1, Math.hypot(tp.x - ex, tp.y - ey, tp.z - ez))));
       let mx = Math.round(Math.max(-900, Math.min(900, -d.dyaw / k)));
       let my = Math.round(Math.max(-900, Math.min(900, -d.dpitch / k)));
       if (!mx && !my) return;
@@ -272,10 +282,13 @@ async function waitFor(ctx, expr, { timeout = 30000, every = 500, what = expr } 
 const status = (ctx) => ctx.cdp.evaluate("__qa.status()");
 
 // CDP click on the first visible element matching sel (optionally its text matches re).
+// Waits until nothing covers it (an overlay on top would take the click instead).
 async function clickSel(ctx, sel, re = null, { timeout = 10000 } = {}) {
-  const pt = await waitFor(ctx, `__qa.at(${J(sel)}, ${J(re)})`, { timeout, what: `visible ${sel}${re ? ` /${re}/` : ""}` });
+  const what = `${sel}${re ? ` /${re}/` : ""}`;
+  const pt = await waitFor(ctx, `(p => p && !p.covered ? p : false)(__qa.at(${J(sel)}, ${J(re)}))`, { timeout, what: `visible, uncovered ${what}` });
   await sleep(150); // let scrollIntoView settle
   const pt2 = (await ctx.cdp.evaluate(`__qa.at(${J(sel)}, ${J(re)})`)) || pt;
+  if (pt2.covered) throw new Error(`${what} is covered by ${pt2.covered}`);
   await ctx.cdp.click(pt2.x, pt2.y);
   return pt2;
 }
@@ -415,7 +428,7 @@ async function shootFor(ctx, { seconds = 10, enough = 3, offY = 0, minSeconds = 
     ctx.check();
     // Fire only once the aim sits on a target (no target up = no shot; spaced single taps
     // keep first-shot accuracy). Fires anyway after 1.5 s so a drill can't stall here.
-    const settled = await waitFor(ctx, "__qa.aim.err != null && __qa.aim.err < 0.003", { timeout: 1500, every: 60 }).catch(() => false);
+    const settled = await waitFor(ctx, "__qa.aim.err != null && __qa.aim.err < (__qa.aim.tol || 0.003)", { timeout: 1500, every: 60 }).catch(() => false);
     if (settled || (await ctx.cdp.evaluate("__qa.aim.err != null"))) await ctx.cdp.press();
     await sleep(settled ? 380 : 100);
     if (Date.now() - lastCheck > 2000) {
@@ -537,7 +550,11 @@ function drillStep(d) {
       await pickChip(ctx, d);
       // Bots that shoot back show the rank picker on a card click (the rank-picker step covers
       // that); launch those directly.
-      const via = (await isVariant(ctx, d.code)) ? "scene" : "card";
+      // Scene launch for bots that shoot back, and for the drill whose result screen the
+      // result-replay step uses: a card launch makes it a workshop run, whose result screen
+      // has no Watch (replay) button by design (Hwnlm6zD: lastReplay && (!workshopSource || ball)).
+      const viaScene = (await isVariant(ctx, d.code)) || (d.result && ctx.next === "result-replay");
+      const via = viaScene ? "scene" : "card";
       const s = await launchAndStart(ctx, d, via, { loadTimeout: 180000 });
       ctx.note(`via ${via}, loaded in ${(s.loadMs / 1000).toFixed(1)} s, start tries ${s.tries}`);
       ctx.data("loadMs", s.loadMs);
@@ -546,7 +563,10 @@ function drillStep(d) {
       if (r.hookFail) throw new Error(`could not hook ${r.hookFail}`);
       if (!r.ticks) throw new Error("no sim frames seen (__aimTick never called)");
       if (d.noKillOk) {
-        if (r.kills === 0) ctx.note("no kill (expected for this drill)");
+        // Bots out of sight from the spawn (the player has to walk): the check is that the
+        // drill runs and our shots register in the sim.
+        if (!r.shots) throw new Error(`no shot registered in ${r.secs} s (__aimShot never called)`);
+        if (r.kills === 0) ctx.note(`no kill (expected: ${d.noKillOk})`);
       } else if (r.kills === 0) throw new Error(`no kill in ${r.secs} s (hits ${r.hits}/${r.shots})`);
       // Plan R9b: the result-replay step continues from this drill's own result screen.
       if (d.result && ctx.next === "result-replay" && r.phase === "running") {
@@ -598,9 +618,12 @@ const probe = {
 
 // Leave a drill's start screen without starting it (side-panel exit, or start then pause-exit).
 async function leaveFromStartScreen(ctx) {
-  const exitBtn = await ctx.cdp.evaluate("!!__qa.visq('.hall-train-exit')");
-  if (exitBtn) {
-    await clickSel(ctx, ".hall-train-exit");
+  // The start overlay (.al-scene-start) starts the drill on any click and lies over
+  // .hall-train-exit; its own Back button (.al-scene-start-back) leaves without starting.
+  for (const sel of [".al-aimlab-root .al-scene-start-back", ".hall-train-exit"]) {
+    const p = await ctx.cdp.evaluate(`__qa.at(${J(sel)})`);
+    if (!p || p.covered) continue;
+    await clickSel(ctx, sel);
     await waitFor(ctx, "__qa.inLobby()", { timeout: 30000, what: "back in the lobby" });
     return;
   }
@@ -769,7 +792,8 @@ const studio = {
   about: "Studio: new Flicks drill, Play lands in /aim, runs, exit returns to Studio",
   timeoutMs: 180000,
   async run(ctx) {
-    await ctx.cdp.evaluate("location.assign('/studio/'); true");
+    // Fresh profile: the Studio's first-run tour (.coach, full-screen) would catch the clicks.
+    await ctx.cdp.evaluate("localStorage.setItem('studio-coach-done', '1'); location.assign('/studio/'); true");
     await sleep(1500);
     await waitFor(ctx, "location.pathname==='/studio/' && window.__studio && __studio.screen==='library'", { timeout: 60000, what: "Studio library" });
     const n0 = await ctx.cdp.evaluate("(__studio.drills||[]).length");
@@ -799,13 +823,20 @@ const round = {
   async run(ctx) {
     const has = await ctx.cdp.evaluate("!!(window.__aimRoundPanel && __aimRoundPanel.open)");
     if (!has) throw new Error("window.__aimRoundPanel.open missing");
-    await ctx.cdp.evaluate("__aimRoundPanel.open(); true");
-    await clickSel(ctx, ".aim-round-start");
-    await waitFor(ctx, "window.__aimRoundOn===true", { timeout: 20000, what: "__aimRoundOn" });
-    const t0 = Date.now();
-    await waitFor(ctx, "__qa.status().failed ? 'FAILED' : __qa.readyToStart()", { timeout: 150000, every: 1000, what: "round start screen" }).then((v) => {
+    let t0;
+    for (let attempt = 1; ; attempt++) {
+      await ctx.cdp.evaluate("__qa.sawLoad = false; __qa.mark('launch round'); __aimRoundPanel.open(); true");
+      await clickSel(ctx, ".aim-round-start");
+      await waitFor(ctx, "window.__aimRoundOn===true", { timeout: 20000, what: "__aimRoundOn" });
+      t0 = Date.now();
+      const v = await waitFor(ctx, "__qa.status().failed ? 'FAILED' : (__qa.sawLoad && __qa.inLobby()) ? 'LOBBY' : __qa.readyToStart()", { timeout: 150000, every: 1000, what: "round start screen" });
       if (v === "FAILED") throw new Error("round scene failed to load");
-    });
+      if (v !== "LOBBY") break;
+      ctx.log(`round load fell back to the lobby; timeline: ${JSON.stringify(await ctx.cdp.evaluate("__qa.tl").catch(() => null))}`);
+      await ctx.shot(`fell-back${attempt}`);
+      if (attempt >= 2) throw new Error("round load fell back to the lobby twice without an error (app bug, see README)");
+      ctx.warn("app bug: round load fell back to the lobby without an error; started again");
+    }
     ctx.note(`round loaded in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
     await ctx.cdp.moveTo();
     await ctx.cdp.key("Enter");
