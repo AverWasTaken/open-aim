@@ -116,10 +116,22 @@ addEventListener('aim-round-phase',e=>g.ph.push(e.detail&&e.detail.phase));
 addEventListener('aim-local-scene',()=>{g.scene++});
 addEventListener('aim-local-result',e=>{const d=e.detail||{};g.results.push({source:d.source,eligible:d.eligible,code:d.record&&d.record.shareCode,score:d.record&&d.record.score})});
 const wrap=()=>{const o=window.__aimTick;if(typeof o!=='function'||o.__g3)return;const w=function(s){g.tick=s;return o.apply(this,arguments)};w.__g3=1;window.__aimTick=w};wrap();g.wrapTimer=setInterval(wrap,1000);return 1})()`;
-const LOBBY_READY = `!document.querySelector('.es-startup') && !!document.querySelector('.hall-root') && typeof window.__aimLaunchWorkshop==='function' && typeof window.__aimLeaveTraining==='function' && !document.querySelector('.al-aimlab-root')`;
+// A drill is open when its root is on screen (the node can stay mounted but hidden in the lobby).
+const ROOT_OPEN = `(()=>{const e=document.querySelector('.al-aimlab-root');if(!e)return false;const r=e.getBoundingClientRect();const cs=getComputedStyle(e);return r.width>0&&r.height>0&&cs.display!=='none'&&cs.visibility!=='hidden'})()`;
+const LOBBY_PARTS = `({noStartup:!document.querySelector('.es-startup'),hallRoot:!!document.querySelector('.hall-root'),launchHook:typeof window.__aimLaunchWorkshop==='function',leaveHook:typeof window.__aimLeaveTraining==='function',noDrill:!(${ROOT_OPEN}),rootInDom:!!document.querySelector('.al-aimlab-root'),result:!!document.querySelector('.al-result-overlay'),url:location.href.slice(0,120)})`;
+const LOBBY_READY = `(()=>{const p=${LOBBY_PARTS};return p.noStartup&&p.hallRoot&&p.launchHook&&p.leaveHook&&p.noDrill})()`;
 async function waitLobby(ms = 60000) {
+  // A drill or result card left open by an earlier check in the same session: close it first.
+  try {
+    if (await ev(`typeof window.__aimLeaveTraining==='function' && (${ROOT_OPEN})`)) {
+      RESULT.notes.push("a drill was still open at start: left it");
+      await ev(`window.__aimLeaveTraining()`);
+      await sleep(1500);
+    }
+  } catch (e) { if (!sessionAlive) throw e; }
   const ok = await waitFor(LOBBY_READY, ms, "lobby ready");
   if (ok) await ev(HOOKS);
+  else { try { RESULT.lobbyParts = await ev(LOBBY_PARTS); log("lobby parts", JSON.stringify(RESULT.lobbyParts)); } catch {} }
   return !!ok;
 }
 async function viewport() {
@@ -129,25 +141,25 @@ async function viewport() {
 // Launch via the hook, handle the rank picker (one retry), wait for 'aim-local-scene'.
 async function launch(code, pick = "gold") {
   const before = await ev(`window.__g3.scene`);
-  const r = { code, hook: await ev(`window.__aimLaunchWorkshop(${JSON.stringify(code)})`), picker: false, sceneEvent: false };
+  const r = { code, hook: await ev(`(window.__aimLaunchByCode?window.__aimLaunchByCode(${JSON.stringify(code)}):window.__aimLaunchWorkshop(${JSON.stringify(code)}))`), picker: false, sceneEvent: false };
   for (let attempt = 0; attempt < 2 && r.hook; attempt++) {
-    const st = await waitFor(`document.querySelector('.aim-pick-shade .aim-pick')?'picker':(window.__g3.scene>${before}?'scene':(document.querySelector('.al-aimlab-root')?'root':null))`, 15000, "picker or scene");
+    const st = await waitFor(`document.querySelector('.aim-pick-shade .aim-pick')?'picker':(window.__g3.scene>${before}?'scene':((${ROOT_OPEN})?'root':null))`, 15000, "picker or scene");
     if (st === "picker") {
       r.picker = true;
       await sleep(300);
       const ok = (await clickSel(`.aim-pick-tile[data-pick=${pick}]`)) || (await clickSel(`.aim-pick-tile[data-pick=default]`));
       r.pickClicked = ok;
     }
-    const s = await waitFor(`window.__g3.scene>${before}||!!document.querySelector('.al-aimlab-root')`, 20000, "scene or drill root");
+    const s = await waitFor(`window.__g3.scene>${before}||(${ROOT_OPEN})`, 20000, "scene or drill root");
     if (s) break;
     // the picker can drop a launch: retry once when nothing is open
-    if (attempt === 0 && !(await ev(`!!document.querySelector('.al-aimlab-root')`))) {
+    if (attempt === 0 && !(await ev(`(${ROOT_OPEN})`))) {
       r.retried = true;
-      r.hook2 = await ev(`window.__aimLaunchWorkshop(${JSON.stringify(code)})`);
+      r.hook2 = await ev(`(window.__aimLaunchByCode?window.__aimLaunchByCode(${JSON.stringify(code)}):window.__aimLaunchWorkshop(${JSON.stringify(code)}))`);
       if (!r.hook2) break;
     } else break;
   }
-  r.root = await ev(`!!document.querySelector('.al-aimlab-root')`);
+  r.root = await ev(`(${ROOT_OPEN})`);
   r.before = before;
   return r;
 }
@@ -175,7 +187,7 @@ async function startDrill() {
 
 async function leave() {
   const r = await ev(`window.__aimLeaveTraining()`);
-  const back = await waitFor(`!document.querySelector('.al-aimlab-root') && !!document.querySelector('.hall-topnav')`, 30000, "back in lobby");
+  const back = await waitFor(`!(${ROOT_OPEN}) && !!document.querySelector('.hall-topnav')`, 30000, "back in lobby");
   return { leaveReturned: r, lobby: !!back };
 }
 function takeErrors(label) {
@@ -330,7 +342,7 @@ await finish(async () => {
     }
   }
   if (!lobby) throw new Error("lobby never ready");
-  await ev(`(()=>{localStorage.setItem('aim-valorant-import-hide-startup-v1','1');return 1})()`);
+  await ev(`(()=>{localStorage.setItem('aim-valorant-import-hide-startup-v1','1');localStorage.setItem('ux-welcome-v1','done');return 1})()`);
   RESULT.viewport = await viewport();
   log("viewport", RESULT.viewport);
   await sleep(2000);

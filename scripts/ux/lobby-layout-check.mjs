@@ -2,7 +2,10 @@
 // Lobby layout check over CDP (ux). Needs a running test copy of the app with
 // --remote-debugging-port; not part of npm test and not packaged.
 //
-//   node scripts/ux/lobby-layout-check.mjs <cdpPort> [shotDir]
+//   node scripts/ux/lobby-layout-check.mjs <cdpPort> [shotDir] [welcome]
+//
+// By default the first-run welcome banner is marked done (localStorage "ux-welcome-v1") and
+// hidden, like for any player after the first day. Pass "welcome" to keep it showing.
 //
 // With shotDir it also saves a screenshot per size (lobby-<w>x<h>@<dpr>x.png) and, at
 // 1280x720, one per step of the first 8 Tab presses (tab-1280-<n>.png).
@@ -24,6 +27,7 @@ const argv = process.argv.slice(2);
 if (argv[1] && argv[1] === argv[0]) argv.splice(1, 1);
 const port = argv[0];
 const shotDir = argv[1] || "";
+const KEEP_WELCOME = argv[2] === "welcome";
 if (!port) {
   console.error("usage: node scripts/ux/lobby-layout-check.mjs <cdpPort> [shotDir]");
   process.exit(2);
@@ -111,7 +115,12 @@ function pageStart() {
   return !document.querySelector(".es-startup") && !!document.querySelector(".hall-root .hall-tab");
 }
 
-function pageOpenDrills() {
+function pageOpenDrills(keepWelcome) {
+  // Welcome banner: mark it done and hide it unless the run keeps it (Hide sets the same key).
+  if (!keepWelcome) {
+    try { localStorage.setItem("ux-welcome-v1", "done"); } catch {}
+    document.querySelector(".ux-welcome .ux-welcome-hide")?.click();
+  }
   // Close any panel or dialog left open (first-run import modal, tools).
   window.__aimTools?.close?.();
   for (const x of document.querySelectorAll(".es-tool-shade .es-tool-x")) x.click();
@@ -239,7 +248,13 @@ function pageLayout(labelsFrom) {
   out.info.playButtons = plays.length;
   if (!plays.length) fail("no visible play button on any drill card");
   const cut = plays.find((b) => b.scrollWidth > b.clientWidth);
-  if (cut) fail(`play button cut off: scrollWidth ${cut.scrollWidth} > clientWidth ${cut.clientWidth} ("${cut.textContent.trim()}")`);
+  // Like the tab row: a cut-off label fails only with Bahnschrift; with a fallback font (hp has
+  // none, its fallback is far wider) it is only reported.
+  if (cut) {
+    const msg = `play button cut off: scrollWidth ${cut.scrollWidth} > clientWidth ${cut.clientWidth} ("${cut.textContent.trim()}")`;
+    if (out.info.bahnschrift) fail(msg);
+    else out.info.playCutFallbackFont = msg;
+  }
   const icon = plays.map((b) => b.querySelector("svg")).find((s) => s && s.getBoundingClientRect().width < 10);
   if (icon) fail(`play icon squashed to ${Math.round(icon.getBoundingClientRect().width)}px`);
   if (plays[0]) out.info.play = { ...rect(plays[0]), label: plays[0].textContent.trim() };
@@ -431,13 +446,14 @@ async function shot(send, name) {
 async function checkSize(send, size) {
   const result = { size: `${size.w}x${size.h}@${size.dpr}x`, ok: false, fails: [], info: {} };
   await send("Emulation.setDeviceMetricsOverride", { width: size.w, height: size.h, deviceScaleFactor: size.dpr, mobile: false, screenWidth: size.w, screenHeight: size.h });
-  await evaluate(send, pageOpenDrills);
+  await evaluate(send, pageOpenDrills, KEEP_WELCOME);
   if (!(await waitFor(send, pageReady, 10000))) result.fails.push("lobby not ready within 10 s (no drill card, no Quick start, or a panel still open)");
   if (!(await settle(send))) result.fails.push("layout did not settle within 6 s");
 
   const lay = await evaluate(send, pageLayout, LABELS_FROM);
   result.fails.push(...lay.fails);
   result.info = lay.info;
+  result.info.welcomeBanner = await evaluate(send, () => { const b = document.querySelector(".ux-welcome"); return !!b && b.getClientRects().length > 0; });
   await shot(send, `lobby-${size.w}x${size.h}@${size.dpr}x.png`);
 
   if (size.w === 1280 && size.h === 720) await checkChip(send, result.fails, result.info);
