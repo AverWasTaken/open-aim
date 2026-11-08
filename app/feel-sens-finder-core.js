@@ -95,7 +95,7 @@
     const others = ["low", "high"].filter((lv) => levels[lv].scores.length > 0);
     if (!base.scores.length || !others.length || !(base.mean > 0)) {
       out.lines.push("Not enough runs to compare. Try the finder again.");
-      if (invalid) out.lines.push("Some runs didn't count: they ended early or the sens was changed.");
+      if (invalid) out.lines.push("Some runs didn't count: they ended early, scored nothing or the sens was changed.");
       return out;
     }
     const b1 = rows[0];
@@ -125,7 +125,7 @@
     }
     out.lines.push("Your current sens has a head start because you're used to it.");
     if (out.warm) out.lines.push("You were still warming up, so results are less reliable.");
-    if (invalid) out.lines.push("Some runs didn't count: they ended early or the sens was changed.");
+    if (invalid) out.lines.push("Some runs didn't count: they ended early, scored nothing or the sens was changed.");
     if (pick) {
       out.lines.push(`Your best was at the edge of what was tested. Run the finder again from ${fmt(pick.sens)} to look further.`);
       out.lines.push(pick.sens < base.sens
@@ -364,8 +364,8 @@
       const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
       s.results[s.step] = {
         sens: s.plan[s.step].sens, score: num(rec.score), accuracy: num(rec.accuracy), avgKillTime: num(rec.avgKillTime),
-        end: typeof rec.end === "string" ? rec.end : null, valid: endOk && sensOk && num(rec.score) !== null,
-        why: !endOk ? "ended early" : !sensOk ? "sens changed" : "",
+        end: typeof rec.end === "string" ? rec.end : null, valid: endOk && sensOk && num(rec.score) !== null && num(rec.score) > 0, // 0 points = not really played
+        why: !endOk ? "ended early" : !sensOk ? "sens changed" : !(num(rec.score) > 0) ? "no score" : "",
       };
       s.step += 1;
       s.phase = s.step >= RUNS ? "done" : "between";

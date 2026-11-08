@@ -328,6 +328,17 @@ test("a run that ended early or ran at a changed sens doesn't count", () => {
   assert.equal(r.session.results[1].why, 'sens changed');
 });
 
+test("a 0-point run (nothing hit, not really played) doesn't count", () => {
+  const e = fakeEnv();
+  const r = C.createRunner(e.env);
+  r.start('click');
+  e.tick(100);
+  e.openDrill(r);
+  e.result(r, 0);
+  assert.equal(r.session.results[0].valid, false);
+  assert.equal(r.session.results[0].why, 'no score');
+});
+
 test('leaving the drill without a result pauses the step and restores the sens', () => {
   const e = fakeEnv();
   const r = C.createRunner(e.env);
