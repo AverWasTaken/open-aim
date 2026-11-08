@@ -63,7 +63,8 @@ test('theme: result block maps the run colours to tokens; no game teal/amber lef
   assert.match(rule(P + '.al-result-verdict.is-time'), /--verdict: var\(--es-warn\);/);
   assert.match(rule(P + '.al-result-verdict.is-died'), /--verdict: var\(--es-red\);/);
   const guide = rule(P + '.al-result-guide-btn');
-  for (const d of ['border: none;', 'border-left: 3px solid transparent;', 'border-radius: 0;', 'background: var(--es-raised-2);', 'text-transform: uppercase;', 'font-weight: 700;', 'font-stretch: 75%;']) assert.ok(guide.includes(d), d);
+  // !important: the site's global button rule (i18n/vi.css) sets border-radius 8px !important.
+  for (const d of ['border: none;', 'border-left: 3px solid transparent;', 'border-radius: 0 !important;', 'background: var(--es-raised-2);', 'text-transform: uppercase;', 'font-weight: 700;', 'font-stretch: 75%;']) assert.ok(guide.includes(d), d);
   assert.match(rule(P + '.al-result-guide-btn:hover'), /border-left-color: var\(--es-red\);/);
   assert.match(rule(P + '.al-bots-card.is-side h3 b'), /color: var\(--es-text\);/);
   assert.match(rule(P + '.al-run-strip b'), /font-variant-numeric: tabular-nums;/);

@@ -482,14 +482,14 @@ html[data-aim-local]:not(#es) body .al-wk-feat-why { color: var(--es-red-2) !imp
    shows without scrolling. No line under the heading, no featured description or tags; the
    featured drill's name and its Play button share one row. */
 @media (max-height: 800px) {
-  html[data-aim-local]:not(#es) body .al-wk-hero-copy { padding-top: 14px !important; padding-bottom: 12px !important; }
+  html[data-aim-local]:not(#es) body .al-wk-hero-copy { padding-top: 10px !important; padding-bottom: 8px !important; }
   html[data-aim-local]:not(#es) body .al-wk-hero-copy h1 { font-size: 24px !important; line-height: 1.2 !important; }
   html[data-aim-local]:not(#es) body :is(.al-wk-hero-sub, .al-wk-feat-desc, .al-wk-feat-tags) { display: none !important; }
   html[data-aim-local]:not(#es) body .al-wk-feat {
     grid-template-columns: minmax(0, 1fr) auto !important;
     align-items: center !important;
     gap: 0 16px !important;
-    margin-top: 8px !important;
+    margin-top: 4px !important;
     padding: 10px 16px 12px !important;
   }
   html[data-aim-local]:not(#es) body .al-wk-feat.is-carousel { padding-bottom: 22px !important; }
@@ -516,6 +516,22 @@ html[data-aim-local]:not(#es) body :is(.al-wk-chip.al-wk-on, .al-wk-toggle.is-on
 html[data-aim-local]:not(#es) body :is(.al-wk-chip.al-wk-on, .al-wk-toggle.is-on, .al-wk-sort button.is-on) * { color: #fff !important; }
 
 html[data-aim-local]:not(#es) body .al-wk-sec-top :is(h2, h3) { font-weight: 800 !important; font-style: italic; }
+/* Short windows (up to 800px tall): a tighter toolbar and section head, so the first drill
+   card's title clears the bottom bar at 1280x720 and 1366x768, also when it is a played drill
+   with its "My best" row (the routines strip sits in between). Nothing is hidden: the map
+   strip, filter chips and sort keep all their parts. Same component on the Target drills and
+   Community tabs, so they get it too. Not under 561px wide (ui-polish touch sizes apply). */
+@media (max-height: 800px) and (min-width: 561px) {
+  html[data-aim-local]:not(#es) body .al-wk-tools { padding-top: 6px !important; padding-bottom: 6px !important; }
+  html[data-aim-local]:not(#es) body .al-wk-strip { height: 80px !important; }
+  html[data-aim-local]:not(#es) body .al-wk-strip-wrap { margin-bottom: 8px !important; }
+  html[data-aim-local]:not(#es) body .al-wk-slice.is-all .al-wk-s-note { top: 4px !important; }
+  html[data-aim-local]:not(#es) body .hall-root .al-wk-tools :is(.al-wk-chip, .al-wk-toggle, .al-wk-sort button) { height: 32px !important; min-height: 32px !important; }
+  html[data-aim-local]:not(#es) body .al-wk-sec { margin-top: 8px !important; }
+  html[data-aim-local]:not(#es) body .al-wk-sec-top { margin-bottom: 8px !important; }
+  html[data-aim-local]:not(#es) body .hall-root .al-wk-card .al-wk-body { padding-top: 6px !important; }
+  html[data-aim-local]:not(#es) body .hall-root .al-wk-card .al-wk-body h3 { margin-top: 4px !important; }
+}
 
 /* ---------- scenario cards ---------- */
 html[data-aim-local]:not(#es) body .al-wk-card {
@@ -838,7 +854,8 @@ html[data-aim-local]:not(#es) body .al-result-head .al-result-paused { color: va
 html[data-aim-local]:not(#es) body .al-result-dirty-note { color: var(--es-warn); }
 html[data-aim-local]:not(#es) body .al-run-ranked:is(.is-rejected, .is-failed) { color: var(--es-warn); }
 html[data-aim-local]:not(#es) body .al-result-head .al-run-ranked:is(.is-rejected, .is-failed) { background: rgba(255, 209, 102, 0.08); border-left-color: var(--es-warn); }
-html[data-aim-local]:not(#es) body .al-result-guide-btn { border: none; border-left: 3px solid transparent; border-radius: 0; background: var(--es-raised-2); text-transform: uppercase; font-weight: 700; font-stretch: 75%; }
+/* radius needs !important: the site's global button rule (i18n/vi.css) sets 8px !important */
+html[data-aim-local]:not(#es) body .al-result-guide-btn { border: none; border-left: 3px solid transparent; border-radius: 0 !important; background: var(--es-raised-2); text-transform: uppercase; font-weight: 700; font-stretch: 75%; }
 html[data-aim-local]:not(#es) body .al-result-guide-btn:hover { color: var(--es-text); border-left-color: var(--es-red); }
 html[data-aim-local]:not(#es) body :is(.al-run-strip span, .al-run-pb-label, .al-run-chart-top) { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--es-muted); }
 html[data-aim-local]:not(#es) body .al-run-strip b { font-variant-numeric: tabular-nums; }

@@ -73,7 +73,9 @@ const overlayUp = `(() => { const s = document.querySelector(".al-wkload-stage")
 const resultUp = `!!document.querySelector(".al-result-overlay .al-result-modal")`;
 
 async function launch(code) {
-  const ok = await ev(`window.__aimLaunchWorkshop ? window.__aimLaunchWorkshop(${JSON.stringify(code)}) : "no hook"`);
+  // __aimLaunchByCode (app/training-launch.js) finds drills with no runs yet; the bare hook only
+  // knows codes that already have runs, so it refuses everything on a fresh profile.
+  const ok = await ev(`window.__aimLaunchByCode ? window.__aimLaunchByCode(${JSON.stringify(code)}) : (window.__aimLaunchWorkshop ? window.__aimLaunchWorkshop(${JSON.stringify(code)}) : "no hook")`);
   say('launch', ok);
   if (ok !== true) throw new Error('launch returned ' + ok);
   await sleep(2500);
@@ -134,6 +136,22 @@ const INSPECT = `(() => {
   out.hintEsc = sec ? getComputedStyle(sec, "::before").content : null;
   out.hintsVisible = vis(prim) && vis(sec);
 
+  // "Watch replay" (only there when the game kept a replay of this run): the real button, or a
+  // probe with the same classes and scope attribute in its place under the verdict badge. The
+  // probe stays until the rule dump below has read it.
+  let watch = modal.querySelector(".al-replay-watch-btn");
+  out.watchReal = !!watch;
+  const verdictEl = document.querySelector(".al-result-overlay .al-result-verdict");
+  if (!watch && verdictEl) {
+    watch = document.createElement("button");
+    watch.id = "ux-probe-watch";
+    watch.className = "al-result-guide-btn al-replay-watch-btn";
+    for (const a of verdictEl.attributes) if (a.name.startsWith("data-v-")) watch.setAttribute(a.name, "");
+    watch.textContent = "Watch replay";
+    verdictEl.parentElement.appendChild(watch);
+  }
+  out.watchRadius = watch ? radius(getComputedStyle(watch)).join(" ") : null;
+
   const S = "data-v-36d44781";
   const mk = (tag, cls, parent, scoped = true) => { const e = document.createElement(tag); if (cls) e.className = cls; if (scoped) e.setAttribute(S, ""); parent.appendChild(e); return e; };
   const overlay = document.querySelector(".al-result-overlay");
@@ -192,7 +210,29 @@ try {
   const r = await ev(INSPECT);
   results.raw = r;
   const p = r.probe;
-  check('no rounded corners in the card', r.rounded.length === 0, { rounded: r.rounded });
+  // Rounded nodes: name the rules (and inline style) that set their radius, so a failure says where.
+  const radiusRules = [];
+  if (r.rounded.length || (r.watchRadius && r.watchRadius !== "0px 0px 0px 0px")) {
+    try {
+      await send('DOM.enable'); await send('CSS.enable');
+      const doc = await send('DOM.getDocument', { depth: 0 });
+      const q = await send('DOM.querySelectorAll', { nodeId: doc.result.root.nodeId, selector: '#ux-probe-watch, .al-result-overlay .al-result-modal .al-replay-watch-btn, .al-result-overlay .al-result-modal button.al-result-guide-btn' });
+      for (const nodeId of (q.result?.nodeIds || []).slice(0, 2)) {
+        const m = await send('CSS.getMatchedStylesForNode', { nodeId });
+        const rr = m.result || {};
+        if (rr.inlineStyle) for (const p of rr.inlineStyle.cssProperties || []) if (/radius/.test(p.name)) radiusRules.push({ inline: true, prop: p.name, value: p.value, important: !!p.important });
+        for (const mr of rr.matchedCSSRules || []) {
+          for (const p of mr.rule.style.cssProperties || []) {
+            if (!/radius/.test(p.name) || p.disabled) continue;
+            radiusRules.push({ selector: mr.rule.selectorList.text.slice(0, 160), origin: mr.rule.origin, sheet: mr.rule.styleSheetId, layers: (mr.rule.layers || []).map((l) => l.text), prop: p.name, value: p.value, important: !!p.important });
+          }
+        }
+      }
+    } catch (e) { radiusRules.push({ error: String(e.message || e) }); }
+  }
+  await ev(`(() => { document.getElementById("ux-probe-watch")?.remove(); return true; })()`);
+  check('no rounded corners in the card', r.rounded.length === 0, { rounded: r.rounded, radiusRules });
+  check('Watch replay button square', r.watchRadius === '0px 0px 0px 0px', { real: r.watchReal, radius: r.watchRadius, radiusRules });
   check('--run-good is the green token', /^#4ade80$/i.test(r.runGood), { runGood: r.runGood });
   check('one container right above the buttons (or the shot summary)', r.extraCount === 1 && r.extraBeforeActions && r.extraApi, { extraCount: r.extraCount, next: r.extraNext, api: r.extraApi, display: r.extraDisplay, order: r.order });
   check('R / Esc hints still there', r.hintR === '"R"' && r.hintEsc === '"Esc"' && r.hintsVisible, { hintR: r.hintR, hintEsc: r.hintEsc, visible: r.hintsVisible });
