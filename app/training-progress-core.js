@@ -310,8 +310,9 @@
   // ---------- formatting ----------
   // Kill time: under a second in whole ms ("520 ms"), from 1000 ms on in seconds ("17.72 s").
   function killTimeText(ms) {
-    const r = Math.round(Math.abs(ms));
-    return r >= 1000 ? `${(Math.round(r / 10) / 100).toFixed(2)} s` : `${r} ms`;
+    const a = Math.abs(ms);
+    const r = Math.round(a);
+    return r >= 1000 ? `${(Math.round(a / 10) / 100).toFixed(2)} s` : `${r} ms`;
   }
   // "–" for no data, never NaN.
   function fmt(metric, v) {

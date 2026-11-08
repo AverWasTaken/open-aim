@@ -106,6 +106,7 @@ test('kill time: lower is better', () => {
   assert.equal(core.fmt('killTime', 999.6), '1.00 s');
   assert.equal(core.fmt('killTime', 17715), '17.72 s');
   assert.equal(core.fmt('killTime', 17714.4), '17.71 s');
+  assert.equal(core.fmt('killTime', 1004.9), '1.00 s');
   assert.deepEqual(core.fmtDelta('killTime', 1200), { text: '1.20 s', dir: 'up', good: false });
   assert.deepEqual(core.fmtDelta('killTime', -1204), { text: '1.20 s', dir: 'down', good: true });
   assert.deepEqual(core.fmtDelta('killTime', -35), { text: '35 ms', dir: 'down', good: true });

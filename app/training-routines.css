@@ -148,7 +148,7 @@
   /* built-in cards never shrink below their full name (they grow to fill spare room); when the
      row runs out it scrolls sideways. With custom chips the drill counts drop (they stay in the
      titles) so the names keep their room */
-  .tr-card { flex: 1 0 auto; min-width: 170px; max-width: 320px; box-sizing: border-box; height: 34px; flex-direction: row; align-items: center; gap: 8px; padding: 2px 2px 2px 10px; border-top-width: 1px; border-left: 3px solid var(--es-line-2); clip-path: none; }
+  .tr-card { flex: 1 0 auto; min-width: 170px; max-width: 380px; box-sizing: border-box; height: 34px; flex-direction: row; align-items: center; gap: 8px; padding: 2px 2px 2px 10px; border-top-width: 1px; border-left: 3px solid var(--es-line-2); clip-path: none; }
   .tr-card:hover { border-left-color: var(--es-red); }
   .tr-card-head { flex: 1 1 auto; min-width: 0; gap: 6px; }
   .tr-card-head h3 { min-width: 0; font-size: 13px; }
@@ -157,7 +157,8 @@
   .tr-resume { flex: 1 1 0; flex-wrap: nowrap; min-width: 0; margin: 0; padding: 2px 2px 2px 10px; }
   .tr-resume-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .tr-resume-acts { flex: none; flex-wrap: nowrap; }
-  .tr-chip { flex: 0 1 auto; min-width: 200px; max-width: 240px; }
+  /* custom chips also keep their natural width (200-240 px, long names ellipsize) */
+  .tr-chip { flex: 0 0 auto; min-width: 200px; max-width: 240px; }
   .tr-strip:has(.tr-chip) .tr-rows .tr-meta { display: none; }
   .tr-strip.has-run .tr-rows { display: none; }
 }
