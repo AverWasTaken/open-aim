@@ -123,9 +123,10 @@ function checkRun(res, label) {
   const still = res.filter((r) => r.b.mode === I.MODE.hold || r.b.mode === I.MODE.wait);
   for (const a of still) for (const b of still) if (a.id < b.id) assert.ok(Math.hypot(a.p.x - b.p.x, a.p.z - b.p.z) >= 0.8, `${label}: ${a.name} and ${b.name} stand within 0.8 m`);
 }
-// Arrival bound: by max(barrier, start + 1.25 x field + 1 s) (a bot that waits at a barrier walks on
-// after the drop).
-const due = (r, barrierSec) => Math.max(barrierSec, r.b.goT + 1.25 * r.field + 1);
+// Arrival bound: start + 1.25 x field + 1 s (field = nav travel time from its spawn), as on Ascent.
+// Only a bot that waited at a barrier gets max(barrier, that) (it walks on after the drop); no real
+// Corrode setup needs a wait.
+const due = (r, barrierSec) => (r.waited ? Math.max(barrierSec, r.b.goT + 1.25 * r.field + 1) : r.b.goT + 1.25 * r.field + 1);
 
 const arrivals = [];
 test('real Corrode: the sweep runs on rook data (ROUND_MAP=rook), the 3 test sets cover all 13 setups', { skip }, () => {
@@ -135,7 +136,7 @@ test('real Corrode: the sweep runs on rook data (ROUND_MAP=rook), the 3 test set
   assert.deepEqual([...new Set(SETS.flat())].sort(), [...ALL_SETUPS].sort());
 });
 
-test('real Corrode, 20 s barrier, both movement modes: all 13 setups reached (nav mode every tick, arrived by max(20 s, 1.25 x field + 1 s)), on the real floor, inside the defender side, never across a barrier', { skip }, async () => {
+test('real Corrode, 20 s barrier, both movement modes: all 13 setups reached (nav mode every tick, no wait, arrived before 20 s and by 1.25 x field + 1 s), on the real floor, inside the defender side, never across a barrier', { skip }, async () => {
   const seen = new Set();
   for (const [mode, extra] of MODES) {
     for (let k = 0; k < SETS.length; k++) {
@@ -146,6 +147,8 @@ test('real Corrode, 20 s barrier, both movement modes: all 13 setups reached (na
         seen.add(r.name);
         arrivals.push({ barrier: 20, mode, setup: r.name, field: +r.field.toFixed(2), start: +r.b.goT.toFixed(2), arrive: r.b.arriveT, air: r.airTicks, waited: r.waited });
         assert.equal(r.b.arrived, 1, `${label} ${r.name}: arrived`);
+        assert.equal(r.waited, 0, `${label} ${r.name}: no wait (every Corrode setup is on the defender side)`);
+        assert.ok(r.b.arriveT < 20, `${label} ${r.name}: arrived at ${r.b.arriveT} (barrier 20)`);
         assert.ok(r.b.arriveT <= due(r, 20), `${label} ${r.name}: arrived at ${r.b.arriveT} vs due ${due(r, 20).toFixed(2)} (field ${r.field.toFixed(2)} from ${r.b.goT.toFixed(2)})`);
         assert.equal(r.b.mode, I.MODE.hold, `${label} ${r.name}: holds`);
       }
@@ -169,6 +172,7 @@ test('real Corrode, 10 s barrier, both movement modes: late bots keep walking th
       }
     }
   }
+  assert.ok(arrivals.filter((a) => a.barrier === 10 && a.arrive > 10).length >= 6, 'late bots (arriving after the 10 s drop) exercised');
   const rows = arrivals.map((a) => `${String(a.barrier).padStart(2)}s ${a.mode.padEnd(7)} ${a.setup.padEnd(17)} field ${a.field.toFixed(2).padStart(5)}  start ${a.start.toFixed(2)}  arrive ${a.arrive.toFixed(2).padStart(5)}${a.waited ? '  (waited)' : ''}${a.barrier === 10 && a.arrive > 10 ? '  (after the drop)' : ''}`);
   console.log(['Corrode arrival times (s from round start):', ...rows].join('\n'));
 });
