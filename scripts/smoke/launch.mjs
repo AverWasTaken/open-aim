@@ -84,12 +84,15 @@ export async function startApp(o) {
   return cfg ? startLauncher({ ...o, cfg }) : startDirect(o);
 }
 
-// A slot lock (other than `except`) whose copy runs from our app dir.
+// A live copy (slot lock other than `except`) that `openaim-stop.sh <our name>` would also stop:
+// matched by worktree name the way the stopper's grep does. Dead pids are skipped (a crashed
+// copy's stale lock must not block every run; the stopper can't hurt a dead pid anyway).
 function sameWorktreeLock(lockFiles, appDir, except = null) {
+  const name = stopperName(appDir);
   for (const f of lockFiles) {
     if (f === except) continue;
     const l = readLock(f);
-    if (l && l.app && l.app.replace(/\/+$/, "") === String(appDir).replace(/\/+$/, "")) return l;
+    if (l && l.app && name && stopperName(l.app) === name && pidAlive(l.pid)) return l;
   }
   return null;
 }

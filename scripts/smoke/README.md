@@ -60,8 +60,8 @@ half-started slot) names our port and nothing listens on our ports. Known limits
 reading the lock and running the stopper there is a gap of a few milliseconds; the stopper stops
 every copy started from the same hp worktree, so the suite does not start (exit 4, busy) while
 another copy from its worktree runs (for example the team's own `hp.sh app-start <name>` copy),
-and logs a WARNING if one appears during the run (its stop would hit that copy too); and if our
-copy dies by itself and leaves its lock, the stopper only removes the lock
+and logs a WARNING if one appears during the run (its stop would hit that copy too; the guard,
+which only runs when the runner died, stops without that warning); and if our copy dies by itself and leaves its lock, the stopper only removes the lock
 (the suite never kills processes itself), so anything left in that session shows up in the
 `leftovers` line of `run.log` / `results.json`.
 
@@ -136,7 +136,8 @@ the Enter/click until the drill runs with the mouse lock (it includes the drill 
 "Page fps" is the page's `requestAnimationFrame` rate over 1-2 s; the probe also prints
 `__aimTick` calls per second, which is not a frame rate. Function-check numbers only, not game FPS.
 
-Current numbers (Intel GPU copies, since 2026-11-07 ~20:00; probe run 2026-11-08 01:01):
+Current numbers (Intel GPU copies, since 2026-11-07 ~20:00; probe run 2026-11-08 01:01; the load
+was under 5 when the copy started and rose during the run):
 
 | hp load (8 cpus) | drill | load first / repeat | start | sim seconds per wall second | page fps |
 |---|---|---|---|---|---|
@@ -199,8 +200,10 @@ enabled (map load done); lobby at 56.6 s. A card click passes the drill's map
 (from the scene doc's `environment.map`) the fallback has not happened again (full run 01:08:
 15/15, no fallback; probe 01:01: first Ascent load 10.7 s, no fallback).
 
-Still open: `app/round-panel.js:177` launches Round with `mapId: null`, i.e. the same way. Round
-passed in the five full runs since, but one earlier run (2026-11-07 22:23) waited 150 s on the lobby
-after Start, which fits this case. The round and drill steps still detect a fallback (`qa.fellBack`:
+Round: on this branch `app/round-panel.js:177` launches Round with `mapId: null`, i.e. the same
+way; one run (2026-11-07 22:23) waited 150 s on the lobby after Start, which fits this case, and
+the five full runs since passed. The round team's integration of 2026-11-08 02:06 (BOARD) passes
+`mapId: cur.map` and adds Defense, Corrode and Split to the Round panel; after merging that, run
+the `round` step again (it uses the panel's defaults). The round and drill steps still detect a fallback (`qa.fellBack`:
 a load was seen and the lobby shows with no loader on top), log the timeline, warn
 "app bug: ... fell back to the lobby" and launch once more; a second fallback fails the step.

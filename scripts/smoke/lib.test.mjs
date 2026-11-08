@@ -350,7 +350,14 @@ test("launcher: app dir not .../open-aim-wt/<name>/app -> refused before any sta
 
 test("launcher: another copy from our worktree running -> busy, nothing started or stopped", linuxOnly, async () => {
   const f = fakeHp();
-  fs.writeFileSync(f.cfg.lockFor(2), `4242\nopen-aim x port 8271 cdp 9471 app ${FAKE_APP}\n`);
+  fs.writeFileSync(f.cfg.lockFor(2), `${process.pid}\nopen-aim x port 8271 cdp 9471 app ${FAKE_APP}\n`); // a live pid
+  // A dead copy's stale lock from our worktree must not block the run.
+  const g = fakeHp();
+  fs.writeFileSync(g.cfg.lockFor(2), `${DEAD}\nopen-aim x port 8271 cdp 9471 app ${FAKE_APP}\n`);
+  const hg = await startLauncher({ cfg: g.cfg, port: PORT, cdp: PORT + 1, outDir: g.outDir, log: quiet, guardScript: noGuard, appDir: FAKE_APP });
+  assert.equal(hg.busy, null, "stale lock of a dead pid ignored");
+  assert.equal(hg.started, true);
+  await stopApp(hg, quiet);
   const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard, appDir: FAKE_APP });
   assert.match(h.busy || "", /another copy from this hp worktree/);
   assert.equal(h.started, false);

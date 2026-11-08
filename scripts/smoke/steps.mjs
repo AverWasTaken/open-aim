@@ -155,7 +155,12 @@ export const PAGE_LIB = String.raw`(() => {
       for (const a of list) {
         const pt = qa.aimPoint(a), v0 = A.vel.get(a.id);
         const dt = v0 ? s.tick - v0.tick : 0;
-        A.vel.set(a.id, { tick: s.tick, p: pt, v: dt > 0 && dt < 64 ? { x: (pt.x - v0.p.x) / dt, y: (pt.y - v0.p.y) / dt, z: (pt.z - v0.p.z) / dt } : (v0 && v0.v) || { x: 0, y: 0, z: 0 } });
+        let v = { x: 0, y: 0, z: 0 };
+        if (v0 && v0.born === a.bornTick && dt > 0 && dt < 64) {
+          v = { x: (pt.x - v0.p.x) / dt, y: (pt.y - v0.p.y) / dt, z: (pt.z - v0.p.z) / dt };
+          if (Math.hypot(v.x, v.y, v.z) > 0.08) v = { x: 0, y: 0, z: 0 }; // > ~10 m/s: a jump (respawn/teleport), not movement
+        } else if (v0 && v0.born === a.bornTick && dt === 0) v = v0.v;
+        A.vel.set(a.id, { tick: s.tick, born: a.bornTick, p: pt, v });
       }
       const LEAD = 6; // ticks (~47 ms)
       const ang = (a) => {
@@ -349,7 +354,7 @@ async function launchDrill(ctx, d, via) {
   ctx.launched = true;
   ctx.sceneCode = d.code;
   const bodies = await ctx.cdp.evaluate(`__qa.loadBodies(${J(d.code)})`).catch((e) => String(e.message || e));
-  if (typeof bodies !== "number") ctx.log?.(`aim: ${bodies}; aiming at actor centres`);
+  if (typeof bodies !== "number") ctx.log?.(`aim: ${bodies}; aiming at actor centres, and no map id passed on a direct launch`);
   if (via === "card") {
     const sel = `[data-role=workshop-card][data-share-code="${d.code}"]`;
     let have = await waitFor(ctx, `!!__qa.visq(${J(sel)})`, { timeout: 15000, what: `card ${d.code}` }).catch(() => false);
