@@ -201,8 +201,8 @@ const MAPS_LOCATION_JS = fs.readFileSync(path.join(__dirname, "maps-location.js"
 // listener for each UI script while the page is still loading.
 const UI_SCRIPTS = [
   ["PAGE WATCH", PAGE_WATCH_JS],
-  ["AIM TICK HUB", AIM_TICK_HUB_JS],
   ["UX KEYS", UX_KEYS_JS],
+  ["AIM TICK HUB", AIM_TICK_HUB_JS],
   ["SMOOTH SCROLL", SMOOTH_SCROLL_JS],
   ["SNIPER SCOPES", SNIPER_SCOPES_JS],
   ["FAN AUDIO", FAN_AUDIO_JS],
