@@ -179,6 +179,11 @@ const VALORANT_IMPORT_JS = ["valorant-import.js", "valorant-import-ui.js"]
 // Crosshair profiles (feel-crosshair-profiles.js): a named list switched from the Crosshair settings.
 const CROSSHAIR_PROFILES_JS = fs.readFileSync(path.join(__dirname, "feel-crosshair-profiles.js"), "utf-8");
 const VALORANT_IMPORT_CSS = fs.readFileSync(path.join(__dirname, "valorant-import.css"), "utf-8");
+// Progress in TRAINING HISTORY ("Your skills": per-skill trends, what to practise, drill chart)
+// and best/run-count chips on lobby cards. The core (pure math) is loaded first.
+const TRAINING_PROGRESS_JS = ["training-progress-core.js", "training-progress.js"]
+  .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
+const TRAINING_PROGRESS_CSS = fs.readFileSync(path.join(__dirname, "training-progress.css"), "utf-8");
 
 // Aim analytics per saved run (data only): stores the game's end-of-run "aim-run-stats" event
 // (tools/training_stats_patch.py) in aim-training-analytics-v1. The core (pure math) is loaded first.
@@ -224,6 +229,7 @@ const UI_SCRIPTS = [
   ["MAPS LOCATION", MAPS_LOCATION_JS],
   ["CROSSHAIR PROFILES", CROSSHAIR_PROFILES_JS],
   ["VALORANT IMPORT", VALORANT_IMPORT_JS],
+  ["TRAINING PROGRESS", TRAINING_PROGRESS_JS],
   ["TRAINING ANALYTICS", TRAINING_ANALYTICS_JS],
 ];
 // The startup screen goes in on its own, straight away (see createWindow).
@@ -622,6 +628,7 @@ function createWindow(url) {
       win.webContents.insertCSS(THEME_CSS),
       win.webContents.insertCSS(OFFLINE_CSS),
       win.webContents.insertCSS(VALORANT_IMPORT_CSS),
+      win.webContents.insertCSS(TRAINING_PROGRESS_CSS),
       win.webContents.mainFrame.executeJavaScript(STARTUP_SCREEN_RUN).catch((err) => console.log(`STARTUP SCREEN: ${err}`)),
     ]).catch(() => {}).finally(show);
     win.webContents.executeJavaScript(UI_SCRIPT_BATCH).catch((err) => console.log(`UI SCRIPTS: ${err}`));
