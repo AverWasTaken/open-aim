@@ -7,10 +7,15 @@
 // someone else (not run), 5 output pipe gone (ssh dropped).
 import fs from "node:fs";
 import path from "node:path";
-import { parseArgs, classifyError, shellLineIsError, mainLogError, fmtMs, sleep, EXIT, exitCodeFor, DEFAULT_PORTS, launcherConfig } from "./lib.mjs";
+import os from "node:os";
+import { parseArgs, classifyError, shellLineIsError, mainLogError, mainLogHealth, startLineTime, startupTimes, fmtMs, sleep, EXIT, exitCodeFor, DEFAULT_PORTS, launcherConfig } from "./lib.mjs";
 import { startApp, stopApp, appGone, preempted, sessionReport, REPO } from "./launch.mjs";
 import { Cdp } from "./cdp.mjs";
-import { STEPS, PAGE_LIB, recover } from "./steps.mjs";
+import { STEPS as BASE_STEPS, PAGE_LIB, recover } from "./steps.mjs";
+import { EXTRA_STEPS } from "./steps-extra.mjs";
+
+// Opt-in soak/edge groups come after the default steps (they never run without --only).
+const STEPS = [...BASE_STEPS, ...EXTRA_STEPS];
 
 const HELP = `npm run smoke -- [--only=a,b] [--skip=a,b] [--list] [--out=dir] [--port=N --cdp=N] [--max-minutes=20] [--profile=dir (direct mode)] [--slot-wait=30 (direct mode)]`;
 
@@ -82,6 +87,8 @@ let finishing = false;
 let currentStep = "start";
 const results = [];
 const early = []; // main.log errors seen before CDP is attached
+const boot = { startLineAt: null, cdpAt: null }; // startup timeline (plan W2 R11)
+let startup = null;
 
 async function cleanup(why) {
   if (!app) return null;
@@ -97,7 +104,7 @@ function writeReports(extra) {
   const out = {
     pass, exitCode: extra.exitCode, mode: cfg ? "launcher" : "direct", startedAt: new Date(t0).toISOString(), totalMs: Date.now() - t0, outDir,
     profile: app?.profile || profile, appPid: app?.pid ?? null, ports: app ? { aim: app.port, cdp: app.cdp } : extra.ports || null,
-    stopped: extra.stopped ?? null, ...extra, steps: results,
+    stopped: extra.stopped ?? null, startup, ...extra, steps: results,
   };
   try {
     fs.writeFileSync(path.join(outDir, "results.json"), JSON.stringify(out, null, 2));
@@ -112,6 +119,7 @@ function writeReports(extra) {
     `${head}  exit ${extra.exitCode}`,
     `out: ${outDir}`,
     `mode: ${out.mode}  app pid: ${out.appPid ?? "-"}  ports: ${out.ports ? `${out.ports.aim}/${out.ports.cdp}` : "-"}  profile: ${out.profile || "-"}`,
+    ...(startup ? [`startup: ${startupLine(startup)}`] : []),
     ...(extra.fatal ? [`FATAL: ${extra.fatal}`] : []),
     "",
     ...rows,
@@ -169,6 +177,19 @@ const watch = setInterval(() => {
 }, 2000);
 watch.unref?.();
 
+const secs = (ms) => (ms == null ? "?" : `${(ms / 1000).toFixed(1)} s`);
+function startupLine(s) {
+  return `spawn -> START: ${secs(s.spawnToStartLine)}, -> CDP ${secs(s.spawnToCdp)}, -> lobby ${secs(s.spawnToLobby)} (hp load ${s.load.map((x) => x.toFixed(1)).join("/")}, ${s.cpus} cpus)`;
+}
+
+// main.log health lines (CHILD PROCESS GONE, PAGE NOT RESPONDING, PAGE RELOAD): warnings for
+// default steps, failures for soak/edge steps (step.strictHealth; plan W2 R12).
+function pushHealth(h) {
+  const e = { step: cdp ? cdp.step : currentStep, kind: "health", level: h.level, text: ("main.log: " + h.text).slice(0, 400), url: "", t: Date.now() };
+  if (cdp) cdp.errors.push(e);
+  else early.push(e);
+}
+
 function pushShellError(text) {
   const e = { step: cdp ? cdp.step : currentStep, kind: "shell", level: "error", text: text.slice(0, 400), url: "", t: Date.now() };
   if (cdp) cdp.errors.push(e);
@@ -177,6 +198,13 @@ function pushShellError(text) {
 
 function stepErrors(name) {
   return cdp.errors.filter((e) => e.step === name);
+}
+
+// 'fail' | 'warn' | 'ignore' for an error seen during `step` (or while returning to the lobby
+// after it): main.log health lines fail only soak/edge steps (strictHealth).
+function judge(step, e) {
+  if (e.kind === "health" && step.strictHealth && e.level === "fail" && !(step.allowHealth && step.allowHealth.test(e.text.replace(/^main\.log: /, "")))) return "fail";
+  return classifyError(e);
 }
 
 async function runStep(step, idx) {
@@ -218,7 +246,7 @@ async function runStep(step, idx) {
   } catch {}
   await sleep(1200); // main.log is polled once a second
   for (const e of stepErrors(step.name)) {
-    const c = classifyError(e);
+    const c = judge(step, e);
     const line = `${e.kind}${e.level === "warning" ? "(warning)" : ""}: ${e.text}${e.url ? " @ " + e.url : ""}`;
     if (c === "fail") {
       r.status = "fail";
@@ -252,6 +280,9 @@ async function main() {
       onMainLine: (line) => {
         const m = mainLogError(line);
         if (m) pushShellError("main.log: " + m);
+        const h = mainLogHealth(line);
+        if (h) pushHealth(h);
+        if (boot.startLineAt == null) boot.startLineAt = startLineTime(line);
       },
     });
     app = await starting;
@@ -265,9 +296,10 @@ async function main() {
     }
     cdp = new Cdp({ cdpPort: app.cdp, aimPort: app.port, log });
     cdp.errors.push(...early.map((e) => ({ ...e, step: "boot" })));
+    const attaching = cdp.attach(120000).then((t) => ((boot.cdpAt = Date.now()), t));
     // Attach early so boot errors are caught; fail fast if electron dies.
     await Promise.race([
-      cdp.attach(120000),
+      attaching,
       (async () => {
         while (!app.exited) await sleep(250);
         throw new Error(`electron exited early (code ${app.exitCode}):\n${app.tail.slice(-15).join("\n")}`);
@@ -288,6 +320,10 @@ async function main() {
       }
       const r = await runStep(step, i);
       results.push(r);
+      if (step.name === "boot" && !startup) {
+        startup = { ...startupTimes({ spawnAt: app.spawnAt ?? null, startLineAt: boot.startLineAt, cdpAt: boot.cdpAt, lobbyAt: r.data?.lobbyAt ?? null }), load: os.loadavg(), cpus: os.cpus().length };
+        log(`startup: ${startupLine(startup)}`);
+      }
       if (cdp.crashed) crashedAt = "renderer crashed";
       else if (appGone(app)) crashedAt = `app exited (code ${app.exitCode})`;
       if (crashedAt) {
@@ -307,7 +343,7 @@ async function main() {
         }
         await sleep(1200);
         for (const e of stepErrors(cdp.step)) {
-          if (classifyError(e) === "fail") {
+          if (judge(step, e) === "fail") {
             r.status = "fail";
             r.errors.push(`unexpected (while returning to lobby) ${e.kind}: ${e.text}${e.url ? " @ " + e.url : ""}`);
           }
