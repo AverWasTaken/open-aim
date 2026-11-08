@@ -86,7 +86,7 @@
 html[data-aim-local]:not(#es) body .tp-chip {
   display: inline-flex; align-items: center; height: 26px; margin: 8px 0 0; padding: 0 12px 0 10px; max-width: 100%;
   font: 700 12px var(--es-head); font-stretch: 75%; letter-spacing: 0.06em; text-transform: uppercase; font-variant-numeric: tabular-nums;
-  color: var(--es-soft); background: rgba(14, 17, 23, 0.82); border-left: 2px solid var(--es-line-2); clip-path: var(--es-slant-sm);
+  color: var(--es-soft); background: color-mix(in srgb, var(--es-muted) 22%, rgba(14, 17, 23, 0.82)); border-left: 2px solid var(--es-line-2); clip-path: var(--es-slant-sm);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: top;
 }
 /* Gap between the two chips, whichever script added its chip first. */

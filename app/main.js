@@ -165,6 +165,8 @@ const INTERFACE_MODE_JS = fs.readFileSync(path.join(__dirname, "interface-mode.j
 // Backups and sensitivity panels opened from the top bar.
 const SNIPER_SCOPES_JS = fs.readFileSync(path.join(__dirname,"sniper-scopes.js"),"utf-8");
 const FAN_AUDIO_JS = fs.readFileSync(path.join(__dirname,"fan-audio.js"),"utf-8");
+// Sound mix, 3D enemy sound, enemy footsteps, headshot and kill sounds (feel-audio.js).
+const FEEL_AUDIO_JS = fs.readFileSync(path.join(__dirname, "feel-audio.js"), "utf-8");
 const ADVANCED_TRACERS_JS = fs.readFileSync(path.join(__dirname, "advanced-tracers.js"), "utf-8");
 const LOCAL_CUSTOMIZATION_JS = fs.readFileSync(path.join(__dirname, "local-customization.js"), "utf-8");
 const PLAYER_TOOLS_JS = fs.readFileSync(path.join(__dirname, "player-tools.js"), "utf-8");
@@ -174,6 +176,8 @@ const ROUND_PANEL_JS = fs.readFileSync(path.join(__dirname, "round-panel.js"), "
 const ROUND_HUD_JS = fs.readFileSync(path.join(__dirname, "round-hud.js"), "utf-8");
 const VALORANT_IMPORT_JS = ["valorant-import.js", "valorant-import-ui.js"]
   .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
+// Crosshair profiles (feel-crosshair-profiles.js): a named list switched from the Crosshair settings.
+const CROSSHAIR_PROFILES_JS = fs.readFileSync(path.join(__dirname, "feel-crosshair-profiles.js"), "utf-8");
 const VALORANT_IMPORT_CSS = fs.readFileSync(path.join(__dirname, "valorant-import.css"), "utf-8");
 // Progress in TRAINING HISTORY ("Your skills": per-skill trends, what to practise, drill chart)
 // and best/run-count chips on lobby cards. The core (pure math) is loaded first.
@@ -185,6 +189,11 @@ const TRAINING_ROUTINES_JS = ["training-routines-core.js", "training-routines.js
   .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
 const TRAINING_ROUTINES_CSS = fs.readFileSync(path.join(__dirname, "training-routines.css"), "utf-8");
 
+// Aim analytics per saved run (data only): stores the game's end-of-run "aim-run-stats" event
+// (tools/training_stats_patch.py) in aim-training-analytics-v1. The core (pure math) is loaded first.
+const TRAINING_ANALYTICS_JS = ["training-analytics-core.js", "training-analytics.js"]
+  .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
+
 // The Studio (studio/ folder, served at /studio/) replaces the site's own scenario editor:
 // /aim/studio redirects there. studio-launch.js lets the Studio start a drill in the lobby.
 const STUDIO_DIR = path.join(__dirname, "studio");
@@ -194,14 +203,19 @@ const STUDIO_LAUNCH_JS = fs.readFileSync(path.join(__dirname, "studio-launch.js"
 // Shooting error graph (shooting-error.js). The game's frame loop is served with one extra
 // call that hands every shot (its total spread and the spray part) to the graph.
 const SHOT_GRAPH_JS = fs.readFileSync(path.join(__dirname, "shooting-error.js"), "utf-8");
+// Shared per-frame hook (window.__aimTickHub) and the callout label under the minimap.
+const AIM_TICK_HUB_JS = fs.readFileSync(path.join(__dirname, "aim-tick-hub.js"), "utf-8");
+const MAPS_LOCATION_JS = fs.readFileSync(path.join(__dirname, "maps-location.js"), "utf-8");
 // One executeJavaScript call avoids Electron registering a did-stop-loading
 // listener for each UI script while the page is still loading.
 const UI_SCRIPTS = [
   ["PAGE WATCH", PAGE_WATCH_JS],
   ["UX KEYS", UX_KEYS_JS],
+  ["AIM TICK HUB", AIM_TICK_HUB_JS],
   ["SMOOTH SCROLL", SMOOTH_SCROLL_JS],
   ["SNIPER SCOPES", SNIPER_SCOPES_JS],
   ["FAN AUDIO", FAN_AUDIO_JS],
+  ["FEEL AUDIO", FEEL_AUDIO_JS],
   ["ADVANCED TRACERS", ADVANCED_TRACERS_JS],
   ["LOCAL CUSTOMIZATION", LOCAL_CUSTOMIZATION_JS],
   ["PLAYER TOOLS", PLAYER_TOOLS_JS],
@@ -216,8 +230,11 @@ const UI_SCRIPTS = [
   ["LOBBY BAR", LOBBY_BAR_JS],
   ["STUDIO LAUNCH", STUDIO_LAUNCH_JS],
   ["SHOT GRAPH", SHOT_GRAPH_JS],
+  ["MAPS LOCATION", MAPS_LOCATION_JS],
+  ["CROSSHAIR PROFILES", CROSSHAIR_PROFILES_JS],
   ["VALORANT IMPORT", VALORANT_IMPORT_JS],
   ["TRAINING PROGRESS", TRAINING_PROGRESS_JS],
+  ["TRAINING ANALYTICS", TRAINING_ANALYTICS_JS],
   ["TRAINING ROUTINES", TRAINING_ROUTINES_JS],
 ];
 // The startup screen goes in on its own, straight away (see createWindow).
@@ -231,9 +248,10 @@ const SHOT_LOOP_FILE = "/next/js/OkAdunfX.js";
 const SHOT_LOOP_FROM = 'xe.kind==="shot"&&(Kt.push(xe.tick*ve)';
 const SHOT_LOOP_TO = 'xe.kind==="shot"&&(window.__aimShot?.(xe),Kt.push(xe.tick*ve)';
 // The same frame loop also hands the round's state to the graph once per frame, so the
-// end-of-round summary can trace where the player walked (state.player.position, state.tick).
+// end-of-round summary can trace where the player walked (state.player.position, state.tick),
+// then to every listener added with window.__aimTickHub.add (aim-tick-hub.js).
 const ROUTE_LOOP_FROM = "const ce=hs(de);for(const xe of Cn)";
-const ROUTE_LOOP_TO = "const ce=hs(de);window.__aimTick?.(ce);for(const xe of Cn)";
+const ROUTE_LOOP_TO = "const ce=hs(de);window.__aimTick?.(ce);window.__aimTickHub?.emit(ce);for(const xe of Cn)";
 
 // The site's English translator is machine translated. Serve a thin wrapper in its
 // place that first adds english-fixes.js (Chinese) and translations.js (Vietnamese)
