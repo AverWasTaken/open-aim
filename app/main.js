@@ -10,6 +10,9 @@ const studio = require("./studio-store");
 const guard = require("./local-guard");
 const variants = require("./drill-variants");
 const rounds = require("./round-scene");
+const practice = require("./practice-scene");
+const shellLog = require("./shell-log");
+const shellEnv = require("./shell-env");
 
 // Testing only: AIM_PROFILE=<folder> keeps all player data and backups in that folder,
 // so test runs never touch the real save.
@@ -18,8 +21,68 @@ if (process.env.AIM_PROFILE) {
   app.setPath("userData", path.join(process.env.AIM_PROFILE, "AimTrainer"));
 }
 
-// Testing only: AIM_PORT lets a test copy run while the real app is open.
-const PORT = Number(process.env.AIM_PORT) || 8000;
+// Testing only: AIM_HEADLESS=1 renders off screen (see below).
+const HEADLESS = process.env.AIM_HEADLESS === "1";
+
+// Log file: <userData>/logs/main.log (shell-log.js). Set up first, so even a startup error
+// (a missing shell file below) is written down. A headless copy without AIM_PROFILE (refused
+// below) logs to the temp folder, never into the real save's folder.
+const LOG = shellLog.createLog(HEADLESS && !process.env.AIM_PROFILE
+  ? path.join(require("os").tmpdir(), "AimTrainer-headless-logs")
+  : path.join(app.getPath("userData"), "logs"));
+LOG.hookConsole();
+LOG.watchApp(app);
+let booted = false; // true once the window is open
+let quitting = false;
+app.on("before-quit", () => { quitting = true; });
+
+// Exits now, before or after the ready event (app.exit before ready ends the process directly).
+function exitNow(code) {
+  try {
+    app.exit(code);
+  } catch {
+    process.exit(code);
+  }
+}
+
+// The app can't start: one message box (none in headless test copies, which must never show
+// anything), then exit.
+let failing = false;
+function startupFailed(message, code = 1) {
+  if (failing) return;
+  failing = true;
+  console.error(`STARTUP FAILED: ${message}`);
+  if (!HEADLESS) {
+    try {
+      dialog.showErrorBox("AimTrainer", `AimTrainer could not start.\n\n${message}\n\nDetails are in ${LOG.file}`);
+    } catch {}
+  }
+  exitNow(code);
+}
+
+// An error nothing caught. While starting it's fatal; once the window is open it is only
+// logged and the app keeps running. (A listener here also replaces Electron's own error box.)
+let inUncaught = false;
+process.on("uncaughtException", (err) => {
+  if (inUncaught) return;
+  inUncaught = true;
+  try {
+    if (err && err.code === "EPIPE") LOG.error("UNCAUGHT ERROR (output pipe closed):", err.message);
+    else if (!booted) startupFailed(err && err.stack ? err.stack : String(err));
+    else console.error("UNCAUGHT ERROR:", err);
+  } catch {}
+  inUncaught = false;
+});
+process.on("unhandledRejection", (reason) => {
+  try { console.error("UNHANDLED REJECTION:", reason); } catch {}
+});
+
+// Testing only: AIM_PORT lets a test copy run while the real app is open. A bad value stops
+// here instead of falling back to 8000 (the real app's port); see shell-env.js.
+const TEST_ENV = shellEnv.readTestEnv(process.env);
+if (TEST_ENV.error) startupFailed(TEST_ENV.error);
+const PORT = TEST_ENV.port;
+console.log(`START: AimTrainer ${app.getVersion()} (Electron ${process.versions.electron}) packaged=${app.isPackaged} headless=${HEADLESS} port=${PORT} pid=${process.pid}`);
 
 // Off-screen pages can't take real pointer lock, so headless test copies get a stand-in:
 // requestPointerLock "locks" (pointerLockElement + pointerlockchange) without grabbing the
@@ -36,7 +99,6 @@ const FAKE_POINTER_LOCK = `(() => {
 // Testing only: AIM_HEADLESS=1 renders off screen. No window appears, nothing takes the
 // mouse or goes fullscreen, its sound is muted, and the process runs at below-normal priority so test copies
 // don't slow the desktop down. Drive it through --remote-debugging-port (CDP screenshots work).
-const HEADLESS = process.env.AIM_HEADLESS === "1";
 if (HEADLESS) {
   try {
     require("os").setPriority(0, require("os").constants.priority.PRIORITY_BELOW_NORMAL);
@@ -84,13 +146,15 @@ const UI_CSS = fs.readFileSync(path.join(__dirname, "ui.css"), "utf-8");
 const THEME_CSS = fs.readFileSync(path.join(__dirname, "theme-esports.css"), "utf-8");
 // Offline only: hides sign-in, leaderboards, cloud sync and the site's play counts.
 const OFFLINE_CSS = fs.readFileSync(path.join(__dirname, "offline.css"), "utf-8");
-// Moves the lobby sidebar (Quick start, Favorites, Creator, Manual) into the top bar.
+// Moves the lobby sidebar (Quick start, Favorites, Studio, Manual) into the top bar.
 const LOBBY_BAR_JS = fs.readFileSync(path.join(__dirname, "lobby-bar.js"), "utf-8");
 const FRAME_METER_JS = fs.readFileSync(path.join(__dirname, "frame-meter.js"), "utf-8");
 // Startup screen over the half-loaded lobby until its training list is in.
 const STARTUP_SCREEN_JS = fs.readFileSync(path.join(__dirname, "startup-screen.js"), "utf-8");
 // Shared page watcher for the UI scripts below; sleeps while the mouse is locked in a round.
 const PAGE_WATCH_JS = fs.readFileSync(path.join(__dirname, "page-watch.js"), "utf-8");
+// Result screen keys (R = play again, Esc = back) and Q in the Tab menu.
+const UX_KEYS_JS = fs.readFileSync(path.join(__dirname, "ux-keys.js"), "utf-8");
 const SMOOTH_SCROLL_JS = fs.readFileSync(path.join(__dirname, "smooth-scroll.js"), "utf-8");
 const VIDEO_SETTINGS_JS = fs.readFileSync(path.join(__dirname, "video-settings.js"), "utf-8");
 // Map lighting setting (Enhanced / Original), read by the patched BiMsX6Xn.js. Optional:
@@ -102,6 +166,8 @@ const INTERFACE_MODE_JS = fs.readFileSync(path.join(__dirname, "interface-mode.j
 // Backups and sensitivity panels opened from the top bar.
 const SNIPER_SCOPES_JS = fs.readFileSync(path.join(__dirname,"sniper-scopes.js"),"utf-8");
 const FAN_AUDIO_JS = fs.readFileSync(path.join(__dirname,"fan-audio.js"),"utf-8");
+// Sound mix, 3D enemy sound, enemy footsteps, headshot and kill sounds (feel-audio.js).
+const FEEL_AUDIO_JS = fs.readFileSync(path.join(__dirname, "feel-audio.js"), "utf-8");
 const ADVANCED_TRACERS_JS = fs.readFileSync(path.join(__dirname, "advanced-tracers.js"), "utf-8");
 const LOCAL_CUSTOMIZATION_JS = fs.readFileSync(path.join(__dirname, "local-customization.js"), "utf-8");
 const PLAYER_TOOLS_JS = fs.readFileSync(path.join(__dirname, "player-tools.js"), "utf-8");
@@ -109,26 +175,51 @@ const RANK_PICKER_JS = fs.readFileSync(path.join(__dirname, "rank-picker.js"), "
 // Round mode (round-scene.js builds the scenes): lobby panel and in-game HUD.
 const ROUND_PANEL_JS = fs.readFileSync(path.join(__dirname, "round-panel.js"), "utf-8");
 const ROUND_HUD_JS = fs.readFileSync(path.join(__dirname, "round-hud.js"), "utf-8");
+// Practice mode (practice-scene.js builds the scenes): lobby panel.
+const PRACTICE_PANEL_JS = fs.readFileSync(path.join(__dirname, "practice-panel.js"), "utf-8");
 const VALORANT_IMPORT_JS = ["valorant-import.js", "valorant-import-ui.js"]
   .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
+// Crosshair profiles (feel-crosshair-profiles.js): a named list switched from the Crosshair settings.
+const CROSSHAIR_PROFILES_JS = fs.readFileSync(path.join(__dirname, "feel-crosshair-profiles.js"), "utf-8");
 const VALORANT_IMPORT_CSS = fs.readFileSync(path.join(__dirname, "valorant-import.css"), "utf-8");
+// Progress in TRAINING HISTORY ("Your skills": per-skill trends, what to practise, drill chart)
+// and best/run-count chips on lobby cards. The core (pure math) is loaded first.
+const TRAINING_PROGRESS_JS = ["training-progress-core.js", "training-progress.js"]
+  .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
+const TRAINING_PROGRESS_CSS = fs.readFileSync(path.join(__dirname, "training-progress.css"), "utf-8");
+// Routines: chained drills with a summary (training-routines-core.js holds the logic and data).
+const TRAINING_ROUTINES_JS = ["training-routines-core.js", "training-routines.js"]
+  .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
+const TRAINING_ROUTINES_CSS = fs.readFileSync(path.join(__dirname, "training-routines.css"), "utf-8");
+
+// Aim analytics per saved run (data only): stores the game's end-of-run "aim-run-stats" event
+// (tools/training_stats_patch.py) in aim-training-analytics-v1. The core (pure math) is loaded first.
+const TRAINING_ANALYTICS_JS = ["training-analytics-core.js", "training-analytics.js"]
+  .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
 
 // The Studio (studio/ folder, served at /studio/) replaces the site's own scenario editor:
 // /aim/studio redirects there. studio-launch.js lets the Studio start a drill in the lobby.
 const STUDIO_DIR = path.join(__dirname, "studio");
 const STUDIO_PATH = "/studio/";
 const STUDIO_LAUNCH_JS = fs.readFileSync(path.join(__dirname, "studio-launch.js"), "utf-8");
+const TRAINING_LAUNCH_JS = fs.readFileSync(path.join(__dirname, "training-launch.js"), "utf-8");
 
 // Shooting error graph (shooting-error.js). The game's frame loop is served with one extra
 // call that hands every shot (its total spread and the spray part) to the graph.
 const SHOT_GRAPH_JS = fs.readFileSync(path.join(__dirname, "shooting-error.js"), "utf-8");
+// Shared per-frame hook (window.__aimTickHub) and the callout label under the minimap.
+const AIM_TICK_HUB_JS = fs.readFileSync(path.join(__dirname, "aim-tick-hub.js"), "utf-8");
+const MAPS_LOCATION_JS = fs.readFileSync(path.join(__dirname, "maps-location.js"), "utf-8");
 // One executeJavaScript call avoids Electron registering a did-stop-loading
 // listener for each UI script while the page is still loading.
 const UI_SCRIPTS = [
   ["PAGE WATCH", PAGE_WATCH_JS],
+  ["UX KEYS", UX_KEYS_JS],
+  ["AIM TICK HUB", AIM_TICK_HUB_JS],
   ["SMOOTH SCROLL", SMOOTH_SCROLL_JS],
   ["SNIPER SCOPES", SNIPER_SCOPES_JS],
   ["FAN AUDIO", FAN_AUDIO_JS],
+  ["FEEL AUDIO", FEEL_AUDIO_JS],
   ["ADVANCED TRACERS", ADVANCED_TRACERS_JS],
   ["LOCAL CUSTOMIZATION", LOCAL_CUSTOMIZATION_JS],
   ["PLAYER TOOLS", PLAYER_TOOLS_JS],
@@ -140,10 +231,17 @@ const UI_SCRIPTS = [
   ["RANK PICKER", RANK_PICKER_JS],
   ["ROUND PANEL", ROUND_PANEL_JS],
   ["ROUND HUD", ROUND_HUD_JS],
+  ["PRACTICE PANEL", PRACTICE_PANEL_JS],
   ["LOBBY BAR", LOBBY_BAR_JS],
   ["STUDIO LAUNCH", STUDIO_LAUNCH_JS],
+  ["TRAINING LAUNCH", TRAINING_LAUNCH_JS],
   ["SHOT GRAPH", SHOT_GRAPH_JS],
+  ["MAPS LOCATION", MAPS_LOCATION_JS],
+  ["CROSSHAIR PROFILES", CROSSHAIR_PROFILES_JS],
   ["VALORANT IMPORT", VALORANT_IMPORT_JS],
+  ["TRAINING PROGRESS", TRAINING_PROGRESS_JS],
+  ["TRAINING ANALYTICS", TRAINING_ANALYTICS_JS],
+  ["TRAINING ROUTINES", TRAINING_ROUTINES_JS],
 ];
 // The startup screen goes in on its own, straight away (see createWindow).
 const STARTUP_SCREEN_RUN = `try {
@@ -156,32 +254,31 @@ const SHOT_LOOP_FILE = "/next/js/OkAdunfX.js";
 const SHOT_LOOP_FROM = 'xe.kind==="shot"&&(Kt.push(xe.tick*ve)';
 const SHOT_LOOP_TO = 'xe.kind==="shot"&&(window.__aimShot?.(xe),Kt.push(xe.tick*ve)';
 // The same frame loop also hands the round's state to the graph once per frame, so the
-// end-of-round summary can trace where the player walked (state.player.position, state.tick).
+// end-of-round summary can trace where the player walked (state.player.position, state.tick),
+// then to every listener added with window.__aimTickHub.add (aim-tick-hub.js).
 const ROUTE_LOOP_FROM = "const ce=hs(de);for(const xe of Cn)";
-const ROUTE_LOOP_TO = "const ce=hs(de);window.__aimTick?.(ce);for(const xe of Cn)";
+const ROUTE_LOOP_TO = "const ce=hs(de);window.__aimTick?.(ce);window.__aimTickHub?.emit(ce);for(const xe of Cn)";
 
-// The site's English translator garbles some Vietnamese strings. Serve a thin
-// wrapper in its place that applies translations.js first; the original module
-// is still served unchanged under ORIGINAL_TRANSLATOR.
+// The site's English translator is machine translated. Serve a thin wrapper in its
+// place that first adds english-fixes.js (Chinese) and translations.js (Vietnamese)
+// to its dictionary; the original module is still served unchanged under
+// ORIGINAL_TRANSLATOR.
 const TRANSLATOR = "/_assets/r20261021-1/i18n/translate-en.mjs";
 const ORIGINAL_TRANSLATOR = "/_assets/r20261021-1/i18n/translate-en.original.mjs";
 const TRANSLATOR_WRAPPER = `import dictionary from './en.dict.mjs';
 import { translateText as base } from './translate-en.original.mjs';
 export * from './translate-en.original.mjs';
-// english-fixes.js: proper English replacing the dictionary's machine translations
-// (the dictionary object is shared with the translator, which reads it lazily).
+// english-fixes.js: proper English replacing the dictionary's machine translations;
+// translations.js: English for the Vietnamese strings. Both are plain dictionary
+// entries (no key overlap), so whole strings match exactly and drill names and
+// descriptions (localizeMetadata) get them too. The dictionary object is shared with
+// the translator, which reads it lazily.
 Object.assign(dictionary, ${JSON.stringify(require("./english-fixes"))});
-const EXTRA = ${JSON.stringify(require("./translations"))};
-const KEYS = Object.keys(EXTRA).sort((a, b) => b.length - a.length);
-const VN = /[Ã Ã¡áº¡áº£Ã£Ã¢áº§áº¥áº­áº©áº«Äƒáº±áº¯áº·áº³áºµÃ¨Ã©áº¹áº»áº½Ãªá»áº¿á»‡á»ƒá»…Ã¬Ã­á»‹á»‰Ä©Ã²Ã³á»á»ÃµÃ´á»“á»‘á»™á»•á»—Æ¡á»á»›á»£á»Ÿá»¡Ã¹Ãºá»¥á»§Å©Æ°á»«á»©á»±á»­á»¯á»³Ã½á»µá»·á»¹Ä‘]/i;
+Object.assign(dictionary, ${JSON.stringify(require("./translations"))});
 ${process.env.AIM_TRLOG ? "window.__trlog = new Map(); // AIM_TRLOG=1 (testing): records source -> English pairs shown" : ""}
 export function translateText(value) {
-  const source = value;
-  if (typeof value === 'string' && VN.test(value)) {
-    for (const key of KEYS) if (value.includes(key)) value = value.split(key).join(EXTRA[key]);
-  }
   const result = base(value);
-  if (window.__trlog && typeof source === 'string' && result !== source) window.__trlog.set(source.trim(), result.trim());
+  if (window.__trlog && typeof value === 'string' && result !== value) window.__trlog.set(value.trim(), result.trim());
   return result;
 }
 `;
@@ -213,6 +310,7 @@ function sendJson(req, res, value) {
 
 // Single instance only: a second launch just focuses the first window.
 if (!app.requestSingleInstanceLock()) {
+  console.log("SECOND LAUNCH: AimTrainer is already running with this data folder, exiting");
   app.quit();
   process.exit(0);
 }
@@ -427,8 +525,9 @@ function handleRequest(req, res) {
   if (requested.startsWith(SCENE_PREFIX)) {
     const code = requested.slice(SCENE_PREFIX.length);
     const own = mine.find((e) => e.item.shareCode === code);
-    // Round mode scenes (round-<map>-<side>-<weapon>-<barrierSec>) are built on request.
-    const scene = own ? own.scene : trainingSet.scenes[code] || rounds.roundScene(MODS, code);
+    // Round mode scenes (round-<map>-<side>-<weapon>-<barrierSec>) and Practice scenes
+    // (practice-<map>-<area>-<weapon>-<bots>-<count>) are built on request.
+    const scene = own ? own.scene : trainingSet.scenes[code] || rounds.roundScene(MODS, code) || practice.practiceScene(MODS, code);
     if (scene) {
       sendJson(req, res, { code: "00000", data: scene, msg: "", local: true });
       return;
@@ -541,15 +640,26 @@ function createWindow(url) {
       win.webContents.insertCSS(THEME_CSS),
       win.webContents.insertCSS(OFFLINE_CSS),
       win.webContents.insertCSS(VALORANT_IMPORT_CSS),
+      win.webContents.insertCSS(TRAINING_PROGRESS_CSS),
+      win.webContents.insertCSS(TRAINING_ROUTINES_CSS),
       win.webContents.mainFrame.executeJavaScript(STARTUP_SCREEN_RUN).catch((err) => console.log(`STARTUP SCREEN: ${err}`)),
     ]).catch(() => {}).finally(show);
     win.webContents.executeJavaScript(UI_SCRIPT_BATCH).catch((err) => console.log(`UI SCRIPTS: ${err}`));
   });
+  // Log crashes, hangs and page errors; a crashed page reloads the lobby (shell-log.js).
+  LOG.attachWindow(win, { url: ORIGIN + START_PATH, isQuitting: () => quitting, onGiveUp: pageKeepsCrashing });
 
   win.webContents.on("before-input-event", (event, input) => {
     if (input.type !== "keyDown") return;
-    if (input.key === "F11" && !HEADLESS) {
+    // Headless test copies: no fullscreen and no DevTools window (it would appear on screen).
+    if (HEADLESS && (input.key === "F11" || input.key === "F12")) {
+      console.log(`${input.key} ignored (headless)`);
+      event.preventDefault();
+      return;
+    }
+    if (input.key === "F11") {
       const on = !win.isFullScreen();
+      f11Windowed = !on;
       win.setFullScreen(on);
       shellSettings.fullscreen = on;
       try {
@@ -570,14 +680,14 @@ function createWindow(url) {
     if (isLocal(target)) {
       setImmediate(() => win.loadURL(target));
     } else if (/^https?:/i.test(target)) {
-      shell.openExternal(target);
+      openOutside(target);
     }
     return { action: "deny" };
   });
   win.webContents.on("will-navigate", (event, target) => {
     if (!isLocal(target)) {
       event.preventDefault();
-      if (/^https?:/i.test(target)) shell.openExternal(target);
+      if (/^https?:/i.test(target)) openOutside(target);
     }
   });
 
@@ -585,9 +695,28 @@ function createWindow(url) {
   return win;
 }
 
-// Game fullscreen requests (from preload.js) become window fullscreen; F11 leaves it.
+// Off-site links open in the normal browser (not from headless test copies).
+function openOutside(url) {
+  if (HEADLESS) return console.log(`openExternal ignored (headless): ${url.slice(0, 120)}`);
+  shell.openExternal(url);
+}
+
+// The page crashed again and again (shell-log.js stopped reloading it).
+function pageKeepsCrashing() {
+  if (HEADLESS) {
+    console.error("STOPPED: the page keeps crashing");
+    exitNow(2);
+    return;
+  }
+  dialog.showErrorBox("AimTrainer", `AimTrainer stopped working. Your data is safe.\n\nRestart the app. Details are in ${LOG.file}`);
+  app.quit();
+}
+
+// Game fullscreen requests (from preload.js) become window fullscreen; F11 leaves it,
+// and drill starts then leave the window as it is for the rest of the session.
+let f11Windowed = false;
 ipcMain.on("aim:fullscreen", (event) => {
-  if (HEADLESS) return; // test copies stay 1280x720 off screen
+  if (HEADLESS || f11Windowed) return;
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win && !win.isFullScreen()) win.setFullScreen(true);
 });
@@ -620,7 +749,10 @@ ipcMain.on("aim:shell:vsync", (_event, on) => {
 // The portable build runs from a temporary copy, so relaunch the .exe itself. Settings
 // saved in the page's localStorage just before (map culling) are flushed first, since
 // app.exit skips Chromium's normal shutdown.
+// Headless test copies never restart themselves: the new process would be one the test
+// harness didn't start and can't stop.
 ipcMain.on("aim:shell:restart", () => {
+  if (HEADLESS) return console.log("RESTART: skipped (headless)");
   const exe = process.env.PORTABLE_EXECUTABLE_FILE;
   session.defaultSession.flushStorageData();
   app.relaunch(exe ? { execPath: exe } : undefined);
@@ -628,15 +760,16 @@ ipcMain.on("aim:shell:restart", () => {
 });
 
 app.on("second-instance", () => {
+  if (HEADLESS) return console.log("SECOND LAUNCH: ignored (headless)");
   if (!mainWindow) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.focus();
 });
 
 // Player data backups (backups.js): restore a scheduled backup, then back up, before the window opens.
-backups.register(ipcMain, () => mainWindow, fromGame);
+backups.register(ipcMain, () => mainWindow, fromGame, { headless: HEADLESS });
 // The import's VSync change: a failed write is passed on, so the import rolls back.
-require("./valorant-import-ipc").register(() => mainWindow, on => {
+require("./valorant-import-ipc").register(() => mainWindow, (on) => {
   const next = { ...shellSettings, vsync: on };
   try {
     saveShellSettings(next);
@@ -645,10 +778,10 @@ require("./valorant-import-ipc").register(() => mainWindow, on => {
     throw err;
   }
   shellSettings.vsync = on;
-});
+}, { headless: HEADLESS });
 studio.register(ipcMain, fromGame);
 
-app.whenReady().then(async () => {
+async function boot() {
   backups.onStartup();
   Menu.setApplicationMenu(null);
   session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
@@ -666,8 +799,7 @@ app.whenReady().then(async () => {
     meta = {};
   }
   if (!isDir(OUT)) {
-    dialog.showErrorBox("AimTrainer", `The game files are missing:\n${OUT}`);
-    app.quit();
+    showStartupError(`The game files are missing:\n${OUT}`);
     return;
   }
   try {
@@ -676,12 +808,24 @@ app.whenReady().then(async () => {
     const msg = err && err.code === "EADDRINUSE"
       ? `Port ${PORT} is already in use by another program.\n\nClose it (for example another AimTrainer copy) and start AimTrainer again.`
       : `Could not start the local game server on port ${PORT}:\n${err && err.message}`;
-    dialog.showErrorBox("AimTrainer", msg);
-    app.quit();
+    showStartupError(msg);
     return;
   }
   mainWindow = createWindow(ORIGIN + START_PATH);
   mainWindow.on("closed", () => app.quit());
-});
+  booted = true;
+}
+
+// Missing game files or a busy port: a message box, then quit. Headless test copies print
+// the message (stderr and the log) and exit with code 1 instead: a box would appear on screen
+// and wait for a click.
+function showStartupError(msg) {
+  console.error(`STARTUP FAILED: ${msg}`);
+  if (HEADLESS) return exitNow(1);
+  dialog.showErrorBox("AimTrainer", msg);
+  app.quit();
+}
+
+app.whenReady().then(boot).catch((err) => startupFailed(err && err.stack ? err.stack : String(err)));
 
 app.on("window-all-closed", () => app.quit());

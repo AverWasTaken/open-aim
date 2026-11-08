@@ -49,6 +49,9 @@ version's stats.
 - **Anti-flash:** they flash, then swing. Turn away in time, then take the duel.
 - **Fundamentals:** micro-flicks, Drift-style clicking, strafers and tracking.
 
+**Know where you are:** the callout you're standing in (A Main, Mid Courtyard) shows under the
+minimap during map drills and Round mode. Turn it off in Settings > Video > Stats.
+
 <br>
 
 ## Build your own drills
@@ -153,6 +156,21 @@ checked in game on every corner. How the map data is made: [tools/README.md](too
 
 <br>
 
+## Practice
+
+Free play on any of the 9 maps. Open it with **Practice** in the lobby's top bar, pick the map, an
+area (where you start, e.g. Sunset B Main), your weapon and the bots: none (just walk the map),
+standing or strafing, 1 to 12 of them. A map picture shows where you start and where
+the bots will stand. Press **Start**.
+
+- No timer. Bots don't shoot and come back 1.5 s after you kill them.
+- The bots stand on the spots of the map's pre-aim drills. Strafing bots only use spots with room
+  to move; if you ask for more than that, the rest stand still.
+- Esc opens the menu; quit from there to go back to the lobby. Nothing is saved: no drill
+  history, no replay.
+
+<br>
+
 ## Every shot counts
 
 Track score, time and hit rate while you play. The rebuilt **shooting-error graph**
@@ -232,6 +250,9 @@ by itself every time you open it.
 The game lives in a folder called `open-aim` in your user folder. Don't delete or move it.
 If you move it, run `launcher\Install.cmd` in the new place to fix the desktop icon.
 
+**Something went wrong?** The game writes a log to `%APPDATA%\AimTrainer\logs\main.log`
+(paste that into the File Explorer address bar). Add it to your bug report.
+
 Read the full [1.3.0 changelog](CHANGELOG.md) for all additions and fixes.
 
 <br>
@@ -257,6 +278,8 @@ Want to add a drill to the built-in list? See [docs/scenario-format.md](docs/sce
 
 The 3D maps come from the [ishoutu aim trainer](https://ishoutu.cn/aim). They are not my
 work and are not covered by this project's MIT license.
+
+Callout names on the maps are Riot's in-game English names, via [valorant-api.com](https://valorant-api.com).
 
 <br>
 
