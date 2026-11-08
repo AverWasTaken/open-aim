@@ -3,7 +3,10 @@
 // Checked with the real map collision (tools/round_terrain.mjs) passed into the real patched sim:
 //  - the scenario files and their spot-score entries are up to date with tools/peek_cover.mjs
 //    (tools/data/peek-viewpoints.json); shareCode / meta.id / seed / rules unchanged;
-//  - every pool spawner sits on its path's first point (cover), size 0, path loop, no strafe;
+//  - every pool spawner sits on its path's first point (cover), size 0, path loop, no strafe; a spot
+//    restored to the original strafe keeps the original spawner + actor-1; every bot moves (a path with
+//    >= 2 distinct waypoints, or strafe) and no unengaged bot stands still longer than its longest pause
+//    x 1.4 + 0.5 s; the strafe restore is unit-tested on a fake map;
 //  - in the sim every bot is born hidden from its spot's reference viewpoints (first-sight point on
 //    the planner route + route samples; the tool's partial/no-cover spots as reported), and a bot with
 //    cover is visible from the first-sight point within a few seconds;
@@ -76,10 +79,12 @@ test('scenario files + spot scores are up to date with tools/peek_cover.mjs; ids
   }
 });
 
-test('every pool spawner starts on its path loop (cover first), size 0, no strafe, shooter kept', { skip }, async () => {
+test('every pool spawner starts on its path loop (cover first), size 0, no strafe, shooter kept; restored spots = original; every bot moves', { skip }, async () => {
+  const res = await generated();
   for (const stem of PC.STEMS) {
     const { doc } = PC.readScenario(stem, root);
     const src = DATA.drills[stem].source;
+    const info = new Map(res.find((r) => r.stem === stem).infos.map((f) => [f.id, f]));
     const shooter = src.actors[0].behaviors.find((b) => b.kind === 'shooter');
     const actors = new Map(doc.actors.map((a) => [a.id, a]));
     for (const id of doc.rules.spawnerPick.pool) {
@@ -87,6 +92,20 @@ test('every pool spawner starts on its path loop (cover first), size 0, no straf
       const o = src.spawners.find((x) => x.id === id);
       const a = actors.get(s.actorTemplateId);
       assert.ok(a, `${stem} ${id}: actor`);
+      // Still-check on the doc: every pool bot has a path with >= 2 distinct waypoints, or strafe.
+      const pth = a.behaviors.find((b) => b.kind === 'path');
+      const distinct = pth ? new Set(pth.waypoints.map((w) => `${w.x},${w.y},${w.z}`)).size : 0;
+      assert.ok(distinct >= 2 || a.behaviors.some((b) => b.kind === 'strafe'), `${stem} ${id}: bot moves (path ${distinct} distinct points, no strafe)`);
+      const rs = info.get(id).restored;
+      if (rs && rs.kind !== 'a') {
+        // Restored strafe (b, c): the exact original spawner (+ rotationY for c) and the original actor-1.
+        const want = structuredClone(o);
+        if (rs.kind === 'c') want.rotationY = rs.rotationY;
+        assert.deepEqual(s, want, `${stem} ${id}: restored spawner = original`);
+        assert.equal(s.actorTemplateId, PC.STRAFE_ACTOR);
+        assert.deepEqual(a, src.actors.find((x) => x.id === PC.STRAFE_ACTOR), `${stem} ${id}: restored actor = original actor-1`);
+        continue;
+      }
       assert.equal(s.kind, 'area');
       assert.deepEqual(s.size, { x: 0, y: 0, z: 0 });
       for (const k of ['maxAlive', 'spawnDelay', 'faceTarget', 'groundSnap', 'name']) assert.deepEqual(s[k], o[k], `${stem} ${id} ${k}`);
@@ -96,10 +115,39 @@ test('every pool spawner starts on its path loop (cover first), size 0, no straf
       assert.deepEqual(a.behaviors.find((b) => b.kind === 'shooter'), shooter, `${stem} ${id}: shooter unchanged`);
       const w0 = path0.waypoints[0];
       assert.ok(Math.abs(s.position.x - w0.x) < 1e-6 && Math.abs(s.position.z - w0.z) < 1e-6 && Math.abs(s.position.y - 0.3 - w0.y) < 1e-6, `${stem} ${id}: spawner on waypoint 0`);
-      // A no-cover spot whose jiggles are all blocked keeps one point (stands on its spot).
-      assert.ok(path0.waypoints.length >= 1 && path0.pauses.length === path0.waypoints.length, `${stem} ${id}: pauses`);
+      assert.ok(path0.waypoints.length >= 2 && path0.pauses.length === path0.waypoints.length, `${stem} ${id}: pauses`);
     }
   }
+});
+
+// Restore (b)/(c) on a fake map (no spot on the real maps needs them today): every jiggle blocked, only
+// strafe legs (max(travel)/2 = 0.8 m) along one direction clear. World X clear -> original spawner + actor-1; else
+// rotationY r with strafe axis (cos r, -sin r) down the clear direction.
+test('no cover, no jiggle: original strafe along world X, else rotationY down a clear direction', () => {
+  const tpl = DATA.drills[PC.STEMS[0]].source.actors.find((a) => a.id === PC.STRAFE_ACTOR);
+  const src = { id: 'spawner-x', kind: 'fixed', actorTemplateId: PC.STRAFE_ACTOR, position: { x: 0, y: 0, z: 0 }, size: { x: 0, y: 0, z: 0 }, faceTarget: true, groundSnap: true, maxAlive: 1, spawnDelay: [0.3, 1.2], name: 'x' };
+  const vp = { first: [0, 1.75, -10], samples: [], from: [0, 0, -10] };
+  const reach = Math.max(...tpl.behaviors.find((b) => b.kind === 'strafe').travel) / 2;
+  const fake = (deg) => ({
+    floorAt: () => 0,
+    seen: () => true,
+    walk: (A, B) => {
+      const dx = B.x - A.x, dz = B.z - A.z, L = Math.hypot(dx, dz), r = (deg * Math.PI) / 180;
+      const along = Math.abs(Math.abs((dx * Math.cos(r) - dz * Math.sin(r)) / (L || 1)) - 1) < 1e-9;
+      return Math.abs(L - reach) < 1e-9 && along ? null : 'blocked';
+    },
+  });
+  const b = PC.coverSpot(fake(0), src, tpl, vp);
+  assert.equal(b.info.restored?.kind, 'b');
+  assert.equal(b.actor, null);
+  assert.deepEqual(b.spawner, src);
+  const c = PC.coverSpot(fake(30), src, tpl, vp);
+  assert.equal(c.info.restored?.kind, 'c');
+  assert.equal(c.actor, null);
+  assert.ok(Math.abs(c.spawner.rotationY - (30 * Math.PI) / 180) < 1e-3, `rotationY ${c.spawner.rotationY}`);
+  assert.deepEqual({ ...c.spawner, rotationY: undefined }, { ...src, rotationY: undefined });
+  const none = PC.coverSpot({ ...fake(0), walk: () => 'blocked' }, src, tpl, vp);
+  assert.ok(none.info.why.includes('stands still'), 'nothing fits: reported');
 });
 
 // Per drill: idle run with terrain, every bot's birth spot hidden as the tool reports, peeks out.
@@ -111,15 +159,27 @@ const MODES = [
   { label: 'human-like radiant, every pool spot', all: true, extra: { bots: 'human', enemyRank: 'radiant' }, limit: 5.5 },
   { label: 'human-like iron, every pool spot', all: true, extra: { bots: 'human', enemyRank: 'iron' }, limit: 5.5 },
 ];
+// Longest allowed still span of a bot: its own largest configured wait (path pause or strafe dwell)
+// x 1.4 (Human-like pause scale 0.6-1.4) + 0.5 s (start hesitation <= 0.25 s, braking, sampling).
+const stillLimit = (actor) => {
+  let w = 0;
+  for (const b of actor.behaviors) {
+    if (b.kind === 'path') for (const p of b.pauses ?? []) w = Math.max(w, p.wait);
+    if (b.kind === 'strafe') w = Math.max(w, ...b.dwell);
+  }
+  return w * 1.4 + 0.5;
+};
 test('bots are born hidden from the player route and peek out (real map collision in the sim)', { skip, timeout: 850000 }, async () => {
   const res = await generated();
   const lines = [];
+  let worst = { ratio: 0 }, skipped = 0;
   for (const mode of MODES) {
     let hidTicks = 0, allTicks = 0;
     for (const r of res) {
       const T = await terrainOf(r.entry.map);
       const geo = PC.geometry(T);
       const info = new Map(r.infos.map((f) => [f.id, f]));
+      const limits = new Map(r.doc.spawners.map((x) => [x.id, stillLimit(r.doc.actors.find((a) => a.id === x.actorTemplateId))]));
       const vps = new Map(r.infos.map((f) => [f.id, PC.viewpoints(r.entry, f.id)]));
       const doc = structuredClone(r.doc);
       // Lotus spawner-16 can see the player spawn (in the original drill too): left out of the
@@ -135,11 +195,18 @@ test('bots are born hidden from the player route and peek out (real map collisio
       let deadAt = -1;
       for (let i = 0; i < SEC * TPS; i++) {
         const snap = s.snapshot();
+        const pe = [snap.player.position.x, snap.player.position.y + 1.75, snap.player.position.z];
         for (const a of snap.actors) {
           if (!a.alive || !a.visible) continue;
           let b = bots.get(a.id);
-          if (!b) { b = { sp: a.spawnerId, born: i, firstSeen: -1, hid: 0, n: 0 }; bots.set(a.id, b); }
+          if (!b) { b = { sp: a.spawnerId, born: i, firstSeen: -1, hid: 0, n: 0, last: null, still: 0, maxStill: 0, sees: false }; bots.set(a.id, b); }
           const age = i - b.born;
+          // Longest span standing exactly still (a paused path bot does not move at all).
+          if (b.last && Math.hypot(a.position.x - b.last.x, a.position.z - b.last.z) < 1e-6) b.maxStill = Math.max(b.maxStill, ++b.still);
+          else b.still = 0;
+          b.last = { x: a.position.x, z: a.position.z };
+          // Picked-spot runs: a bot that can see the player's eye may hold still to fight (engaged).
+          if (!mode.all && !b.sees && i % 8 === 0) b.sees = T.sight([a.position.x, a.position.y + PC.G.HEAD, a.position.z], pe);
           const vp = vps.get(a.spawnerId);
           if (age === 8) b.p0 = { ...a.position };
           if (!vp || age < 8 || (age % 4 !== 0 && b.firstSeen >= 0)) continue;
@@ -150,11 +217,17 @@ test('bots are born hidden from the player route and peek out (real map collisio
         if (s.step(IDLE).some((e) => e.kind === 'playerDead')) { deadAt = i; break; }
       }
       let born = 0, hiddenAll = 0, partial = 0, open = 0;
-      const late = [];
+      const late = [], still = [];
       for (const b of bots.values()) {
         const f = info.get(b.sp), vp = vps.get(b.sp);
         assert.ok(b.p0, `${mode.label} ${r.stem} ${b.sp}: lived 8 ticks`);
         born++;
+        const lim = limits.get(b.sp);
+        if (b.sees) skipped++;
+        else {
+          if (b.maxStill > lim * TPS) still.push(`${b.sp} ${(b.maxStill / TPS).toFixed(2)} s (limit ${lim.toFixed(2)} s)`);
+          if (b.maxStill / (lim * TPS) > worst.ratio) worst = { ratio: b.maxStill / (lim * TPS), s: b.maxStill / TPS, lim, where: `${mode.label} ${r.stem} ${b.sp}` };
+        }
         if (!f.cover) { open++; continue; }
         const hidFirst = !geo.seen(vp.first, b.p0);
         const hidSamples = vp.samples.filter((e) => !geo.seen(e, b.p0)).length;
@@ -173,6 +246,7 @@ test('bots are born hidden from the player route and peek out (real map collisio
       if (mode.all) assert.equal(born, r.doc.rules.spawnerPick.pool.length - (SEES_SPAWN ? 1 : 0), `${mode.label} ${r.stem}: every pool spot spawned`);
       else assert.ok(born >= r.doc.rules.spawnerPick.count, `${mode.label} ${r.stem}: ${born} bots born`);
       assert.deepEqual(late, [], `${mode.label} ${r.stem}: covered bots visible from the first-sight point within ${mode.limit} s`);
+      assert.deepEqual(still, [], `${mode.label} ${r.stem}: unengaged bots standing still longer than their longest pause x 1.4 + 0.5 s`);
       lines.push(`[${mode.label}] ${r.stem}: born ${born}, hidden from all viewpoints ${hiddenAll}, partial ${partial}, no cover ${open}${deadAt >= 0 ? `, player at spawn shot dead at ${(deadAt / TPS).toFixed(1)} s` : ''}`);
     }
     const share = (100 * hidTicks) / Math.max(1, allTicks);
@@ -180,6 +254,7 @@ test('bots are born hidden from the player route and peek out (real map collisio
     // Rhythm guard: mostly hidden, but they do come out (target ~60%).
     assert.ok(share >= 50 && share <= 75, `${mode.label}: hidden share ${share.toFixed(1)}%`);
   }
+  lines.push(`closest to its still limit: ${worst.where} still ${worst.s?.toFixed(2)} s of ${worst.lim?.toFixed(2)} s; bots left out of the still-check (could see the player, picked-spot runs): ${skipped}`);
   console.log(lines.join(String.fromCharCode(10)));
 });
 
