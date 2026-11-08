@@ -65,14 +65,12 @@ test('juliett: English names at the stored x / z', () => {
 
 test('the English translator leaves every callout name as it is', async () => {
   const i18n = path.join(ROOT, 'site', '_assets', 'r20261021-1', 'i18n');
-  // Same as the translator wrapper app/main.js serves: english-fixes.js merged into the dictionary
-  // before the first translation, translations.js only for Vietnamese text (VN regex).
+  // Same as the translator wrapper app/main.js serves: english-fixes.js and then translations.js
+  // merged into the dictionary before the first translation (there is no separate VN pre-pass).
   const dictionary = (await import(pathToFileURL(path.join(i18n, 'en.dict.mjs')).href)).default;
   Object.assign(dictionary, require(path.join(ROOT, 'app', 'english-fixes.js')));
+  Object.assign(dictionary, require(path.join(ROOT, 'app', 'translations.js')));
   const { translateText } = await import(pathToFileURL(path.join(i18n, 'translate-en.mjs')).href);
-  const vnLine = fs.readFileSync(path.join(ROOT, 'app', 'main.js'), 'utf8').match(/^const VN = (\/.*\/i);\r?$/m);
-  assert.ok(vnLine, 'VN regex in app/main.js');
-  const VN = new Function(`return ${vnLine[1]}`)();
   assert.ok(!HAN.test(translateText('A区 大厅')), 'translator loaded (control)');
   // The pre-aim result builds sentences around the name (mi() in Dc2Dm9E6.js); the English name must
   // come through whole there too (a later english-fixes.js key could otherwise eat part of it).
@@ -85,7 +83,6 @@ test('the English translator leaves every callout name as it is', async () => {
     (n) => `${n} `,
   ];
   for (const en of ALL_EN) {
-    assert.equal(VN.test(en), false, `VN regex matches ${en}`);
     assert.equal(translateText(en), en);
     for (const t of templates) {
       const out = translateText(t(en));

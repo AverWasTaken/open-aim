@@ -145,13 +145,15 @@ const UI_CSS = fs.readFileSync(path.join(__dirname, "ui.css"), "utf-8");
 const THEME_CSS = fs.readFileSync(path.join(__dirname, "theme-esports.css"), "utf-8");
 // Offline only: hides sign-in, leaderboards, cloud sync and the site's play counts.
 const OFFLINE_CSS = fs.readFileSync(path.join(__dirname, "offline.css"), "utf-8");
-// Moves the lobby sidebar (Quick start, Favorites, Creator, Manual) into the top bar.
+// Moves the lobby sidebar (Quick start, Favorites, Studio, Manual) into the top bar.
 const LOBBY_BAR_JS = fs.readFileSync(path.join(__dirname, "lobby-bar.js"), "utf-8");
 const FRAME_METER_JS = fs.readFileSync(path.join(__dirname, "frame-meter.js"), "utf-8");
 // Startup screen over the half-loaded lobby until its training list is in.
 const STARTUP_SCREEN_JS = fs.readFileSync(path.join(__dirname, "startup-screen.js"), "utf-8");
 // Shared page watcher for the UI scripts below; sleeps while the mouse is locked in a round.
 const PAGE_WATCH_JS = fs.readFileSync(path.join(__dirname, "page-watch.js"), "utf-8");
+// Result screen keys (R = play again, Esc = back) and Q in the Tab menu.
+const UX_KEYS_JS = fs.readFileSync(path.join(__dirname, "ux-keys.js"), "utf-8");
 const SMOOTH_SCROLL_JS = fs.readFileSync(path.join(__dirname, "smooth-scroll.js"), "utf-8");
 const VIDEO_SETTINGS_JS = fs.readFileSync(path.join(__dirname, "video-settings.js"), "utf-8");
 // Map lighting setting (Enhanced / Original), read by the patched BiMsX6Xn.js. Optional:
@@ -187,6 +189,7 @@ const SHOT_GRAPH_JS = fs.readFileSync(path.join(__dirname, "shooting-error.js"),
 // listener for each UI script while the page is still loading.
 const UI_SCRIPTS = [
   ["PAGE WATCH", PAGE_WATCH_JS],
+  ["UX KEYS", UX_KEYS_JS],
   ["SMOOTH SCROLL", SMOOTH_SCROLL_JS],
   ["SNIPER SCOPES", SNIPER_SCOPES_JS],
   ["FAN AUDIO", FAN_AUDIO_JS],
@@ -221,28 +224,26 @@ const SHOT_LOOP_TO = 'xe.kind==="shot"&&(window.__aimShot?.(xe),Kt.push(xe.tick*
 const ROUTE_LOOP_FROM = "const ce=hs(de);for(const xe of Cn)";
 const ROUTE_LOOP_TO = "const ce=hs(de);window.__aimTick?.(ce);for(const xe of Cn)";
 
-// The site's English translator garbles some Vietnamese strings. Serve a thin
-// wrapper in its place that applies translations.js first; the original module
-// is still served unchanged under ORIGINAL_TRANSLATOR.
+// The site's English translator is machine translated. Serve a thin wrapper in its
+// place that first adds english-fixes.js (Chinese) and translations.js (Vietnamese)
+// to its dictionary; the original module is still served unchanged under
+// ORIGINAL_TRANSLATOR.
 const TRANSLATOR = "/_assets/r20261021-1/i18n/translate-en.mjs";
 const ORIGINAL_TRANSLATOR = "/_assets/r20261021-1/i18n/translate-en.original.mjs";
 const TRANSLATOR_WRAPPER = `import dictionary from './en.dict.mjs';
 import { translateText as base } from './translate-en.original.mjs';
 export * from './translate-en.original.mjs';
-// english-fixes.js: proper English replacing the dictionary's machine translations
-// (the dictionary object is shared with the translator, which reads it lazily).
+// english-fixes.js: proper English replacing the dictionary's machine translations;
+// translations.js: English for the Vietnamese strings. Both are plain dictionary
+// entries (no key overlap), so whole strings match exactly and drill names and
+// descriptions (localizeMetadata) get them too. The dictionary object is shared with
+// the translator, which reads it lazily.
 Object.assign(dictionary, ${JSON.stringify(require("./english-fixes"))});
-const EXTRA = ${JSON.stringify(require("./translations"))};
-const KEYS = Object.keys(EXTRA).sort((a, b) => b.length - a.length);
-const VN = /[Ã Ã¡áº¡áº£Ã£Ã¢áº§áº¥áº­áº©áº«Äƒáº±áº¯áº·áº³áºµÃ¨Ã©áº¹áº»áº½Ãªá»áº¿á»‡á»ƒá»…Ã¬Ã­á»‹á»‰Ä©Ã²Ã³á»á»ÃµÃ´á»“á»‘á»™á»•á»—Æ¡á»á»›á»£á»Ÿá»¡Ã¹Ãºá»¥á»§Å©Æ°á»«á»©á»±á»­á»¯á»³Ã½á»µá»·á»¹Ä‘]/i;
+Object.assign(dictionary, ${JSON.stringify(require("./translations"))});
 ${process.env.AIM_TRLOG ? "window.__trlog = new Map(); // AIM_TRLOG=1 (testing): records source -> English pairs shown" : ""}
 export function translateText(value) {
-  const source = value;
-  if (typeof value === 'string' && VN.test(value)) {
-    for (const key of KEYS) if (value.includes(key)) value = value.split(key).join(EXTRA[key]);
-  }
   const result = base(value);
-  if (window.__trlog && typeof source === 'string' && result !== source) window.__trlog.set(source.trim(), result.trim());
+  if (window.__trlog && typeof value === 'string' && result !== value) window.__trlog.set(value.trim(), result.trim());
   return result;
 }
 `;

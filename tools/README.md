@@ -58,6 +58,13 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 12. `round_patch.py` (after `peekmove_patch.py`; refuses to run twice: it looks for `/aim-rounds/round-core.mjs`). It keeps each copy's own line ends.
 13. `round_bots_patch.py` (after `round_patch.py`, it refuses to run without it; refuses to run twice: it looks for `/aim-rounds/round-bots.mjs` in `BiMsX6Xn.js`/`CnrSARj_.js` and `a.kind==="roundBot"` in `D_iGclxB.js`). It keeps each copy's own line ends. Normal drills are unchanged: `scripts/test-round-bots-parity.mjs` rebuilds the un-patched files from the script's own pairs and compares drills tick for tick.
 14. `maps_callout_patch.py` (after `round_patch.py`; only touches `Dc2Dm9E6.js`; refuses to run twice: it looks for its new regex `/\s+(?=[^\x00-\x7f])|(?<=[^\x00-\x7f])\s+/g`).
+15. `ux_result_patch.py` (ux; after `round_patch.py`, independent of 13 and 14; refuses to run twice: it looks for `__aimPb` in
+    `OkAdunfX.js` and the Target drill header in `Hwnlm6zD.js`). Result screen only, no sim or
+    replay code: the record check `uM` counts earlier runs only (no "new personal best" on a first
+    run, a 0-point run or a tie), RunReport gets a tie line, time to kill shows seconds
+    (`0.42s`, no delta), and Target drills get their own result header and back label. The
+    English for the new strings is in `app/english-fixes.js` ("ux result screen"). Tests:
+    `npm run test:result` (`--mods <dir>` patches another copy). It keeps each copy's own line ends.
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
