@@ -122,7 +122,13 @@ test('bots are born hidden from the player route and peek out (real map collisio
       const info = new Map(r.infos.map((f) => [f.id, f]));
       const vps = new Map(r.infos.map((f) => [f.id, PC.viewpoints(r.entry, f.id)]));
       const doc = structuredClone(r.doc);
-      if (mode.all) delete doc.rules.spawnerPick;
+      // Lotus spawner-16 can see the player spawn (in the original drill too): left out of the
+      // every-spot runs so the idle player lives and the other spots get checked.
+      const SEES_SPAWN = r.stem === 'lotus-b-attack-peekers' ? 'spawner-16' : null;
+      if (mode.all) {
+        delete doc.rules.spawnerPick;
+        if (SEES_SPAWN) doc.spawners = doc.spawners.filter((x) => x.id !== SEES_SPAWN);
+      }
       const s = createSim(doc, T, 11, mode.extra);
       const bots = new Map();
       const SEC = 14;
@@ -141,7 +147,6 @@ test('bots are born hidden from the player route and peek out (real map collisio
           if (seen && b.firstSeen < 0) b.firstSeen = age;
           if (age % 4 === 0) { b.n++; if (!seen) b.hid++; }
         }
-        // Lotus spawner-16 can see the player spawn (also in the original drill): stop there.
         if (s.step(IDLE).some((e) => e.kind === 'playerDead')) { deadAt = i; break; }
       }
       let born = 0, hiddenAll = 0, partial = 0, open = 0;
@@ -162,12 +167,18 @@ test('bots are born hidden from the player route and peek out (real map collisio
           hidTicks += b.hid; allTicks += b.n;
         }
       }
-      if (mode.all) assert.equal(born, r.doc.rules.spawnerPick.pool.length, `${mode.label} ${r.stem}: every pool spot spawned`);
+      // Only a picked Lotus round with spawner-16 in it may end early.
+      const pickedSees = !mode.all && SEES_SPAWN && [...bots.values()].some((b) => b.sp === SEES_SPAWN);
+      assert.ok(deadAt < 0 || pickedSees, `${mode.label} ${r.stem}: idle player at spawn shot dead at ${(deadAt / TPS).toFixed(2)} s`);
+      if (mode.all) assert.equal(born, r.doc.rules.spawnerPick.pool.length - (SEES_SPAWN ? 1 : 0), `${mode.label} ${r.stem}: every pool spot spawned`);
       else assert.ok(born >= r.doc.rules.spawnerPick.count, `${mode.label} ${r.stem}: ${born} bots born`);
       assert.deepEqual(late, [], `${mode.label} ${r.stem}: covered bots visible from the first-sight point within ${mode.limit} s`);
       lines.push(`[${mode.label}] ${r.stem}: born ${born}, hidden from all viewpoints ${hiddenAll}, partial ${partial}, no cover ${open}${deadAt >= 0 ? `, player at spawn shot dead at ${(deadAt / TPS).toFixed(1)} s` : ''}`);
     }
-    lines.push(`[${mode.label}] covered bots hidden from their first-sight point: ${((100 * hidTicks) / Math.max(1, allTicks)).toFixed(1)}% of ${allTicks} samples`);
+    const share = (100 * hidTicks) / Math.max(1, allTicks);
+    lines.push(`[${mode.label}] covered bots hidden from their first-sight point: ${share.toFixed(1)}% of ${allTicks} samples`);
+    // Rhythm guard: mostly hidden, but they do come out (target ~60%).
+    assert.ok(share >= 50 && share <= 75, `${mode.label}: hidden share ${share.toFixed(1)}%`);
   }
   console.log(lines.join(String.fromCharCode(10)));
 });
