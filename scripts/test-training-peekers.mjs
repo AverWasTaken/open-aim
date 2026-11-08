@@ -103,57 +103,73 @@ test('every pool spawner starts on its path loop (cover first), size 0, no straf
 });
 
 // Per drill: idle run with terrain, every bot's birth spot hidden as the tool reports, peeks out.
-test('bots are born hidden from the player route and peek out (real map collision in the sim)', { skip, timeout: 800000 }, async () => {
+// Classic bots with the drill's own spot pick, then every pool spot at once (no pick) for Classic and
+// Human-like bots at Radiant and Iron (Human-like scales pauses 0.6-1.4x and adds a start hesitation).
+const MODES = [
+  { label: 'classic, picked spots', all: false, extra: {}, limit: 4 },
+  { label: 'classic, every pool spot', all: true, extra: {}, limit: 4 },
+  { label: 'human-like radiant, every pool spot', all: true, extra: { bots: 'human', enemyRank: 'radiant' }, limit: 5.5 },
+  { label: 'human-like iron, every pool spot', all: true, extra: { bots: 'human', enemyRank: 'iron' }, limit: 5.5 },
+];
+test('bots are born hidden from the player route and peek out (real map collision in the sim)', { skip, timeout: 850000 }, async () => {
   const res = await generated();
   const lines = [];
-  let hidTicks = 0, allTicks = 0;
-  for (const r of res) {
-    const T = await terrainOf(r.entry.map);
-    const geo = PC.geometry(T);
-    const info = new Map(r.infos.map((f) => [f.id, f]));
-    const vps = new Map(r.infos.map((f) => [f.id, PC.viewpoints(r.entry, f.id)]));
-    const s = createSim(r.doc, T, 11);
-    const bots = new Map();
-    const SEC = 14;
-    for (let i = 0; i < SEC * TPS; i++) {
-      const snap = s.snapshot();
-      for (const a of snap.actors) {
-        if (!a.alive || !a.visible) continue;
-        let b = bots.get(a.id);
-        if (!b) { b = { sp: a.spawnerId, born: i, firstSeen: -1, hid: 0, n: 0 }; bots.set(a.id, b); }
-        const age = i - b.born;
-        const vp = vps.get(a.spawnerId);
-        if (age === 8) b.p0 = { ...a.position };
-        if (!vp || age < 8 || (age % 4 !== 0 && b.firstSeen >= 0)) continue;
-        const seen = geo.seen(vp.first, a.position);
-        if (seen && b.firstSeen < 0) b.firstSeen = age;
-        if (age % 4 === 0) { b.n++; if (!seen) b.hid++; }
+  for (const mode of MODES) {
+    let hidTicks = 0, allTicks = 0;
+    for (const r of res) {
+      const T = await terrainOf(r.entry.map);
+      const geo = PC.geometry(T);
+      const info = new Map(r.infos.map((f) => [f.id, f]));
+      const vps = new Map(r.infos.map((f) => [f.id, PC.viewpoints(r.entry, f.id)]));
+      const doc = structuredClone(r.doc);
+      if (mode.all) delete doc.rules.spawnerPick;
+      const s = createSim(doc, T, 11, mode.extra);
+      const bots = new Map();
+      const SEC = 14;
+      let deadAt = -1;
+      for (let i = 0; i < SEC * TPS; i++) {
+        const snap = s.snapshot();
+        for (const a of snap.actors) {
+          if (!a.alive || !a.visible) continue;
+          let b = bots.get(a.id);
+          if (!b) { b = { sp: a.spawnerId, born: i, firstSeen: -1, hid: 0, n: 0 }; bots.set(a.id, b); }
+          const age = i - b.born;
+          const vp = vps.get(a.spawnerId);
+          if (age === 8) b.p0 = { ...a.position };
+          if (!vp || age < 8 || (age % 4 !== 0 && b.firstSeen >= 0)) continue;
+          const seen = geo.seen(vp.first, a.position);
+          if (seen && b.firstSeen < 0) b.firstSeen = age;
+          if (age % 4 === 0) { b.n++; if (!seen) b.hid++; }
+        }
+        // Lotus spawner-16 can see the player spawn (also in the original drill): stop there.
+        if (s.step(IDLE).some((e) => e.kind === 'playerDead')) { deadAt = i; break; }
       }
-      const ev = s.step(IDLE);
-      assert.ok(!ev.some((e) => e.kind === 'playerDead'), `${r.stem}: idle player at spawn not killed in ${SEC} s`);
-    }
-    let born = 0, hiddenAll = 0, partial = 0, open = 0, late = [];
-    for (const b of bots.values()) {
-      const f = info.get(b.sp), vp = vps.get(b.sp);
-      assert.ok(b.p0, `${r.stem} ${b.sp}: lived 8 ticks`);
-      born++;
-      if (!f.cover) { open++; continue; }
-      const hidFirst = !geo.seen(vp.first, b.p0);
-      const hidSamples = vp.samples.filter((e) => !geo.seen(e, b.p0)).length;
-      assert.ok(hidFirst, `${r.stem} ${b.sp}: born hidden from its first-sight point`);
-      assert.ok(hidSamples >= f.hiddenSamples, `${r.stem} ${b.sp}: hidden from ${hidSamples}/${vp.samples.length} route samples, tool said ${f.hiddenSamples}`);
-      if (hidSamples === vp.samples.length) hiddenAll++; else partial++;
-      if (f.spotSeen) {
-        if (b.firstSeen < 0 || b.firstSeen > 4 * TPS) late.push(`${b.sp} ${b.firstSeen < 0 ? 'never' : (b.firstSeen / TPS).toFixed(2) + ' s'}`);
-        hidTicks += b.hid; allTicks += b.n;
+      let born = 0, hiddenAll = 0, partial = 0, open = 0;
+      const late = [];
+      for (const b of bots.values()) {
+        const f = info.get(b.sp), vp = vps.get(b.sp);
+        assert.ok(b.p0, `${mode.label} ${r.stem} ${b.sp}: lived 8 ticks`);
+        born++;
+        if (!f.cover) { open++; continue; }
+        const hidFirst = !geo.seen(vp.first, b.p0);
+        const hidSamples = vp.samples.filter((e) => !geo.seen(e, b.p0)).length;
+        assert.ok(hidFirst, `${mode.label} ${r.stem} ${b.sp}: born hidden from its first-sight point`);
+        assert.ok(hidSamples >= f.hiddenSamples, `${mode.label} ${r.stem} ${b.sp}: hidden from ${hidSamples}/${vp.samples.length} route samples, tool said ${f.hiddenSamples}`);
+        if (hidSamples === vp.samples.length) hiddenAll++; else partial++;
+        if (f.spotSeen) {
+          const lived = (deadAt >= 0 ? deadAt : SEC * TPS) - b.born; // run ends at the player's death
+          if ((b.firstSeen < 0 && lived > mode.limit * TPS) || b.firstSeen > mode.limit * TPS) late.push(`${b.sp} ${b.firstSeen < 0 ? 'never' : (b.firstSeen / TPS).toFixed(2) + ' s'}`);
+          hidTicks += b.hid; allTicks += b.n;
+        }
       }
+      if (mode.all) assert.equal(born, r.doc.rules.spawnerPick.pool.length, `${mode.label} ${r.stem}: every pool spot spawned`);
+      else assert.ok(born >= r.doc.rules.spawnerPick.count, `${mode.label} ${r.stem}: ${born} bots born`);
+      assert.deepEqual(late, [], `${mode.label} ${r.stem}: covered bots visible from the first-sight point within ${mode.limit} s`);
+      lines.push(`[${mode.label}] ${r.stem}: born ${born}, hidden from all viewpoints ${hiddenAll}, partial ${partial}, no cover ${open}${deadAt >= 0 ? `, player at spawn shot dead at ${(deadAt / TPS).toFixed(1)} s` : ''}`);
     }
-    assert.ok(born >= r.doc.rules.spawnerPick.count, `${r.stem}: ${born} bots born`);
-    assert.deepEqual(late, [], `${r.stem}: covered bots visible from the first-sight point within 4 s`);
-    lines.push(`${r.stem}: born ${born}, hidden from all viewpoints ${hiddenAll}, partial ${partial}, no cover ${open}`);
+    lines.push(`[${mode.label}] covered bots hidden from their first-sight point: ${((100 * hidTicks) / Math.max(1, allTicks)).toFixed(1)}% of ${allTicks} samples`);
   }
-  lines.push(`covered bots hidden from their first-sight point: ${((100 * hidTicks) / Math.max(1, allTicks)).toFixed(1)}% of ${allTicks} samples`);
-  console.log(lines.join('\n'));
+  console.log(lines.join(String.fromCharCode(10)));
 });
 
 test('a refill after a kill comes from cover again; same seed = same run', { skip, timeout: 300000 }, async () => {

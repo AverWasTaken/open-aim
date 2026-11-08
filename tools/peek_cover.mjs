@@ -28,7 +28,7 @@
 //   node tools/peek_cover.mjs --check    fail if the scenario files or spot-scores.json are stale
 //   node tools/peek_cover.mjs --json     print the per-spot report as JSON
 //   node tools/peek_cover.mjs --init <planner.json>   (re)make tools/data/peek-viewpoints.json from a
-//        planner dump (shots tool p1-planner.mjs, run in a test copy of the app) and the CURRENT
+//        planner dump (tools/peek_planner.mjs, run in a test copy of the app) and the CURRENT
 //        scenario files, which must still be the original (not yet converted) drills.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -39,11 +39,17 @@ export const DATA = path.join(ROOT, 'tools', 'data', 'peek-viewpoints.json');
 export const SCORES = path.join(ROOT, 'app', 'mods', 'aim-ranks', 'spot-scores.json');
 export const STEMS = ['ascent-b-retake', 'bind-a-showers', 'corrode-mid-to-a', 'haven-garage-push', 'lotus-b-attack', 'split-b-heaven-retake'].map((s) => `${s}-peekers`);
 export const G = { HEAD: 1.86, CHEST: 1.2, HALF: 0.35, STEP: 0.25, MAX: 3, RAYS: [0.6, 1.2], STEP_H: 0.5, PROBE: 0.25, SAMPLE: 2, AHEAD: 10 };
-// Pause (s) at cover / at the spot / at each jiggle step. Pause waits are plain numbers in the game;
-// Human-like bots scale each by 0.6-1.4 (aimBotPause), so the cover wait is ~1.4-3.4 s there.
-// Cover 2.4 s: an unengaged covered bot is hidden from its first-sight point ~61% of the time
+// Pause (s) at cover / at the spot / at each jiggle step. Pause waits are plain numbers in the game,
+// so the cover wait varies per spot instead (cover +- coverSpread, from a hash of the spawner id) and
+// bots don't all share one rhythm. Human-like bots scale each wait by 0.6-1.4 (aimBotPause).
+// Cover ~2.4 s: an unengaged covered bot is hidden from its first-sight point ~60% of the time
 // (1.6 s gave ~50%; scripts/test-training-peekers.mjs prints the share).
-export const RHYTHM = { cover: 2.4, spot: 0.6, jiggle: 0.15, speed: 5.4, jiggles: [0.7, -0.5, 0.6] };
+export const RHYTHM = { cover: 2.4, coverSpread: 0.4, spot: 0.6, jiggle: 0.15, speed: 5.4, jiggles: [0.7, -0.5, 0.6] };
+export function coverWait(id) {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  return Math.round((RHYTHM.cover + RHYTHM.coverSpread * (((h >>> 0) % 1001) / 500 - 1)) * 100) / 100;
+}
 const FLOOR_NY = Math.cos((44.765 * Math.PI) / 180);
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const P3 = (q) => ({ x: r3(q.x), y: r3(q.y), z: r3(q.z) });
@@ -187,7 +193,7 @@ export function coverSpot(geo, src, actorTpl, vp) {
     pts.pop();
     info.dropped.push(`${tags.pop()} (loop back: ${why})`);
   }
-  const waits = pts.map((_, i) => (best && i === 0 ? RHYTHM.cover : (best ? i === 1 : i === 0) ? RHYTHM.spot : RHYTHM.jiggle));
+  const waits = pts.map((_, i) => (best && i === 0 ? coverWait(src.id) : (best ? i === 1 : i === 0) ? RHYTHM.spot : RHYTHM.jiggle));
   const actorId = `peek-${src.id}`;
   const shooter = actorTpl.behaviors.find((b) => b.kind === 'shooter');
   const actor = {
