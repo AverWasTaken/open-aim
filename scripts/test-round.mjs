@@ -739,8 +739,8 @@ const defDoc = (attackData = null) => {
   return d;
 };
 // sha256 (first 16 hex) of JSON.stringify(roundPrepare(doc, seed)), seeds 1..20: the attack doc of
-// round-ascent-attack-vandal-20 (re-frozen on ceo/round-fixes: Ascent's B setup group was replaced, 5 -> 13
-// spawners, so the B shuffle draws more and the later draws shift; round runs record no replay), and the defense doc (buildDoc) with
+// round-ascent-attack-vandal-20 (re-frozen after the B spot edits on ceo/round-fixes: the B group went from
+// 5 to 13 spawners, so the B shuffle draws more and later draws shift; round runs record no replay), and the defense doc (buildDoc) with
 // rules.round.attack and rules.round.attackData deleted (computed on 1d040e8, before R3).
 const FROZEN_PREPARE = {
   attack: ['84207f459c941813', '5bce515bede52d69', '4022b2b4126b045d', '02893873c760a35e', '4dd3d8f47b91882e', '3c25e3e57378caca', '8f197b6a63d52624', '04fc15c4bea1e36d', '80dcf155018e4e6f', '4c6497e7aa5ab106',
