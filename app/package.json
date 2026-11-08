@@ -29,7 +29,8 @@
     "test:feelaudiopatch": "node --test ../scripts/test-feel-audio-patch.cjs",
     "test:feelxbloom": "node --test ../scripts/test-feel-xbloom.mjs",
     "test:feelxprof": "node --test ../scripts/test-feel-xprofiles.cjs",
-    "test:feelcstrafe": "node --test ../scripts/test-feel-cstrafe.cjs ../scripts/test-feel-cstrafe-sim.mjs"
+    "test:feelcstrafe": "node --test ../scripts/test-feel-cstrafe.cjs ../scripts/test-feel-cstrafe-sim.mjs",
+    "test:feelsensfinder": "node --test ../scripts/test-feel-sens-finder.cjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
@@ -58,6 +59,8 @@
       "page-watch.js",
       "smooth-scroll.js",
       "player-tools.js",
+      "feel-sens-finder-core.js",
+      "feel-sens-finder.js",
       "valorant-import.js",
       "valorant-import-ui.js",
       "valorant-import-ipc.js",
