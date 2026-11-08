@@ -47,7 +47,7 @@
     const source=ctx.createBufferSource();source.__aimSlot='prime-guardian-'+name;source.buffer=buffer;source.connect(guardianBus(ctx,destination,channel));guardianVoices.add(source);if(name!=='fire')guardianActions.set(channel,source);if(isKill)killVoice=source;
     source.onended=()=>{source.disconnect();guardianVoices.delete(source);if(guardianActions.get(channel)===source)guardianActions.delete(channel);if(killVoice===source)killVoice=null;};source.start(0,Math.max(0,elapsed));return true;
   }
-  async function warmGuardian(audio){await guardianReady;if(window.__aimGuardianSkin!=='prime-guardian')return;const output=audio?.ensure();if(output)for(const name of ['fire','reload','kill'])guardianBus(output.context,output.master,name);}
+  async function warmGuardian(audio){await guardianReady;if(window.__aimGuardianSkin!=='prime-guardian')return;const output=audio?.ensure();if(output)for(const name of ['fire','reload','kill'])guardianBus(output.context,name==='kill'?output.bus?.hits??output.master:output.bus?.weapon??output.master,name);}
   function updateGuardian(weapon,seconds,equipAt,reloadSince,audio,phase='running'){
     const selected=weapon==='guardian'&&window.__aimGuardianSkin==='prime-guardian';
     const rewound=seconds<guardianSeconds,settings=audio?.settings?.current,muted=settings&&(settings.enabled===false||settings.volume<=0);
@@ -57,7 +57,7 @@
     const entering=guardianWeapon!==weapon||rewound;
     if(entering||guardianEquip!==equipAt)stopGuardianAction('reload');
     const reloading=reloadSince!=null&&reloadSince>=0;
-    if(reloading&&(entering||guardianReload==null||reloadSince<guardianReload-.0001)){const output=audio?.ensure();if(output)playGuardian('reload',output.context,output.master,reloadSince);}
+    if(reloading&&(entering||guardianReload==null||reloadSince<guardianReload-.0001)){const output=audio?.ensure();if(output)playGuardian('reload',output.context,output.bus?.weapon??output.master,reloadSince);}
     else if(!reloading)stopGuardianAction('reload');
     if(guardianVoices.size&&audio?.settings?.current&&(audio.settings.current.enabled===false||audio.settings.current.volume<=0))stopGuardian();
     guardianWeapon=weapon;guardianEquip=equipAt;guardianReload=reloadSince;guardianSeconds=seconds;

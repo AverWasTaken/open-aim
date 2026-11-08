@@ -1,6 +1,17 @@
 // Preparation extends the workshop loader; warm restarts use a delayed compact status.
 let active = null;
 const labels = {'Loading scenario assets':'Preparing assets','Loading map, bots and effects':'Preparing map and bots','Preparing selected weapons':'Preparing loadout','Warming weapon shaders and textures':'Preparing visuals','Finishing GPU preparation':'Finishing up'};
+// Pure step math. The weapon warm-up passes {weapon, index, total}; it fills step 2 (of 0..4)
+// smoothly so the workshop % (90 + completed * 2) moves from 94 towards 96 per weapon.
+export function loadingStep(label, completed = 0, detail = null) {
+  let text = labels[label] ?? label;
+  if (detail?.total > 0) {
+    text = 'Preparing visuals · weapon ' + (detail.index + 1) + '/' + detail.total;
+    completed = 2 + (detail.index + 1) / (detail.total + 1);
+  }
+  const done = Math.max(0, Math.min(4, Math.floor(completed)));
+  return { text, completed, done };
+}
 export function runScenarioLoading(prepare, workshop = null) {
   if (active) return active.promise;
   const controller = new AbortController();
@@ -49,14 +60,14 @@ export function runScenarioLoading(prepare, workshop = null) {
     if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); back(); }
     if (e.key === 'Tab' && !workshop) { e.preventDefault(); (document.activeElement === cancel && !retry.hidden ? retry : cancel).focus(); }
   };
-  const report = (label, completed = 0) => {
+  const report = (label, completed = 0, detail = null) => {
     if (settled) return;
-    const text = labels[label] ?? label;
-    workshop?.report(text, completed);
-    const done = Math.max(0, Math.min(4, completed));
+    const step = loadingStep(label, completed, detail);
+    const text = step.text, done = step.done;
+    workshop?.report(text, step.completed);
     stage.textContent = text;
     stage.dataset.step = 'Step ' + Math.min(4, done + 1) + ' of 4';
-    track.setAttribute('aria-valuenow', String(completed));
+    track.setAttribute('aria-valuenow', String(step.completed));
     steps.forEach((step, i) => { step.className = i < done ? 'is-done' : i === done ? 'is-active' : ''; });
   };
   const attempt = async () => {

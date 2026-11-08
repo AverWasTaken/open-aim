@@ -49,6 +49,9 @@ version's stats.
 - **Anti-flash:** they flash, then swing. Turn away in time, then take the duel.
 - **Fundamentals:** micro-flicks, Drift-style clicking, strafers and tracking.
 
+**Know where you are:** the callout you're standing in (A Main, Mid Courtyard) shows under the
+minimap during map drills and Round mode. Turn it off in Settings > Video > Stats.
+
 <br>
 
 ## Build your own drills
@@ -171,6 +174,21 @@ Known limits: you can walk through bots; on Ascent the attackers reach B from th
 defender side of B Main (they don't take the gap jump), so you may see them early from the
 defender spawn; and the barriers were placed from the map data, not checked in game on every
 corner. How the map data is made: [tools/README.md](tools/README.md#round-mode-data).
+
+<br>
+
+## Practice
+
+Free play on any of the 9 maps. Open it with **Practice** in the lobby's top bar, pick the map, an
+area (where you start, e.g. Sunset B Main), your weapon and the bots: none (just walk the map),
+standing or strafing, 1 to 12 of them. A map picture shows where you start and where
+the bots will stand. Press **Start**.
+
+- No timer. Bots don't shoot and come back 1.5 s after you kill them.
+- The bots stand on the spots of the map's pre-aim drills. Strafing bots only use spots with room
+  to move; if you ask for more than that, the rest stand still.
+- Esc opens the menu; quit from there to go back to the lobby. Nothing is saved: no drill
+  history, no replay.
 
 <br>
 
