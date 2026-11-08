@@ -100,6 +100,17 @@ test('kill time: lower is better', () => {
   assert.deepEqual(core.fmtDelta('accuracy', -2), { text: '2.0', dir: 'down', good: false });
   assert.equal(core.fmtDelta('accuracy', 0.01).dir, 'flat');
   assert.equal(core.fmt('killTime', 412.6), '413 ms');
+  // From 1000 ms on, kill time reads in seconds with 2 decimals (half up, no float slip).
+  assert.equal(core.fmt('killTime', 520), '520 ms');
+  assert.equal(core.fmt('killTime', 999.4), '999 ms');
+  assert.equal(core.fmt('killTime', 999.6), '1.00 s');
+  assert.equal(core.fmt('killTime', 17715), '17.72 s');
+  assert.equal(core.fmt('killTime', 17714.4), '17.71 s');
+  assert.equal(core.fmt('killTime', 1004.9), '1.00 s');
+  assert.deepEqual(core.fmtDelta('killTime', 1200), { text: '1.20 s', dir: 'up', good: false });
+  assert.deepEqual(core.fmtDelta('killTime', -1204), { text: '1.20 s', dir: 'down', good: true });
+  assert.deepEqual(core.fmtDelta('killTime', -35), { text: '35 ms', dir: 'down', good: true });
+  assert.deepEqual(core.fmtDelta('killTime', 0.4), { text: '0 ms', dir: 'flat', good: null });
   assert.equal(core.fmt('accuracy', 54.25), '54.3%');
   // Chart PB for kill time is the lowest value.
   const list = [run({ createdAt: NOW - 3 * DAY, avgKillTime: 500 }), run({ createdAt: NOW - 2 * DAY, avgKillTime: 300 }), run({ createdAt: NOW - DAY, avgKillTime: 400 })];
