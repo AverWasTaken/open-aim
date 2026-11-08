@@ -445,6 +445,8 @@ body.al-training-active .aim-frame-meter { display:block; }
 .es-shotgraph-sum.is-moment .es-shotgraph-sum-split { margin-bottom: 6px; }
 .es-shotgraph-sum-line { margin: 2px 0 0; color: #b9bfca; }
 .es-shotgraph-sum-line b { display: inline-block; min-width: 58px; font-weight: 700; }
+.es-shotgraph-sum:not(.is-moment) .es-shotgraph-sum-line.is-stop { margin-top: 10px; }
+.es-shotgraph-sum-line small { display: block; margin-top: 2px; color: var(--es-muted); font-size: 12px; }
 /* Top bar widths, measured in Bahnschrift: brand + full tabs + labelled bar + Sens ~1820px,
    with compact tabs ~1610px, compact tabs + icon-only bar ~1250px.
    Below 1860px: compact tabs and no brand subtitle. Below 1660px: bar icons only

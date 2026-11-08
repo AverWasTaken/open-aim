@@ -20,12 +20,23 @@
 //    (idle / running / paused / result) with the drill's map id.
 // Turned on in Settings > Video > Stats (saved in localStorage, default Graph).
 //
+// Stop to shot (counter-strafe timing): the per-frame state also carries the game's movement
+// error (state.player.meDeg). When it drops to "still" after moving, that is a stop; the first
+// still shot within 500 ms of it records how long after becoming accurate it was fired. A
+// moving shot just before a stop counts as early. One entry per stop, shown in the summary and
+// in the "Graph + numbers" label.
+//
 // Kept cheap: the graph is one small canvas. It repaints every frame only while a round is
 // running and the graph is on screen (no allocations per frame); otherwise it repaints only
 // when something changes. The per-frame hook only compares a few numbers unless the player moved.
 (() => {
   if (window.__aimShotGraph) return;
-  window.__aimShotGraph = true;
+  // read-only view for tests and tools: this round's stop entries ({ ms, early })
+  // and the summary line's text for given entries (no DOM)
+  window.__aimShotGraph = {
+    stops: () => (round ? round.stops.map((s) => ({ ...s })) : []),
+    stopLine: (stops, compact) => stopLine(stops, !!compact),
+  };
 
   const KEY = "es-shot-graph"; // "off" | "graph" | "numbers"
   const STILL = "#ff9d42", MOVING = "#4cb2ff", MOVING_SPRAY = "#2b74c2";
@@ -47,8 +58,9 @@
   let round = null;
 
   function newRound(mapId) {
-    round = { mapId: mapId || null, stats: { still: tally(), moving: tally() }, shots: [], route: [], walked: 0, last: null, endedAt: 0, summary: null };
+    round = { mapId: mapId || null, stats: { still: tally(), moving: tally() }, shots: [], route: [], walked: 0, last: null, endedAt: 0, summary: null, stops: [] };
     clearGraph();
+    resetStops();
   }
   const recording = () => round && (!round.endedAt || performance.now() - round.endedAt < LATE_MS);
 
@@ -66,7 +78,7 @@
   // Per frame: the player's feet. Distance adds up every frame (horizontal only); the path
   // keeps a point about every 15 cm. Jumps over 3 m in one frame are respawns/teleports.
   window.__aimTick = (state) => {
-    if (state && typeof state.tick === "number") clockTick(state.tick);
+    if (state && typeof state.tick === "number") { clockTick(state.tick); stopTick(state); }
     if (!round || round.endedAt) return;
     const p = state && state.player && state.player.position;
     if (!p) return;
@@ -88,6 +100,40 @@
     if (round.route.length < MAX_ROUTE) round.route.push(round.last);
   };
 
+  // ---------- stop to shot ----------
+  // A stop is a frame where the movement error is back at "still" after a moving frame. Its
+  // moment (cross) is taken halfway between those two frames, so it is off by half a frame at
+  // most; shots carry their exact tick. Within a frame the state comes first, then that
+  // frame's shots. A stop is only replaced by the next one (moving again does not clear it),
+  // so a still shot from the same frame as the next movement still counts.
+  const STOP_GAP = 16, STOP_WINDOW = 64, EARLY_WINDOW = 26, MAX_STOPS = 512; // ticks (128 per second)
+  let wasMoving = false, movedTick = -1, stop = null, lastMovingShot = -1;
+  function resetStops() { wasMoving = false; movedTick = -1; stop = null; lastMovingShot = -1; }
+  const tickMs = (ticks) => Math.round((ticks * 1000) / 128);
+  function addStop(ms, early) {
+    if (!recording() || round.stops.length >= MAX_STOPS) return false;
+    round.stops.push({ ms, early });
+    return true;
+  }
+  function stopTick(state) {
+    const me = state.player && state.player.meDeg;
+    if (typeof me !== "number") return; // no movement error in this state: record nothing
+    const t = state.tick;
+    if (me > CLEAN) { wasMoving = true; movedTick = t; return; }
+    if (!wasMoving) return;
+    wasMoving = false;
+    // a long gap between frames (hitch, hidden tab) gives no usable timing
+    if (t - movedTick > STOP_GAP) { stop = null; lastMovingShot = -1; return; }
+    stop = { movedTick, accurateTick: t, cross: (movedTick + t) / 2, used: false };
+    // a moving shot fired just before this stop was early (once)
+    if (lastMovingShot >= 0 && stop.cross - lastMovingShot <= EARLY_WINDOW) {
+      stop.used = true;
+      // (redraw an open summary: a stop just after the round ended)
+      if (addStop(-tickMs(Math.max(0, stop.cross - lastMovingShot)) || 0, true) && round.summary) renderSummary(round);
+    }
+    lastMovingShot = -1;
+  }
+
   // ---------- live graph ----------
   // Time axis: the right edge is the round clock's "now" and each bar sits left of it by its
   // age, WINDOW seconds across the plot. Bars are BAR wide, narrowed (down to MIN_BAR) when
@@ -99,6 +145,7 @@
   const PPS = (PLOT_W - 2) / WINDOW; // pixels per second of round time
   const firing = new Float32Array(CAP), movement = new Float32Array(CAP), isMoving = new Uint8Array(CAP);
   const at = new Float64Array(CAP); // round time of each shot, seconds
+  const waitMs = new Float32Array(CAP); // stop to shot of each shot, ms (NaN: none)
   let count = 0, head = 0; // ring buffer: head is the next slot to write
   let canvas = null, g = null, raf = 0, shown = "";
 
@@ -111,7 +158,7 @@
   let simTick = -1, tickAt = 0, lastClock = 0;
   function clockTick(t) {
     if (t === simTick) return;
-    if (t < simTick) { lastClock = 0; clearGraph(); } // the sim started over
+    if (t < simTick) { lastClock = 0; clearGraph(); resetStops(); } // the sim started over
     simTick = t;
     tickAt = performance.now();
   }
@@ -133,7 +180,23 @@
     const f = rawMove !== null ? total - Math.min(total, rawMove) : Math.min(total, typeof e.firingDeg === "number" ? Math.max(0, e.firingDeg) : total);
     const tick = typeof e.tick === "number" ? e.tick : null;
     if (tick !== null && simTick < 0) clockTick(tick);
+    // stop to shot: the first still shot after a stop, or a moving shot from the stop's own frame (early)
+    let wait = NaN, early = false;
+    if (tick !== null && stop && !stop.used && tick >= stop.movedTick) {
+      if (!moving && tick - stop.cross <= STOP_WINDOW) {
+        wait = tickMs(Math.max(0, tick - stop.cross));
+        stop.used = true;
+        addStop(wait, false);
+      } else if (moving && tick <= stop.accurateTick) {
+        early = true;
+        stop.used = true;
+        addStop(-tickMs(Math.max(0, stop.cross - tick)) || 0, true);
+      }
+    }
+    // (a moving shot from a stop's own frame that came after it was used is not kept for the next stop)
+    if (moving && !early && tick !== null && (!stop || tick > stop.accurateTick)) lastMovingShot = tick;
     firing[head] = f;
+    waitMs[head] = wait;
     movement[head] = total - f;
     isMoving[head] = moving ? 1 : 0;
     at[head] = tick !== null ? tick * TICK_S : clockNow();
@@ -280,7 +343,9 @@
         const moving = isMoving[last] === 1;
         label(`${(firing[last] + movement[last]).toFixed(2)}°`, nx, y0 + 16, moving ? MOVING : STILL, "left");
         g.font = "10px Bahnschrift, Segoe UI, sans-serif";
-        label(moving ? `+${movement[last].toFixed(2)}° move` : "still", nx, y0 + 31, "#c9ced6", "left");
+        // a still shot that ended a stop shows its stop to shot time instead of "still"
+        const wait = waitMs[last];
+        label(moving ? `+${movement[last].toFixed(2)}° move` : Number.isNaN(wait) ? "still" : `+${wait} ms`, nx, y0 + 31, "#c9ced6", "left");
       }
     }
   }
@@ -334,6 +399,20 @@
     panel.className = "es-shotgraph-sum";
     panel.setAttribute("aria-label", "Shooting summary");
     return panel;
+  }
+
+  // "Stop to shot: median +NN ms · N shots · M early" (median over the non-early stops); empty when no stops
+  function stopLine(stops, compact) {
+    if (!stops || !stops.length) return "";
+    const waits = stops.filter((s) => !s.early).map((s) => s.ms).sort((a, b) => a - b);
+    const early = stops.length - waits.length, parts = [];
+    if (waits.length) {
+      const m = waits.length >> 1, med = waits.length % 2 ? waits[m] : (waits[m - 1] + waits[m]) / 2;
+      parts.push(`median +${Math.round(med)} ms`, `${waits.length} ${waits.length === 1 ? "shot" : "shots"}`);
+    }
+    if (early) parts.push(`${early} early`);
+    const hint = compact ? "" : "<small>Time from being accurate again to the shot, after moving. Early = fired before you were accurate.</small>";
+    return `<p class="es-shotgraph-sum-line is-stop"><b>Stop to shot:</b> ${parts.join(" · ")}${hint}</p>`;
   }
 
   function renderSummary(r) {
@@ -391,11 +470,16 @@
             ${headRow}
           </tbody>
         </table>`}
+        ${stopLine(r.stops, compact)}
         ${compact ? "" : `<p class="es-shotgraph-sum-note">${walked} The map shows your path and a dot where each shot was fired.</p>`}
       </div>`;
     const map = panel.querySelector("canvas");
     map.setAttribute("aria-label", `Map of where you fired: ${still.n} shots still, ${moving.n} while moving`);
     drawMap(map, r, null, mapSize);
+    // the scenario layout has a fixed height: show the stop line whole or not at all
+    // (measured after the map has its size, which narrows the text column)
+    const stopEl = compact && panel.querySelector(".es-shotgraph-sum-line.is-stop");
+    if (stopEl && stopEl.offsetTop + stopEl.offsetHeight > panel.clientHeight) stopEl.remove();
     loadMinimap(r.mapId).then((mm) => { if (mm && map.isConnected) drawMap(map, r, mm, mapSize); });
   }
 
@@ -492,13 +576,14 @@
   }
 
   // ---------- visibility and settings ----------
-  // The graph shows in the round view (.al-aimlab-root) and hides behind the result card.
+  // The graph shows in the round view (.al-aimlab-root) while the run is live.
   let inRound = false;
   function sync() {
     const root = !!document.querySelector(".al-aimlab-root");
     if (root !== inRound) { inRound = root; count = 0; head = 0; shown = ""; if (!root) round = null; }
     const result = !!document.querySelector(".al-result-overlay");
-    const m = root && !result ? mode() : "off";
+    // Only while a run is live: not over the loading screen, the pause menu or the result card.
+    const m = root && !result && phase === "running" ? mode() : "off";
     if (m !== "off" && !canvas) build();
     if (canvas) canvas.style.display = m !== "off" ? "" : "none";
     if (m !== shown) { shown = m; if (m !== "off") paint(); }
