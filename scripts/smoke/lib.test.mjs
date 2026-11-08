@@ -337,7 +337,7 @@ test("launcher: start, stop memoised (one stopper call), profile deleted, fds 8/
   assert.equal(b.stopped, true);
   assert.ok(!fs.existsSync(f.cfg.lockFile));
   assert.ok(!fs.existsSync(prof), "profile deleted after a checked stop");
-  await sleep(100);
+  for (let i = 0; i < 40 && pidAlive(h.pid); i++) await sleep(50); // KILLed; init reaps it shortly
   assert.equal(pidAlive(h.pid), false);
 });
 
@@ -431,6 +431,7 @@ test("guard (launcher): runner gone -> checked stop; lock not ours -> no stop", 
   fs.writeFileSync(g.cfg.lockFile, `${h2.pid}\nopen-aim x port ${PORT} cdp ${PORT + 1}\n`);
   assert.equal(await guardLauncher({ ...c, runner: process.pid, pid: h2.pid, stopper: g.cfg.stopper, lockFile: g.cfg.lockFile, capMs: 50 }, { pollMs: 20 }), "stopped");
   assert.equal(g.stops(), 1);
+  for (let i = 0; i < 40 && pidAlive(h2.pid); i++) await sleep(50); // KILLed; init reaps it shortly
   assert.equal(pidAlive(h2.pid), false);
 });
 
