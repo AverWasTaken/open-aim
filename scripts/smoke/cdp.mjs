@@ -58,6 +58,10 @@ export class Cdp {
       this.pending.clear();
     };
     for (const m of ["Runtime.enable", "Log.enable", "Page.enable", "Inspector.enable"]) await this.send(m, {}, 15000);
+    // A hidden window under xvfb (no window manager) never has focus; a player's window does.
+    // Emulate focus so document.hasFocus() is true like on a real desktop (it does not pause
+    // or resume anything by itself: driving map 10).
+    await this.send("Emulation.setFocusEmulationEnabled", { enabled: true }, 15000).catch((e) => this.log(`focus emulation unavailable: ${e.message}`));
     for (const src of this.onScripts) await this.send("Page.addScriptToEvaluateOnNewDocument", { source: src }, 15000);
     return target;
   }

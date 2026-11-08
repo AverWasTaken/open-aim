@@ -11,6 +11,7 @@ import {
   parseArgs, classifyError, shellLineIsError, checkProfile, pickPorts, portOpen,
   parseLauncherOutput, parseLock, readLock, lockIsOurs, once, electronPath, exitCodeFor, EXIT,
   LAUNCHER_PROFILE_RE, safeLauncherProfile, launcherConfig, mainLogError, ALLOW, pidAlive, sleep,
+  portClaimed, stopperName,
 } from "./lib.mjs";
 import { startLauncher, stopApp, preempted } from "./launch.mjs";
 import { guardLauncher } from "./guard.mjs";
@@ -127,8 +128,11 @@ test("profile: refuses the user's real save", () => {
 
 // ---------------------------------------------------------------- launcher mode (pure)
 test("launcher output: started, started without CDP, busy, bad app dir, garbage", () => {
-  assert.deepEqual(parseLauncherOutput("started 123\n", 0), { kind: "started", pid: 123, cdpReady: true });
-  assert.deepEqual(parseLauncherOutput("started 123 (cdp not answering yet)\n", 0), { kind: "started", pid: 123, cdpReady: false });
+  assert.deepEqual(parseLauncherOutput("started 123\n", 0), { kind: "started", pid: 123, slot: null, cdpReady: true });
+  assert.deepEqual(parseLauncherOutput("started 123 (cdp not answering yet)\n", 0), { kind: "started", pid: 123, slot: null, cdpReady: false });
+  assert.deepEqual(parseLauncherOutput("started 2084633 slot 1\n", 0), { kind: "started", pid: 2084633, slot: 1, cdpReady: true });
+  assert.deepEqual(parseLauncherOutput("started 77 slot 2 (cdp not answering yet)", 0), { kind: "started", pid: 77, slot: 2, cdpReady: false });
+  assert.equal(parseLauncherOutput("started 77 slot 3", 0).kind, "garbage", "only slots 1-2");
   assert.deepEqual(parseLauncherOutput("busy soprano play-test running (pid 719636)\n", 10), { kind: "busy", why: "soprano play-test running (pid 719636)" });
   assert.deepEqual(parseLauncherOutput("busy load 13.24", 10), { kind: "busy", why: "load 13.24" });
   assert.deepEqual(parseLauncherOutput("busy", 10), { kind: "busy", why: "busy" });
@@ -150,7 +154,8 @@ test("launcher profile: only /tmp/openaim-profile-<digits> may be deleted", () =
 
 test("lock: parse and ownership (pid on line 1 AND port on line 2)", () => {
   const txt = "4242\nopen-aim 2026-11-07T12:00:00Z port 8270 cdp 9470\n";
-  assert.deepEqual(parseLock(txt), { pid: 4242, port: 8270, cdp: 9470, time: Date.parse("2026-11-07T12:00:00Z") });
+  assert.deepEqual(parseLock(txt), { pid: 4242, port: 8270, cdp: 9470, time: Date.parse("2026-11-07T12:00:00Z"), app: null });
+  assert.equal(parseLock("1\nopen-aim 2026-11-08T06:07:06Z port 8243 cdp 9443 app /home/a/open-aim-wt/x/app\n").app, "/home/a/open-aim-wt/x/app");
   assert.equal(parseLock("1\nopen-aim garbage port 1").time, null);
   assert.ok(lockIsOurs(parseLock(txt), 4242, 8270));
   assert.ok(lockIsOurs(parseLock(txt), "4242", "8270"));
@@ -199,12 +204,32 @@ test("launcher mode detection: SMOKE_LAUNCHER, or Linux with ~/hp-share/openaim-
   const c = launcherConfig({ env: { SMOKE_LAUNCHER: "/opt/x/start.sh" }, platform: "win32", home: "/h", exists: () => false });
   assert.equal(c.starter, "/opt/x/start.sh");
   assert.equal(c.stopper, path.join("/opt/x", "openaim-stop.sh"));
-  assert.equal(c.lockFile, path.join("/opt/x", "openaim.lock"));
-  assert.equal(c.lockDir, path.join("/opt/x", "openaim.lock.d"));
+  assert.equal(c.lockFor(1), path.join("/opt/x", "openaim-slot1.lock"));
+  assert.equal(c.lockFor(2), path.join("/opt/x", "openaim-slot2.lock"));
+  assert.equal(c.lockFor(null), path.join("/opt/x", "openaim.lock"), "old single-copy launcher");
+  assert.deepEqual(c.lockFiles, [c.lockFor(1), c.lockFor(2), c.lockFor(null)]);
   const hp = launcherConfig({ env: {}, platform: "linux", home: "/home/ayvyr", exists: (p) => p === path.join("/home/ayvyr", "hp-share", "openaim-start.sh") });
   assert.equal(hp.starter, path.join("/home/ayvyr", "hp-share", "openaim-start.sh"));
   assert.equal(launcherConfig({ env: {}, platform: "linux", home: "/home/x", exists: () => false }), null);
   assert.equal(launcherConfig({ env: {}, platform: "win32", home: "C:\\Users\\x", exists: () => true }), null);
+});
+
+test("stopper name: only .../open-aim-wt/<name>/app (a bare stop would hit every copy)", () => {
+  assert.equal(stopperName("/home/ayvyr/projects/active/open-aim-wt/qa-smoke/app"), "qa-smoke");
+  assert.equal(stopperName("/home/ayvyr/projects/active/open-aim-wt/qa-smoke/app/"), "qa-smoke");
+  for (const bad of ["/home/ayvyr/projects/active/open-aim/app", "/x/open-aim-wt/qa smoke/app", "/x/open-aim-wt/QA/app", "/x/open-aim-wt/qa-smoke", "/x/open-aim-wt//app", "", null, undefined]) {
+    assert.equal(stopperName(bad), null, JSON.stringify(bad));
+  }
+});
+
+test("port claimed: any slot lock on our port, or a slot dir without its lock yet", () => {
+  const locks = { a: "1\nopen-aim x port 8243 cdp 9443", b: null, c: null };
+  const read = (f) => (locks[f] ? parseLock(locks[f]) : null);
+  assert.equal(portClaimed(["a", "b", "c"], 8270, { exists: () => false, read }), false);
+  assert.equal(portClaimed(["a", "b", "c"], 8243, { exists: () => false, read }), true);
+  assert.equal(portClaimed(["a", "b", "c"], 8270, { exists: (p) => p === "b.d", read }), true, "half-started slot");
+  locks.b = "2\nopen-aim x port 8270 cdp 9470";
+  assert.equal(portClaimed(["a", "b", "c"], 8270, { exists: () => false, read }), true);
 });
 
 test("main.log: ERROR lines count, PAGE ERROR (CDP has it) and other levels do not", () => {
@@ -224,27 +249,33 @@ const PORT = 18997; // not a real qa port; its /tmp/openaim-profile-18997 is our
 
 function fakeHp({ busy = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "smoke-fakehp-"));
-  const lock = path.join(dir, "openaim.lock");
+  const lock = path.join(dir, "openaim-slot1.lock");
   const starter = path.join(dir, "openaim-start.sh");
   const stopper = path.join(dir, "openaim-stop.sh");
   fs.writeFileSync(starter, busy ? `#!/bin/bash\necho "busy ${busy}"; exit 10\n` : `#!/bin/bash
-mkdir "${lock}.d" 2>/dev/null || { echo "busy another open-aim copy is running"; exit 10; }
+mkdir "${lock}.d" 2>/dev/null || { echo "busy both open-aim copies are running"; exit 10; }
 ls -l /proc/$$/fd > "${dir}/starter-fds.txt" 2>&1
 setsid sleep 30 >/dev/null 2>&1 </dev/null &
-pid=$!; printf "%s\\nopen-aim x port %s cdp %s\\n" "$pid" "$2" "$3" > "${lock}"
-echo "started $pid"
+pid=$!; printf "%s\\nopen-aim x port %s cdp %s app %s\\n" "$pid" "$2" "$3" "$1" > "${lock}"
+echo "started $pid slot 1"
 `);
   fs.writeFileSync(stopper, `#!/bin/bash
-echo x >> "${dir}/stops.txt"
+echo "name=$1" >> "${dir}/stops.txt"
+[ -n "$1" ] || echo "BARE STOP (would stop every copy)" >> "${dir}/bare.txt"
 pid=$(head -1 "${lock}" 2>/dev/null); [ -n "$pid" ] && kill -KILL "$pid" 2>/dev/null
 rm -f "${lock}"; rmdir "${lock}.d" 2>/dev/null; echo stopped
 `);
   fs.chmodSync(starter, 0o755);
   fs.chmodSync(stopper, 0o755);
-  const cfg = { starter, stopper, lockFile: lock, lockDir: lock + ".d" };
-  const stops = () => (fs.existsSync(path.join(dir, "stops.txt")) ? fs.readFileSync(path.join(dir, "stops.txt"), "utf8").trim().split("\n").length : 0);
-  return { dir, cfg, stops, outDir: fs.mkdtempSync(path.join(os.tmpdir(), "smoke-out-")) };
+  const lockFor = (slot) => path.join(dir, slot ? `openaim-slot${slot}.lock` : "openaim.lock");
+  // lockFile/lockDir: the slot-1 lock, for the tests below.
+  const cfg = { starter, stopper, lockFor, lockFiles: [lockFor(1), lockFor(2), lockFor(null)], lockFile: lock, lockDir: lock + ".d" };
+  const stopLines = () => (fs.existsSync(path.join(dir, "stops.txt")) ? fs.readFileSync(path.join(dir, "stops.txt"), "utf8").trim().split("\n") : []);
+  const stops = () => stopLines().length;
+  return { dir, cfg, stops, stopLines, bare: () => fs.existsSync(path.join(dir, "bare.txt")), outDir: fs.mkdtempSync(path.join(os.tmpdir(), "smoke-out-")) };
 }
+const FAKE_NAME = "qa-fake";
+const FAKE_APP = `/tmp/open-aim-wt/${FAKE_NAME}/app`; // only its shape matters (the fake starter ignores it)
 const noGuard = path.join(os.tmpdir(), `smoke-noguard-${process.pid}.mjs`);
 fs.writeFileSync(noGuard, "\n");
 const quiet = () => {};
@@ -255,7 +286,7 @@ test("launcher: busy -> nothing started, no stopper call, profile untouched", li
   fs.mkdirSync(prof, { recursive: true });
   fs.writeFileSync(path.join(prof, "marker"), "x");
   fs.mkdirSync(f.cfg.lockDir); // another copy holds the lock dir: profile must stay
-  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard });
+  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard, appDir: FAKE_APP });
   assert.equal(h.busy, "soprano play-test running (pid 1)");
   assert.equal(h.started, false);
   await stopApp(h, quiet);
@@ -273,7 +304,7 @@ test("launcher: start, stop memoised (one stopper call), profile deleted, fds 8/
   // Open fds 8 and 9 in a parent bash (like hp.sh run's run locks) and check the starter does not see them.
   const probe = execFileSync("bash", ["-c", `exec 9>"${f.dir}/l9" 8>"${f.dir}/l8"; bash -c 'exec 8>&- 9>&-; exec "$0" "$@"' ls -l /proc/self/fd`], { encoding: "utf8" });
   assert.doesNotMatch(probe, /l9|l8/, "fd-closing wrapper drops 8/9");
-  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard });
+  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard, appDir: FAKE_APP });
   assert.equal(h.started, true);
   assert.ok(pidAlive(h.pid));
   assert.ok(!fs.existsSync(path.join(prof, "old")), "fresh profile before start (lock dir was free)");
@@ -282,6 +313,10 @@ test("launcher: start, stop memoised (one stopper call), profile deleted, fds 8/
   const [a, b] = await Promise.all([stopApp(h, quiet), stopApp(h, quiet)]);
   await stopApp(h, quiet);
   assert.equal(f.stops(), 1, "stopper ran exactly once");
+  assert.deepEqual(f.stopLines(), [`name=${FAKE_NAME}`], "stopper got our hp worktree name");
+  assert.equal(f.bare(), false, "never a bare stop");
+  assert.equal(h.slot, 1);
+  assert.equal(h.lockFile, f.cfg.lockFor(1));
   assert.equal(a.stopped, true);
   assert.equal(b.stopped, true);
   assert.ok(!fs.existsSync(f.cfg.lockFile));
@@ -290,9 +325,16 @@ test("launcher: start, stop memoised (one stopper call), profile deleted, fds 8/
   assert.equal(pidAlive(h.pid), false);
 });
 
+test("launcher: app dir not .../open-aim-wt/<name>/app -> refused before any start", linuxOnly, async () => {
+  const f = fakeHp();
+  await assert.rejects(startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard, appDir: "/tmp/somewhere/app" }), /could not stop only our copy/);
+  assert.equal(fs.existsSync(f.cfg.lockFile), false, "nothing started");
+  assert.equal(f.stops(), 0);
+});
+
 test("launcher: lock not ours -> no stopper call; copy stopped by someone else -> preempted", linuxOnly, async () => {
   const f = fakeHp();
-  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard });
+  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard, appDir: FAKE_APP });
   // Someone else stops it (hp.sh app-stop) and another team starts a copy on another port.
   execFileSync(f.cfg.stopper);
   fs.writeFileSync(f.cfg.lockFile, `${h.pid}\nopen-aim x port 8221 cdp 9421\n`);
@@ -306,7 +348,7 @@ test("launcher: lock not ours -> no stopper call; copy stopped by someone else -
 
 test("launcher: outside stopper mid-pause (pid dead, lock still ours for a moment) -> preempted, no stopper call", linuxOnly, async () => {
   const f = fakeHp();
-  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard });
+  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard, appDir: FAKE_APP });
   process.kill(h.pid, "SIGKILL"); // like openaim-stop.sh's TERM; it removes the lock 2 s later
   await sleep(50);
   setTimeout(() => fs.rmSync(f.cfg.lockFile, { force: true }), 300);
@@ -318,7 +360,7 @@ test("launcher: outside stopper mid-pause (pid dead, lock still ours for a momen
 
 test("launcher: our copy died and left its lock -> stale lock stopped after the wait", linuxOnly, async () => {
   const f = fakeHp();
-  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard });
+  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard, appDir: FAKE_APP });
   h.staleWaitMs = 300;
   process.kill(h.pid, "SIGKILL");
   await sleep(50);
@@ -330,22 +372,23 @@ test("launcher: our copy died and left its lock -> stale lock stopped after the 
 
 test("launcher: garbage output but a fresh lock on our port -> copy adopted and stopped", linuxOnly, async () => {
   const f = fakeHp();
-  const real = fs.readFileSync(f.cfg.starter, "utf8").replace(/echo "started \$pid"/, 'echo "segfault"');
+  const real = fs.readFileSync(f.cfg.starter, "utf8").replace(/echo "started \$pid slot 1"/, 'echo "segfault"');
   fs.writeFileSync(f.cfg.starter, real.replace("open-aim x port", 'open-aim $(date -u +%FT%TZ) port'));
-  await assert.rejects(startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard }), /unexpected output.*stopped/);
+  await assert.rejects(startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard, appDir: FAKE_APP }), /unexpected output.*stopped/);
   assert.equal(f.stops(), 1);
   assert.ok(!fs.existsSync(f.cfg.lockFile));
 });
 
 test("guard (launcher): runner gone -> checked stop; lock not ours -> no stop", linuxOnly, async () => {
   const f = fakeHp();
-  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard });
-  const c = { runner: 999999, pid: h.pid, port: PORT, stopper: f.cfg.stopper, lockFile: f.cfg.lockFile, profile: "/tmp/not-a-launcher-profile", capMs: 60000, log: null };
+  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard, appDir: FAKE_APP });
+  const c = { runner: 999999, pid: h.pid, port: PORT, stopper: f.cfg.stopper, stopName: FAKE_NAME, lockFile: f.cfg.lockFile, profile: "/tmp/not-a-launcher-profile", capMs: 60000, log: null };
   assert.equal(await guardLauncher(c, { pollMs: 20 }), "stopped");
   assert.equal(f.stops(), 1);
+  assert.deepEqual(f.stopLines(), [`name=${FAKE_NAME}`]);
   // Second copy; lock says another port -> guard must not stop it.
   const g = fakeHp();
-  const h2 = await startLauncher({ cfg: g.cfg, port: PORT, cdp: PORT + 1, outDir: g.outDir, log: quiet, guardScript: noGuard });
+  const h2 = await startLauncher({ cfg: g.cfg, port: PORT, cdp: PORT + 1, outDir: g.outDir, log: quiet, guardScript: noGuard, appDir: FAKE_APP });
   fs.writeFileSync(g.cfg.lockFile, `${h2.pid}\nopen-aim x port 8221 cdp 9421\n`);
   assert.equal(await guardLauncher({ ...c, pid: h2.pid, stopper: g.cfg.stopper, lockFile: g.cfg.lockFile }, { pollMs: 20 }), "not-ours");
   assert.equal(g.stops(), 0);
@@ -356,13 +399,23 @@ test("guard (launcher): runner gone -> checked stop; lock not ours -> no stop", 
   assert.equal(pidAlive(h2.pid), false);
 });
 
+test("guard (launcher): no worktree name -> never a bare stop", linuxOnly, async () => {
+  const f = fakeHp();
+  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard, appDir: FAKE_APP });
+  const c = { runner: 999999, pid: h.pid, port: PORT, stopper: f.cfg.stopper, lockFile: f.cfg.lockFile, profile: "/tmp/not-a-launcher-profile", capMs: 60000, log: null };
+  assert.equal(await guardLauncher(c, { pollMs: 20 }), "no-name");
+  assert.equal(f.stops(), 0);
+  await stopApp(h, quiet);
+  assert.equal(f.bare(), false);
+});
+
 test("guard (launcher): pid dead, lock still ours while another stopper pauses -> waits, no second stop", linuxOnly, async () => {
   const f = fakeHp();
-  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard });
+  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard, appDir: FAKE_APP });
   process.kill(h.pid, "SIGKILL");
   await sleep(50);
   setTimeout(() => fs.rmSync(f.cfg.lockFile, { force: true }), 300);
-  const c = { runner: 999999, pid: h.pid, port: PORT, stopper: f.cfg.stopper, lockFile: f.cfg.lockFile, profile: "/tmp/not-a-launcher-profile", capMs: 60000, log: null, staleWaitMs: 2000 };
+  const c = { runner: 999999, pid: h.pid, port: PORT, stopper: f.cfg.stopper, stopName: FAKE_NAME, lockFile: f.cfg.lockFile, profile: "/tmp/not-a-launcher-profile", capMs: 60000, log: null, staleWaitMs: 2000 };
   assert.equal(await guardLauncher(c, { pollMs: 20 }), "not-ours");
   assert.equal(f.stops(), 0);
 });

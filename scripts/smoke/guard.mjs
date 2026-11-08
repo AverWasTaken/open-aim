@@ -1,7 +1,7 @@
 // Detached cleanup guard for the smoke runner. Two modes:
 //
 // Launcher mode (hp):  node guard.mjs launcher '<json>'
-//   json = {runner, pid, port, stopper, lockFile, profile, capMs, log}
+//   json = {runner, pid, port, stopper, stopName, lockFile (our slot's lock), profile, capMs, log}
 //   Watches only the runner pid. When the runner is gone (killed, ssh dropped) or the cap
 //   (max-minutes + 3) is reached, it runs the stopper, but only while the lock file still
 //   names OUR electron pid on OUR port (plan S2 R1/R6). It never kills anything itself.
@@ -26,9 +26,10 @@ const log = (s) => {
 };
 
 // ---------------------------------------------------------------- launcher mode
-function runStopper(stopper) {
+// Always with our hp worktree name: a bare openaim-stop.sh stops every copy on hp.
+function runStopper(stopper, name) {
   return new Promise((resolve) => {
-    execFile("bash", ["-c", 'exec 8>&- 9>&-; exec "$0" "$@"', stopper], { timeout: 30000, encoding: "utf8" }, (err, out) => resolve({ code: err ? err.code ?? null : 0, out: String(out || "").trim() }));
+    execFile("bash", ["-c", 'exec 8>&- 9>&-; exec "$0" "$@"', stopper, name], { timeout: 30000, encoding: "utf8" }, (err, out) => resolve({ code: err ? err.code ?? null : 0, out: String(out || "").trim() }));
   });
 }
 
@@ -53,8 +54,12 @@ export async function guardLauncher(c, { pollMs = 1000 } = {}) {
         const until = Date.now() + (c.staleWaitMs ?? 5000);
         while (Date.now() < until && ours()) await sleep(100);
       }
+      if (ours() && !c.stopName) {
+        log("no worktree name for the stopper: not stopping (a bare stop would hit every copy)");
+        return "no-name";
+      }
       if (ours()) {
-        const r = await runStopper(c.stopper);
+        const r = await runStopper(c.stopper, c.stopName);
         log(`stopper exit ${r.code}: ${r.out}`);
         if (r.code === 0 && safeLauncherProfile(c.profile)) {
           try {

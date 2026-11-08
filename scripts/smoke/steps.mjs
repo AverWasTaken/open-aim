@@ -2,6 +2,7 @@
 // Detections come from the live-confirmed driving map (open-aim-hq/scratch/qa/driving-map.md).
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { sleep } from "./lib.mjs";
 
@@ -14,7 +15,7 @@ export const DRILLS = JSON.parse(fs.readFileSync(path.join(HERE, "drills.json"),
 // scripts define them (idempotent, re-checked every 250 ms), and runs the aim lock.
 export const PAGE_LIB = String.raw`(() => {
   if (window.__qa && window.__qa.v === 1) return;
-  const qa = window.__qa = { v: 1, phase: null, phases: [], shots: [], hits: 0, kills: 0, hitIds: new Set(), last: null, ticks: 0, hookFail: null, aim: { on: false } };
+  const qa = window.__qa = { v: 1, phase: null, phases: [], shots: [], hits: 0, kills: 0, hitIds: new Map(), last: null, ticks: 0, hookFail: null, aim: { on: false } };
   addEventListener('aim-round-phase', (e) => {
     const d = e.detail || {};
     qa.phase = d.phase;
@@ -32,7 +33,15 @@ export const PAGE_LIB = String.raw`(() => {
   qa.lobbyReady = () => !document.querySelector('.es-startup') && !!document.querySelector('.hall-root') && typeof window.__aimLaunchScene === 'function' && !!window.__aimTools;
   qa.inLobby = () => location.pathname.replace(/\/$/, '') === '/aim' && qa.lobbyReady() && !document.querySelector('.al-aimlab-root') && !!document.querySelector('.hall-topnav');
   qa.locked = () => !!document.pointerLockElement && document.pointerLockElement.tagName === 'CANVAS';
-  qa.readyToStart = () => !!(qa.visq('.al-aimlab-root .al-primary-btn') || qa.visq('.al-scene-start-cue'));
+  // Start screen up AND the workshop loader done: the button shows during the loader too, but
+  // under .al-wkload-stage, and the loader's panel swallows keys (live on hp, slow load).
+  qa.readyToStart = () => {
+    if (document.querySelector('section.al-wkload, .aim-scenario-loading')) return false;
+    const b = qa.visq('.al-aimlab-root .al-primary-btn');
+    if (b && b.disabled) return false; // disabled while the session map still loads
+    if (b) { const c = qa.center(b); const top = document.elementFromPoint(c.x, c.y); return !!top && (top === b || b.contains(top)); }
+    return !!qa.visq('.al-scene-start-cue');
+  };
   qa.loadFailed = () => { const l = document.querySelector('section.al-wkload'); return !!l && /won't open|failed/i.test(qa.text(l)); };
   qa.center = (el) => { const r = el.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), w: r.width, h: r.height }; };
   // Visible element -> centre point (scrolled into view) or null.
@@ -52,18 +61,29 @@ export const PAGE_LIB = String.raw`(() => {
     hits: qa.hits, kills: qa.kills, shots: qa.shots.length, ticks: qa.ticks, alive: qa.last ? (qa.last.actors || []).filter((a) => a.alive).length : null,
     aimErr: qa.aim.err == null ? null : +qa.aim.err.toFixed(4), hookFail: qa.hookFail,
   });
-  qa.resetCounters = () => { qa.shots = []; qa.hits = 0; qa.kills = 0; qa.hitIds = new Set(); qa.phases = []; };
+  qa.resetCounters = () => { qa.shots = []; qa.hits = 0; qa.kills = 0; qa.hitIds = new Map(); qa.phases = []; };
+  // Kills: a hit actor that is dead, or respawned (new bornTick), in a later frame. A target
+  // that respawns at once can die and come back between two frames when frames are slow
+  // (hidden copy under load: 1-8 fps), so the bornTick check is what catches those.
   qa.onTick = (s) => {
     qa.last = s; qa.ticks++;
-    const alive = new Set();
-    for (const a of (s && s.actors) || []) if (a.alive) alive.add(a.id);
-    if (qa.prevAlive) for (const id of qa.prevAlive) if (!alive.has(id) && qa.hitIds.has(id)) { qa.kills++; qa.hitIds.delete(id); }
-    qa.prevAlive = alive;
+    const born = new Map();
+    for (const a of (s && s.actors) || []) born.set(a.id, a.alive ? a.bornTick : 'dead');
+    for (const [id, b0] of qa.hitIds) {
+      const b = born.get(id);
+      if (b === undefined || b === 'dead' || (b0 !== undefined && b !== b0)) { qa.kills++; qa.hitIds.delete(id); }
+    }
+    qa.prevBorn = qa.curBorn || born;
+    qa.curBorn = born;
   };
   qa.onShot = (e) => {
     qa.shots.push({ tick: e.tick, hit: e.hitActorId, part: e.hitPart });
     if (qa.shots.length > 400) qa.shots.splice(0, 200);
-    if (e.hitActorId != null) { qa.hits++; qa.hitIds.add(e.hitActorId); }
+    if (e.hitActorId != null) {
+      qa.hits++;
+      // This frame's snapshot may already show the hit's result: compare with the frame before.
+      if (!qa.hitIds.has(e.hitActorId)) qa.hitIds.set(e.hitActorId, qa.prevBorn ? qa.prevBorn.get(e.hitActorId) : undefined);
+    }
   };
   qa.hook = () => {
     for (const [name, fn] of [['__aimTick', qa.onTick], ['__aimShot', qa.onShot]]) {
@@ -79,10 +99,33 @@ export const PAGE_LIB = String.raw`(() => {
   qa.hook();
   // ---- aim lock (plan S3): turn toward the nearest alive actor with synthetic mousemove
   // (untrusted events are accepted; driving map item 3). The runner only clicks.
+  // Aim point: sphere targets at their centre; humanoid bots at the head. Hit volumes sit on
+  // position + offset; a humanoid's position is its feet and its head centre is 1.88 m up
+  // standing, 1.48 m crouched, times scale x headSize (sim/bot bundles, scout qa-g3-scout-hitbox-1).
+  // Bodies come from the scene doc (qa.loadBodies); an unknown template counts as a sphere.
+  qa.bodies = {};
+  qa.loadBodies = async (code) => {
+    qa.bodies = {};
+    try {
+      const j = await (await fetch('/prod-api/api/v1/public/val/aimlab/scenes/' + code)).json();
+      const doc = typeof j.data.doc === 'string' ? JSON.parse(j.data.doc) : j.data.doc;
+      for (const t of doc.actors || []) qa.bodies[t.id] = t.body || {};
+    } catch (err) { return 'no scene doc: ' + err; }
+    return Object.keys(qa.bodies).length;
+  };
   qa.aimPoint = (a) => {
     const off = qa.aim.offY;
     const dy = typeof off === 'function' ? off(a) : (off == null ? 0 : off);
-    return { x: a.position.x, y: a.position.y + dy, z: a.position.z };
+    const o = a.offset || {};
+    const bx = a.position.x + (o.x || 0), by = a.position.y + (o.y || 0), bz = a.position.z + (o.z || 0);
+    const body = qa.bodies[a.templateId];
+    if (!body || body.shape !== 'humanoid') return { x: bx, y: by + dy, z: bz };
+    const k = (Number.isFinite(a.scale) ? a.scale : 1) * (body.headSize > 0 ? body.headSize : 1);
+    const sc = a.behavior && a.behavior.studioCrouch;
+    const c = Math.min(1, Math.max(0, (sc && sc.amount) || 0));
+    const f = Number.isFinite(a.facingYaw) ? a.facingYaw : Number.isFinite(a.yaw) ? a.yaw : 0;
+    const lx = 0.012 + 0.018 * c, lz = 0.03 + 0.125 * c; // crouching leans the head forward
+    return { x: bx + k * (lx * Math.cos(f) + lz * Math.sin(f)), y: by + k * (1.88 - 0.40 * c) + dy, z: bz + k * (-lx * Math.sin(f) + lz * Math.cos(f)) };
   };
   qa.aimStart = (o = {}) => {
     qa.aim = { on: true, eye: o.eye == null ? 1.75 : o.eye, offY: o.offY == null ? 0 : o.offY, target: null, lastTick: -1, err: null, moves: 0, primed: false };
@@ -94,7 +137,8 @@ export const PAGE_LIB = String.raw`(() => {
       if (!s || !s.player || !qa.locked() || qa.phase !== 'running') return;
       if (s.tick <= A.lastTick + 1) return; // let the last move land in the sim first
       const p = s.player;
-      const ex = p.position.x, ey = p.position.y + A.eye, ez = p.position.z;
+      const crouch = Math.min(1, Math.max(0, p.crouchAmount || 0)); // eye 1.75 standing, 1.35 crouched
+      const ex = p.position.x, ey = p.position.y + A.eye - 0.40 * crouch, ez = p.position.z;
       const sens = parseFloat(localStorage.getItem('al-sensitivity-v1')) || 0.5;
       const k = 0.07 * sens * Math.PI / 180;
       const list = (s.actors || []).filter((a) => a.alive && a.visible !== false && a.position);
@@ -126,6 +170,83 @@ export const PAGE_LIB = String.raw`(() => {
     return true;
   };
   qa.aimStop = () => { qa.aim.on = false; return true; };
+  // ---- load timeline: loader/start-screen state changes, map files, keys (seconds since page load).
+  qa.tl = [];
+  qa.mark = (w) => { qa.tl.push((performance.now() / 1000).toFixed(1) + ' ' + w); if (qa.tl.length > 120) qa.tl.splice(0, 40); };
+  qa.sawLoad = false;
+  let tlState = '';
+  setInterval(() => {
+    const w = document.querySelector('section.al-wkload'), p = document.querySelector('.aim-scenario-loading');
+    const root = !!document.querySelector('.al-aimlab-root'), b = document.querySelector('.al-aimlab-root .al-primary-btn');
+    if (w || root) qa.sawLoad = true;
+    const cur = [w ? 'wkload' + w.className.replace('al-wkload', '') : '-',
+      p ? (p.hidden ? 'hidden' : p.classList.contains('aim-loading-compact') ? 'compact' : 'integrated') + ':' + qa.text(p.querySelector('.aim-loading-stage')) : '-',
+      root ? 'trainer' : 'lobby', b ? (b.disabled ? 'disabled:' : '') + qa.text(b).slice(0, 24) : '-'].join(' | ');
+    if (cur !== tlState) { tlState = cur; qa.mark(cur); }
+  }, 200);
+  try {
+    new PerformanceObserver((l) => { for (const e of l.getEntries()) if (/lights|collision|\/maps?\//i.test(e.name)) qa.mark('net ' + e.name.split('/').slice(-2).join('/').slice(0, 60) + ' ' + Math.round(e.duration) + 'ms'); }).observe({ type: 'resource' });
+  } catch (err) {}
+  // ---- start diagnostics: did our input reach the page, and what is the trainer doing.
+  const inp = qa.input = { keys: 0, keysTrusted: 0, keysAtWindow: 0, lastKey: null, downs: 0, lastDown: null };
+  addEventListener('keydown', (e) => { inp.keys++; if (e.isTrusted) inp.keysTrusted++; inp.lastKey = e.key; qa.mark('key ' + e.key); }, true);
+  addEventListener('keydown', () => { inp.keysAtWindow++; }); // bubble: reached window (nothing stopped it)
+  addEventListener('pointerdown', (e) => {
+    inp.downs++;
+    const t = e.target || {};
+    inp.lastDown = (t.tagName || '?') + '.' + String(t.className || '').slice(0, 50) + '@' + Math.round(e.clientX) + ',' + Math.round(e.clientY);
+  }, true);
+  // The trainer's session store (the object the start button acts on), found through the
+  // Vue vnode tree. Read-only: used for diagnostics only.
+  qa.store = () => {
+    if (qa._store) return qa._store;
+    const isStore = (o) => o && typeof o === 'object' && o.mapLoading && 'value' in o.mapLoading && o.phase && 'value' in o.phase;
+    const stack = [];
+    for (const el of [document.querySelector('#app'), ...document.querySelectorAll('[data-v-app]')]) if (el && el._vnode) stack.push(el._vnode);
+    const seen = new Set();
+    let n = 0;
+    while (stack.length && n++ < 50000) {
+      const v = stack.pop();
+      if (!v || typeof v !== 'object' || seen.has(v)) continue;
+      seen.add(v);
+      const c = v.component;
+      if (c) {
+        for (const p of Object.values(c.props || {})) if (isStore(p)) return (qa._store = p);
+        if (c.provides) for (const k of Reflect.ownKeys(c.provides)) { const p = c.provides[k]; if (isStore(p)) return (qa._store = p); }
+        stack.push(c.subTree);
+      }
+      if (v.suspense) stack.push(v.suspense.activeBranch);
+      if (Array.isArray(v.children)) for (const ch of v.children) stack.push(ch);
+    }
+    return null;
+  };
+  qa.fps = (ms = 1000) => new Promise((res) => { let f = 0; const t0 = performance.now(); const step = () => { f++; if (performance.now() - t0 < ms) requestAnimationFrame(step); else res(+(f * 1000 / (performance.now() - t0)).toFixed(1)); }; requestAnimationFrame(step); });
+  qa.prep = () => {
+    const p = document.querySelector('.aim-scenario-loading');
+    if (!p) return null;
+    const q = (s) => qa.text(p.querySelector(s));
+    return { hidden: p.hidden, cls: p.className, stage: q('.aim-loading-stage'), time: q('.aim-loading-time'), failed: p.classList.contains('is-failed') };
+  };
+  qa.diag = async () => {
+    const s = qa.store();
+    const lockFn = Element.prototype.requestPointerLock;
+    const btn = qa.visq('.al-aimlab-root .al-primary-btn');
+    const top = (x, y) => { const e = document.elementFromPoint(x, y); return e ? e.tagName + '.' + String(e.className || '').slice(0, 50) : null; };
+    const b = btn ? qa.center(btn) : null;
+    const loadingTexts = [...document.querySelectorAll('button,span,div,b,small')].filter((e) => e.children.length === 0 && qa.vis(e) && /loading|加载/i.test(qa.text(e))).slice(0, 5).map((e) => qa.text(e).slice(0, 60));
+    let brief = null;
+    try { const v = s && s.sceneBrief && s.sceneBrief.value; brief = v ? { source: v.source || null, commentary: !!(v.moment && v.moment.commentary) } : null; } catch (err) { brief = String(err); }
+    return {
+      focus: document.hasFocus(), vis: document.visibilityState, fakeLock: !!window.__aimFakeLock,
+      lockFnFake: /el = this/.test(String(lockFn)), lockEl: document.pointerLockElement ? document.pointerLockElement.tagName : null,
+      active: document.activeElement ? document.activeElement.tagName + '.' + String(document.activeElement.className || '').slice(0, 50) : null,
+      input: Object.assign({}, inp), phase: qa.phase, phases: qa.phases.map((p) => p.p).join('>'), ticks: qa.ticks, tick: qa.last ? qa.last.tick : null,
+      store: s ? { phase: s.phase.value, mapLoading: s.mapLoading.value, sessionActive: s.sessionActive ? s.sessionActive.value : null, engine: !!(s.engine && s.engine.value), brief } : 'not found',
+      prep: qa.prep(), wkload: (document.querySelector('section.al-wkload') || {}).className || null, loadingTexts,
+      btn: btn ? qa.text(btn) : null, atBtn: b ? top(b.x, b.y) : null, atCentre: top(innerWidth / 2, innerHeight / 2), cue: qa.text(qa.visq('.al-scene-start-cue')) || null,
+      size: [innerWidth, innerHeight, devicePixelRatio], fps: await qa.fps(1000),
+    };
+  };
 })()`;
 
 // ---------------------------------------------------------------- runner side helpers
@@ -196,6 +317,11 @@ async function isVariant(ctx, code) {
 
 // Launch a drill from the lobby. via: 'card' (real UI path) or 'scene' (__aimLaunchScene).
 async function launchDrill(ctx, d, via) {
+  await ctx.cdp.evaluate(`__qa.sawLoad = false; __qa.mark(${J("launch " + d.code + " via " + via)}); true`);
+  ctx.launched = true;
+  ctx.sceneCode = d.code;
+  const bodies = await ctx.cdp.evaluate(`__qa.loadBodies(${J(d.code)})`).catch((e) => String(e.message || e));
+  if (typeof bodies !== "number") ctx.log?.(`aim: ${bodies}; aiming at actor centres`);
   if (via === "card") {
     const sel = `[data-role=workshop-card][data-share-code="${d.code}"]`;
     let have = await waitFor(ctx, `!!__qa.visq(${J(sel)})`, { timeout: 15000, what: `card ${d.code}` }).catch(() => false);
@@ -212,15 +338,22 @@ async function launchDrill(ctx, d, via) {
   }
 }
 
+// What the page looks like when a start did not take (logged per try).
+const START_DIAG = "__qa.diag()";
+
 // Wait for the start screen, then start (Enter; click as fallback) until running + locked.
 async function startDrill(ctx, { loadTimeout = 120000 } = {}) {
   const t0 = Date.now();
-  await waitFor(ctx, `(()=>{const s=__qa.status(); if(s.failed) return 'FAILED'; if(s.picker) return 'PICKER'; return s.ready ? 'READY' : (s.phase==='running' && s.locked ? 'RUNNING' : false)})()`, { timeout: loadTimeout, what: "drill start screen" }).then((v) => {
+  const watchLobby = !!ctx.launched;
+  ctx.launched = false;
+  await waitFor(ctx, `(()=>{const s=__qa.status(); if(s.failed) return 'FAILED'; if(s.picker) return 'PICKER'; if(${watchLobby} && s.lobby && __qa.sawLoad) return 'LOBBY'; return s.ready ? 'READY' : (s.phase==='running' && s.locked ? 'RUNNING' : false)})()`, { timeout: loadTimeout, what: "drill start screen" }).then((v) => {
     if (v === "FAILED") throw new Error("drill failed to load (al-wkload says it won't open)");
     if (v === "PICKER") throw new Error("rank picker showed up unexpectedly");
+    if (v === "LOBBY") throw Object.assign(new Error("drill load fell back to the lobby without an error"), { fellBack: true });
   });
   const loadMs = Date.now() - t0;
   await ctx.cdp.updateCenter();
+  ctx.log?.(`start screen after ${(loadMs / 1000).toFixed(1)} s: ${JSON.stringify(await ctx.cdp.evaluate(START_DIAG).catch((e) => String(e.message || e)))}`);
   for (let i = 0; i < 3; i++) {
     await ctx.cdp.moveTo(); // park the CDP mouse at the centre before the lock (moves turn the camera once locked)
     if (i === 0) await ctx.cdp.key("Enter");
@@ -230,15 +363,49 @@ async function startDrill(ctx, { loadTimeout = 120000 } = {}) {
       else await ctx.cdp.click(ctx.cdp.cx, ctx.cdp.cy);
       await ctx.cdp.moveTo();
     }
-    const ok = await waitFor(ctx, "__qa.phase==='running' && __qa.locked()", { timeout: 4000, every: 300 }).catch(() => false);
-    if (ok) return { loadMs, tries: i + 1 };
+    const tPress = Date.now();
+    let ok = await waitFor(ctx, "__qa.phase==='running' && __qa.locked()", { timeout: 8000, every: 400 }).catch(() => false);
+    // A start runs the drill preparation first (full-screen "Loading drill" panel, slow on a
+    // busy hp). Pressing again then would hit that panel, so wait it out instead.
+    const tPrep = Date.now();
+    while (!ok && Date.now() - tPrep < loadTimeout) {
+      const p = await ctx.cdp.evaluate("__qa.prep()").catch(() => null);
+      if (!p || p.failed) break;
+      ctx.log?.(`start try ${i + 1}: preparing (${p.stage} ${p.time})`);
+      ok = await waitFor(ctx, "__qa.phase==='running' && __qa.locked()", { timeout: 9000, every: 500 }).catch(() => false);
+    }
+    if (ok) return { loadMs, tries: i + 1, startMs: Date.now() - tPress };
+    const diag = await ctx.cdp.evaluate(START_DIAG).catch((e) => String(e.message || e));
+    ctx.log?.(`start try ${i + 1} did not take: ${JSON.stringify(diag)}`);
+    await ctx.shot?.(`start-try${i + 1}`);
   }
-  throw new Error(`drill did not start after 3 tries (${JSON.stringify(await status(ctx))})`);
+  ctx.log?.(`timeline: ${JSON.stringify(await ctx.cdp.evaluate("__qa.tl").catch(() => null))}`);
+  throw new Error(`drill did not start after 3 tries (${JSON.stringify(await status(ctx))}; ${JSON.stringify(await ctx.cdp.evaluate(START_DIAG).catch(() => null))})`);
+}
+
+// Launch + start. App bug seen on the slow hp copy: a map drill's load can end back in the
+// lobby with no error (README "Known app bugs"). That is logged as a warning with the load
+// timeline and the drill is launched once more; a second fallback fails the step.
+async function launchAndStart(ctx, d, via, opts = {}) {
+  for (let attempt = 1; ; attempt++) {
+    await launchDrill(ctx, d, via);
+    try {
+      return await startDrill(ctx, opts);
+    } catch (e) {
+      if (!e.fellBack) throw e;
+      const tl = await ctx.cdp.evaluate("__qa.tl").catch(() => null);
+      ctx.log?.(`${d.name}: load fell back to the lobby; timeline: ${JSON.stringify(tl)}`);
+      await ctx.shot?.(`fell-back${attempt}`);
+      if (attempt >= 2) throw new Error(`${d.name}: load fell back to the lobby twice without an error (app bug, see README)`);
+      ctx.warn(`app bug: ${d.name} load fell back to the lobby without an error; launched again`);
+    }
+  }
 }
 
 // Fire for `seconds` with the aim lock on. Stops early once `enough` kills land.
 async function shootFor(ctx, { seconds = 10, enough = 3, offY = 0, minSeconds = 4 } = {}) {
   await ctx.cdp.updateCenter();
+  if (!ctx.sceneCode) await ctx.cdp.evaluate("__qa.bodies = {}; true"); // not launched by this step: aim at centres
   await ctx.cdp.evaluate(`__qa.resetCounters(); __qa.aimStart({offY: ${J(offY)}})`);
   const t0 = Date.now();
   let st = null;
@@ -246,8 +413,11 @@ async function shootFor(ctx, { seconds = 10, enough = 3, offY = 0, minSeconds = 
   await sleep(600); // let the aim settle on the first target
   while (Date.now() - t0 < seconds * 1000) {
     ctx.check();
-    await ctx.cdp.press();
-    await sleep(380);
+    // Fire only once the aim sits on a target (no target up = no shot; spaced single taps
+    // keep first-shot accuracy). Fires anyway after 1.5 s so a drill can't stall here.
+    const settled = await waitFor(ctx, "__qa.aim.err != null && __qa.aim.err < 0.003", { timeout: 1500, every: 60 }).catch(() => false);
+    if (settled || (await ctx.cdp.evaluate("__qa.aim.err != null"))) await ctx.cdp.press();
+    await sleep(settled ? 380 : 100);
     if (Date.now() - lastCheck > 2000) {
       lastCheck = Date.now();
       st = await status(ctx);
@@ -362,14 +532,13 @@ function drillStep(d) {
   return {
     name: `drill:${d.id}`,
     about: `${d.chip}: ${d.name} (${d.code})${d.result ? "; played to its end when result-replay follows" : ""}`,
-    timeoutMs: d.result ? 420000 : 240000, // +play to the end (60 s drill, slower when the sim runs below real time)
+    timeoutMs: d.result ? 480000 : 300000, // +play to the end (60 s drill, slower when the sim runs below real time)
     async run(ctx) {
       await pickChip(ctx, d);
       // Bots that shoot back show the rank picker on a card click (the rank-picker step covers
       // that); launch those directly.
       const via = (await isVariant(ctx, d.code)) ? "scene" : "card";
-      await launchDrill(ctx, d, via);
-      const s = await startDrill(ctx);
+      const s = await launchAndStart(ctx, d, via, { loadTimeout: 180000 });
       ctx.note(`via ${via}, loaded in ${(s.loadMs / 1000).toFixed(1)} s, start tries ${s.tries}`);
       ctx.data("loadMs", s.loadMs);
       const r = await shootFor(ctx, { seconds: d.seconds || 10, offY: d.offY ?? 0 });
@@ -405,8 +574,7 @@ const probe = {
   async run(ctx) {
     for (const d of DRILLS.probe) {
       for (const rep of ["first", "repeat"]) {
-        await launchDrill(ctx, d, "scene");
-        const s = await startDrill(ctx, { loadTimeout: 180000 });
+        const s = await launchAndStart(ctx, d, "scene", { loadTimeout: 180000 });
         const sample = () => ctx.cdp.evaluate("({tick: __qa.last ? __qa.last.tick : null, frames: __qa.ticks, t: Date.now()})");
         const r0 = Date.now();
         const a = await sample();
@@ -417,10 +585,10 @@ const probe = {
         const simRate = a.tick != null && b.tick != null ? (b.tick - a.tick) / 128 / wall : null;
         const fps = (b.frames - a.frames) / wall;
         const k = await shootFor(ctx, { seconds: 8, enough: 99 });
-        const line = `${d.name} ${rep}: load ${(s.loadMs / 1000).toFixed(1)} s, sim ${simRate == null ? "?" : simRate.toFixed(2)} s/s, ${fps.toFixed(1)} frames/s, CDP rtt ${rtt} ms, kills ${k.kills} in ${k.secs} s`;
+        const line = `${d.name} ${rep}: load ${(s.loadMs / 1000).toFixed(1)} s, start ${(s.startMs / 1000).toFixed(1)} s, hp load ${os.loadavg().map((x) => x.toFixed(1)).join("/")} (${os.cpus().length} cpus), sim ${simRate == null ? "?" : simRate.toFixed(2)} s/s, ${fps.toFixed(1)} frames/s, CDP rtt ${rtt} ms, kills ${k.kills} in ${k.secs} s`;
         ctx.note(line);
         ctx.log(line);
-        ctx.data(`${d.code}-${rep}`, { loadMs: s.loadMs, simRate, fps, rtt, kills: k.kills, secs: k.secs });
+        ctx.data(`${d.code}-${rep}`, { loadMs: s.loadMs, startMs: s.startMs, load: os.loadavg(), simRate, fps, rtt, kills: k.kills, secs: k.secs });
         await exitDrill(ctx);
         await sleep(500);
       }
@@ -454,8 +622,7 @@ const resultReplay = {
     } else {
       // Run on its own (--only=result-replay): play the result drill to its end first.
       const d = DRILLS.result;
-      await launchDrill(ctx, d, "scene");
-      const s = await startDrill(ctx);
+      const s = await launchAndStart(ctx, d, "scene");
       ctx.note(`${d.name} (${d.seconds} s) loaded in ${(s.loadMs / 1000).toFixed(1)} s`);
       await ctx.cdp.evaluate("__qa.resetCounters(); true");
       const e = await playToResult(ctx, { maxSeconds: d.seconds * 3, offY: d.offY ?? 0 });
@@ -504,8 +671,7 @@ const pause = {
   about: "lock lost pauses (light menu), resume; Tab full menu, resume; Restart",
   timeoutMs: 150000,
   async run(ctx) {
-    await launchDrill(ctx, DRILLS.light, "scene");
-    await startDrill(ctx);
+    await launchAndStart(ctx, DRILLS.light, "scene");
     await sleep(1000);
     // Simulated alt-tab = pointer lock lost.
     await ctx.cdp.evaluate("document.exitPointerLock(); true");

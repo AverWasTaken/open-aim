@@ -31,10 +31,13 @@ export function pidAlive(pid) {
 }
 
 // ---------------------------------------------------------------- hp launcher mode
-// On hp the app is started only by ~/hp-share/openaim-start.sh (it owns the one-copy lock,
-// the Soprano/load checks, xvfb and the profile path) and stopped only by openaim-stop.sh.
+// On hp the app is started only by ~/hp-share/openaim-start.sh (it owns the copy slots, the
+// load/memory/gradle checks, xvfb and the profile path) and stopped only by openaim-stop.sh.
+// Since 2026-11-07 ~21:00 hp runs up to 2 copies: the launcher prints "started <pid> slot <n>"
+// and writes openaim-slot<n>.lock (+ .d); openaim.lock is the old single-copy name. A bare
+// openaim-stop.sh stops ALL copies, so the suite always passes its hp worktree name.
 // Launcher mode is on when SMOKE_LAUNCHER names the start script, or on Linux when
-// $HOME/hp-share/openaim-start.sh exists. The stopper and the lock live next to the start script.
+// $HOME/hp-share/openaim-start.sh exists. The stopper and the locks live next to the start script.
 export function launcherConfig({ env = process.env, platform = process.platform, home = os.homedir(), exists = fs.existsSync } = {}) {
   let starter = env.SMOKE_LAUNCHER || null;
   if (!starter && platform === "linux") {
@@ -43,7 +46,15 @@ export function launcherConfig({ env = process.env, platform = process.platform,
   }
   if (!starter) return null;
   const dir = path.dirname(starter);
-  return { starter, stopper: path.join(dir, "openaim-stop.sh"), lockFile: path.join(dir, "openaim.lock"), lockDir: path.join(dir, "openaim.lock.d") };
+  const lockFor = (slot) => path.join(dir, slot ? `openaim-slot${slot}.lock` : "openaim.lock");
+  return { starter, stopper: path.join(dir, "openaim-stop.sh"), lockFor, lockFiles: [lockFor(1), lockFor(2), lockFor(null)] };
+}
+
+// The name openaim-stop.sh <name> matches: the copy's app dir must be .../open-aim-wt/<name>/app.
+// Null when the app dir is not in that shape (then the suite never calls the stopper).
+export function stopperName(appDir) {
+  const m = String(appDir || "").replace(/\/+$/, "").match(/\/open-aim-wt\/([a-z0-9-]+)\/app$/);
+  return m ? m[1] : null;
 }
 
 // The launcher fixes the profile at /tmp/openaim-profile-<port>. Only a path of exactly
@@ -63,13 +74,14 @@ export function parseLauncherOutput(stdout, code) {
   }
   if (code === 12) return { kind: "badapp" };
   if (code === 0) {
-    const m = text.match(/^started (\d+)( \(cdp not answering yet\))?\s*$/m);
-    if (m && Number(m[1]) > 1) return { kind: "started", pid: Number(m[1]), cdpReady: !m[2] };
+    const m = text.match(/^started (\d+)(?: slot ([12]))?( \(cdp not answering yet\))?\s*$/m);
+    if (m && Number(m[1]) > 1) return { kind: "started", pid: Number(m[1]), slot: m[2] ? Number(m[2]) : null, cdpReady: !m[3] };
   }
   return { kind: "garbage", text: text.slice(0, 300), code };
 }
 
-// ~/hp-share/openaim.lock: line 1 = pid, line 2 = "open-aim <time> port <aim> cdp <cdp>".
+// ~/hp-share/openaim-slot<n>.lock (or the old openaim.lock): line 1 = pid,
+// line 2 = "open-aim <time> port <aim> cdp <cdp> [app <dir>]".
 export function parseLock(text) {
   if (text == null) return null;
   const lines = String(text).split(/\r?\n/);
@@ -78,8 +90,9 @@ export function parseLock(text) {
   const port = (lines[1] || "").match(/\bport (\d+)\b/);
   const cdp = (lines[1] || "").match(/\bcdp (\d+)\b/);
   const when = (lines[1] || "").match(/^open-aim (\S+)/);
+  const app = (lines[1] || "").match(/ app (\S+)\s*$/);
   const time = when ? Date.parse(when[1]) : NaN;
-  return { pid, port: port ? Number(port[1]) : null, cdp: cdp ? Number(cdp[1]) : null, time: Number.isFinite(time) ? time : null };
+  return { pid, port: port ? Number(port[1]) : null, cdp: cdp ? Number(cdp[1]) : null, time: Number.isFinite(time) ? time : null, app: app ? app[1] : null };
 }
 
 export function readLock(file) {
@@ -95,6 +108,17 @@ export function readLock(file) {
 // call (a gap of milliseconds); the stopper itself reads the lock again.
 export function lockIsOurs(lock, pid, port) {
   return !!lock && lock.pid != null && lock.pid === Number(pid) && lock.port === Number(port);
+}
+
+// Any lock (or a slot dir still without its lock file: a launcher mid-start) that could belong
+// to a copy on this port. Used before deleting /tmp/openaim-profile-<port> (R8).
+export function portClaimed(lockFiles, port, { exists = fs.existsSync, read = readLock } = {}) {
+  for (const f of lockFiles) {
+    const l = read(f);
+    if (l && l.port === Number(port)) return true;
+    if (!l && exists(f + ".d")) return true; // being started: lock not written yet
+  }
+  return false;
 }
 
 // One shared promise: concurrent callers (signal handler + finally) run fn once.

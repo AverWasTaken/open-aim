@@ -1,9 +1,10 @@
 // Starts one hidden (AIM_HEADLESS=1) test copy of the app for the smoke suite and stops it.
 //
 // Launcher mode (hp): the copy is started ONLY by ~/hp-share/openaim-start.sh and stopped
-// ONLY by openaim-stop.sh, and only while ~/hp-share/openaim.lock still names our pid and
-// port (plan S2 R1). A detached guard (guard.mjs) does the same checked stop if this runner
-// dies. Busy hp = no copy, exit 4 (the PC-side qa-smoke.sh retries).
+// ONLY by `openaim-stop.sh <our hp worktree name>`, and only while our slot's lock
+// (~/hp-share/openaim-slot<n>.lock) still names our pid and port (plan S2 R1). A detached guard
+// (guard.mjs) does the same checked stop if this runner dies. Busy hp = no copy, exit 4 (the
+// PC-side qa-smoke.sh retries).
 //
 // Direct mode (any machine without hp-share; UNTESTED since rule 0 forbids running the app on
 // the PC): spawns electron itself, optional app slot (SMOKE_SLOT_DIR), kills its own tree.
@@ -14,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import {
   takeSlot, writeOwner, releaseSlot, pickPorts, checkProfile, pidAlive, killTree, findLeftovers, sleep,
   launcherConfig, launcherProfile, launcherLog, safeLauncherProfile, parseLauncherOutput, readLock, lockIsOurs,
+  portClaimed, stopperName, portOpen,
   once, electronPath, EXIT,
 } from "./lib.mjs";
 
@@ -77,23 +79,26 @@ function tailFile(file, onLine) {
 
 export const launcherCfg = () => launcherConfig();
 
-export async function startApp(o) {
-  const cfg = o.cfg === undefined ? launcherConfig() : o.cfg;
-  return cfg ? startLauncher({ ...o, cfg }) : startDirect(o);
-}
-
 // ---------------------------------------------------------------- launcher mode
 // Returns a handle. h.busy is set (and nothing was started) when hp is busy.
 export async function startLauncher({ cfg, port, cdp, outDir, log = console.log, onLine = () => {}, onMainLine = () => {}, maxMinutes = 20, appDir = APP_DIR, cdpWaitMs = 90000, guardScript = GUARD }) {
   const h = {
     mode: "launcher", cfg, port, cdp, outDir, appDir, profile: launcherProfile(port), pid: null, started: false, busy: null,
     tail: [], exited: false, exitCode: null, guardPid: null, stopped: false, timers: [], tails: [],
+    slot: null, lockFile: null, stopName: stopperName(appDir),
   };
   h.stop = once((lg) => stopLauncher(h, lg || log));
+  // The stopper only takes a worktree name (bare = stop ALL copies): without one we could not
+  // stop just our own copy, so don't start one.
+  if (!h.stopName) {
+    const e = new Error(`app dir ${appDir} is not .../open-aim-wt/<name>/app: openaim-stop.sh could not stop only our copy`);
+    e.exitCode = EXIT.badArgs;
+    throw e;
+  }
 
-  // Fresh profile (R8): only when no open-aim copy holds the lock dir, and only the exact
-  // /tmp/openaim-profile-<port> shape.
-  if (!fs.existsSync(cfg.lockDir) && safeLauncherProfile(h.profile)) {
+  // Fresh profile (R8): only when no copy's lock (or half-started slot) names our port and
+  // nothing listens on our ports, and only the exact /tmp/openaim-profile-<port> shape.
+  if (!portClaimed(cfg.lockFiles, port) && !(await portOpen(port)) && !(await portOpen(cdp)) && safeLauncherProfile(h.profile)) {
     fs.rmSync(h.profile, { recursive: true, force: true });
     log(`fresh profile ${h.profile}`);
   }
@@ -102,15 +107,18 @@ export async function startLauncher({ cfg, port, cdp, outDir, log = console.log,
   let p = parseLauncherOutput(r.stdout, r.code);
   if (p.kind === "garbage") {
     // The launcher may have started a copy and then died or timed out: if a fresh lock names
-    // our port and a live pid, take it as ours so it still gets the checked stop.
-    const lock = readLock(cfg.lockFile);
-    const fresh = lock && lock.time != null && lock.time >= tStart - 5000;
-    if (lock && fresh && lock.port === Number(port) && pidAlive(lock.pid) && fs.existsSync(cfg.lockDir)) {
-      log(`launcher gave unexpected output (exit ${p.code}${r.killed ? ", timed out" : ""}) but the lock names a fresh copy on our port: pid ${lock.pid}; stopping it`);
-      h.pid = lock.pid;
-      h.started = true;
-      await h.stop(log);
-      throw new Error(`launcher gave unexpected output (exit ${p.code}); its copy pid ${lock.pid} was stopped`);
+    // our port, our app dir and a live pid, take it as ours so it still gets the checked stop.
+    for (const f of cfg.lockFiles) {
+      const lock = readLock(f);
+      const fresh = lock && lock.time != null && lock.time >= tStart - 5000;
+      if (lock && fresh && lock.port === Number(port) && (lock.app == null || lock.app === appDir) && pidAlive(lock.pid) && fs.existsSync(f + ".d")) {
+        log(`launcher gave unexpected output (exit ${p.code}${r.killed ? ", timed out" : ""}) but ${path.basename(f)} names a fresh copy on our port: pid ${lock.pid}; stopping it`);
+        h.pid = lock.pid;
+        h.lockFile = f;
+        h.started = true;
+        await h.stop(log);
+        throw new Error(`launcher gave unexpected output (exit ${p.code}); its copy pid ${lock.pid} was stopped`);
+      }
     }
   }
   if (p.kind === "busy") {
@@ -125,13 +133,15 @@ export async function startLauncher({ cfg, port, cdp, outDir, log = console.log,
   }
   if (p.kind !== "started") throw new Error(`launcher gave unexpected output (exit ${p.code}${r.killed ? ", timed out" : ""}): ${p.text || r.stderr.trim().slice(0, 300) || "(nothing)"}`);
   h.pid = p.pid;
+  h.slot = p.slot;
+  h.lockFile = cfg.lockFor(p.slot);
   h.started = true;
-  log(`launcher: started pid ${h.pid}${p.cdpReady ? "" : " (CDP not answering yet)"}; AIM ${port}, CDP ${cdp}`);
+  log(`launcher: started pid ${h.pid}${p.slot ? ` in slot ${p.slot}` : ""}${p.cdpReady ? "" : " (CDP not answering yet)"}; AIM ${port}, CDP ${cdp}; lock ${h.lockFile}`);
 
   // Guard right away, so a runner killed from here on still gets the copy stopped (R6).
   try {
     h.guardPid = await spawnClosedDetached(process.execPath, [guardScript, "launcher", JSON.stringify({
-      runner: process.pid, pid: h.pid, port, stopper: cfg.stopper, lockFile: cfg.lockFile, profile: h.profile,
+      runner: process.pid, pid: h.pid, port, stopper: cfg.stopper, stopName: h.stopName, lockFile: h.lockFile, profile: h.profile,
       capMs: (maxMinutes + 3) * 60000, log: path.join(outDir, "guard.log"),
     })]);
   } catch (e) {
@@ -185,7 +195,7 @@ async function stopLauncher(h, log) {
   let stopped = false;
   let why = "not started";
   if (h.started) {
-    let lock = readLock(h.cfg.lockFile);
+    let lock = readLock(h.lockFile);
     // Our pid already dead but the lock still ours: either someone else's openaim-stop.sh is
     // in its 2 s TERM->KILL pause (it removes the lock after), or our copy died by itself.
     // Wait and look again; gone = preempted (no stopper call, R7), still ours = stale, stop it.
@@ -193,14 +203,14 @@ async function stopLauncher(h, log) {
       const until = Date.now() + (h.staleWaitMs ?? 5000);
       while (Date.now() < until && lockIsOurs(lock, h.pid, h.port)) {
         await sleep(100);
-        lock = readLock(h.cfg.lockFile);
+        lock = readLock(h.lockFile);
       }
       if (!lockIsOurs(lock, h.pid, h.port)) h.preempted = true;
     }
     if (lockIsOurs(lock, h.pid, h.port)) {
-      log(`stopping copy pid ${h.pid} with ${h.cfg.stopper}`);
-      const r = await runClosed(h.cfg.stopper, [], { timeout: 30000 });
-      stopped = r.code === 0;
+      log(`stopping copy pid ${h.pid} with ${h.cfg.stopper} ${h.stopName}`);
+      const r = await runClosed(h.cfg.stopper, [h.stopName], { timeout: 30000 });
+      stopped = r.code === 0 && !/^stopped 0\b/m.test(r.stdout);
       why = stopped ? "stopped" : `stopper exit ${r.code}: ${(r.stdout + r.stderr).trim().slice(0, 200)}`;
       if (!stopped) log(why);
     } else {
@@ -267,7 +277,7 @@ export function sessionReport(sid, extraPids = []) {
 export function preempted(h) {
   if (!h || h.mode !== "launcher" || !h.started || h.stopped || h.stopping) return false;
   if (pidAlive(h.pid)) return false;
-  return !lockIsOurs(readLock(h.cfg.lockFile), h.pid, h.port);
+  return !lockIsOurs(readLock(h.lockFile), h.pid, h.port);
 }
 
 // ---------------------------------------------------------------- direct mode (untested)
