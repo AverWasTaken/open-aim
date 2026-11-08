@@ -39,8 +39,8 @@
     const v = parseFloat(sensInput()?.value);
     return Number.isFinite(v) && v > 0 ? v : NaN;
   }
-  // Like player-tools.js useSens(), but without the Enter keydown: the field saves on input/change,
-  // and a synthetic Enter reaches window and would start a drill waiting on its start screen.
+  // Same as player-tools.js useSens(). No synthetic Enter: the field saves on input/change, and an
+  // Enter keydown reaches window and would start a drill waiting on its start screen.
   function setSens(value) {
     const input = sensInput();
     if (!input) return false;
