@@ -678,6 +678,15 @@ test("R5 HUD: the stats line fills ux's result card container (event or __aimUxR
   assert.equal(rows(box)[0].textContent, line);
   h.fire('ux-result-extra', { el: box });
   assert.equal(box.children.length, 1, 'still one row');
+  // The real card's textContent has no space between its lines (seen in the app after the merge).
+  h.card('Round wonSpike detonatedRun completeRound: Ascent (Attack)Time 74.4s');
+  const boxJ = h.ctx.document.createElement('div');
+  h.fire('ux-result-extra', { el: boxJ });
+  assert.equal(rows(boxJ)[0]?.textContent, line, 'textContent with lines run together');
+  h.card('Round: Ascent (Attack)Time 74.4s');
+  const boxN = h.ctx.document.createElement('div');
+  h.fire('ux-result-extra', { el: boxN });
+  assert.equal(boxN.children.length, 0, 'round name alone is not a result');
   h.card('ROUND LOST');
   const box2 = h.ctx.document.createElement('div');
   h.fire('ux-result-extra', { el: box2 });

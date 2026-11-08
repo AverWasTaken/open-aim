@@ -238,11 +238,12 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
   // ux's result card container (ux-result.js: window "ux-result-extra" with detail.el, or
   // window.__aimUxResult.extra()). Filled only on a round's result card (its text says "Round won" /
   // "Round lost") with the line saved at the round end; one row, text only, nothing focusable.
+  // No \b after won/lost: the card's textContent runs its lines together ("Round wonSpike detonated").
   function fillResult(box) {
     if (!statsLine) return false;
     box = box || window.__aimUxResult?.extra?.();
     const card = document.querySelector?.(".al-result-overlay");
-    if (!box || !card || !/\bRound (won|lost)\b/i.test(card.textContent || "")) return false;
+    if (!box || !card || !/\bRound (won|lost)/i.test(card.textContent || "")) return false;
     let row = null;
     for (const c of box.children || []) if (c.classList?.contains("arh-result-stats")) row = c;
     if (!row) { row = document.createElement("div"); row.classList.add("arh-result-stats"); box.appendChild(row); }
