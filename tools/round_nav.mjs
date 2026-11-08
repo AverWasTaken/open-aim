@@ -53,7 +53,7 @@ const JS = path.join(ROOT, 'app', 'mods', 'next', 'js');
 
 const BAKE = { stepUp: 0.5, jumpUp: 1.1, maxDrop: 4.5, runSpeed: 6.75, gravity: 24.456521739, jumpSeconds: 0.45, maxNodes: 5e6 };
 // Known-good graph sizes (the M1 seal check graph); a different count fails the bake.
-const EXPECT = { ascent: { count: 21746, edgeCount: 161371 }, rook: { count: 21693, edgeCount: 162053 } };
+const EXPECT = { ascent: { count: 21746, edgeCount: 161371 }, rook: { count: 21693, edgeCount: 162053 }, bonsai: { count: 17913, edgeCount: 131407 } };
 
 const log = (...a) => console.log(...a);
 const data = JSON.parse(fs.readFileSync(DATA, 'utf8'));

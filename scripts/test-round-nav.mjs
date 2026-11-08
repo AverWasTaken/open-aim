@@ -19,9 +19,11 @@ const ROUNDS = path.join(root, "app", "mods", "aim-rounds");
 //   (spawnT <= 10 s + attackers' fastest barrier -> zone time) and at least one per site hidden from
 //   the attacker barriers (R4 setup rules); Ascent predates the rules
 //   minTris: lower bounds for the real collision's pawn / projectile triangle counts
+//   ropes: rope links in the seal check (maps with a <map>.ropes.json, Split)
 const EXPECT = {
   ascent: { count: 21746, edgeCount: 161371, notWalk: ["B site front"], routes: { A: ["A Main", "Mid Cubby"], B: ["B Main", "Mid Market"] }, setupTiming: false, minTris: [1e6, 1e6] },
   rook: { count: 21693, edgeCount: 162053, notWalk: [], routes: { A: ["A Main", "A Link"], B: ["B Main", "B Link"] }, setupTiming: true, minTris: [1e6, 1e6] },
+  bonsai: { count: 17913, edgeCount: 131407, notWalk: [], routes: { A: ["A Main", "A Ramps"], B: ["B Garage", "Mid Mail"] }, setupTiming: true, minTris: [1e6, 1e6], ropes: 7 },
 };
 const MAPS = fs.readdirSync(ROUNDS).filter((f) => /^[a-z0-9]+\.json$/.test(f)).map((f) => f.slice(0, -5))
   .filter((m) => fs.existsSync(path.join(ROUNDS, `${m}.nav.bin`))).sort();
@@ -131,16 +133,20 @@ for (const MAP of MAPS) {
     }
   });
 
-  // Barriers from the map's SM_Barrier prims (BARRIERS 'collision') must each cut >= 5 walk edges (the
-  // team-by-flood rule). Ascent's picture marks are exempt: def-b1 is a dash over a doorway with no
-  // nav edges under it (harmless, kept so ascent.json stays as it is).
+  // Barriers from the map's SM_Barrier prims (BARRIERS 'collision') or world marks checked by the same
+  // flood rule (MARK_TEAMS, Split) must each cut >= 5 walk edges (the team-by-flood rule). Ascent's
+  // picture marks are exempt: def-b1 is a dash over a doorway with no nav edges under it (harmless, kept
+  // so ascent.json stays as it is).
   const fromPrims = data.barriers.every((b) => Number.isInteger(data.authoring.barriers[b.id]?.prim));
-  test(`${T_} barriers: both teams, unique ids${fromPrims ? ", each cuts real walk edges" : ""}`, () => {
+  const markTeams = data.barriers.every((b) => data.authoring.barriers[b.id]?.floodTeam === b.team);
+  const strict = fromPrims || markTeams;
+  test(`${T_} barriers: both teams, unique ids${strict ? ", each cuts real walk edges" : ""}`, () => {
     const ids = data.barriers.map((b) => b.id);
     assert.equal(new Set(ids).size, ids.length, "unique barrier ids");
     for (const team of ["attack", "defense"]) assert.ok(data.barriers.some((b) => b.team === team), `${team} barriers`);
     if (MAP === "rook") assert.ok(fromPrims, "rook barriers come from the map's SM_Barrier prims");
-    if (fromPrims) for (const b of data.barriers) {
+    if (MAP === "bonsai") assert.ok(markTeams, "bonsai barrier marks carry the flood team they were checked with");
+    if (strict) for (const b of data.barriers) {
       let cut = 0;
       for (let i = 0; i < nav.count; i++) for (let e = nav.edgeStart[i]; e < nav.edgeStart[i + 1]; e++) if (nav.edgeType[e] === 0 && edgeCutBy(nav, [b], i, nav.edgeTo[e])) cut++;
       assert.ok(cut >= 5, `${b.id} cuts ${cut} walk edges`);
@@ -183,6 +189,26 @@ for (const MAP of MAPS) {
       const have = data.setups.defense[group].filter((s) => hs[s.name].walk).length;
       assert.ok(have >= need, `group ${group}: ${have} walkable setups, a split needs ${need}`);
     });
+  });
+
+  test(`${T_} every setup reaches its site goal over walk + drop edges (mid: a site goal)`, () => {
+    const C = navContext(nav, data);
+    for (const [group, list] of Object.entries(data.setups.defense)) for (const s of list) {
+      const h = nav.header.setups[s.name];
+      if (h.node < 0 || (E.notWalk ?? []).includes(s.name)) continue; // known not walkable (Ascent's B site front)
+      const ok = group === "mid" ? Object.values(C.sites).some((S) => Number.isFinite(S.field.dist[h.node])) : Number.isFinite(C.sites[group].field.dist[h.node]);
+      assert.ok(ok, `${s.name} (${group}) can't walk to its site goal`);
+    }
+  });
+
+  if (E.ropes) test(`${T_} ropes: every rope linked, none crosses a barrier or lies off its side within 8 m`, () => {
+    const r = data.authoring.ropes;
+    assert.equal(r.length, E.ropes);
+    assert.equal(data.authoring.seal.ropeLinks, E.ropes);
+    for (const q of r) {
+      assert.ok(q.bottom >= 0 && q.top >= 0, `${q.rope} has nav nodes at both ends`);
+      for (const n of q.near) assert.ok(!n.cross && n.ownSide, `${q.rope} vs ${n.barrier}: cross ${n.cross}, own side ${n.ownSide}`);
+    }
   });
 
   if (E.setupTiming) test(`${T_} setups are held before the first attacker can reach the site (10 s barrier)`, () => {

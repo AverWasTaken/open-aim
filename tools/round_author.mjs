@@ -62,6 +62,12 @@
 //  - CALLOUT_SPOTS: per-callout [x, z] or [x, y, z] that replaces the minimap spot for the seal check
 //    (minimap spots that lie off the walkable floor); recorded under authoring.calloutSpots.
 //  - FACING: callout the spawn rows face (Ascent: Mid Courtyard).
+//  - MARK_TEAMS (Split): world marks also go through barrierTeams' strict flood rule, which must give
+//    the mark's team (build and ray-free --check); the parked SM_Barrier plane lengths are matched to
+//    the chokes as a warning only.
+//  - ROPES (Split): <map>.ropes.json ropes are two-way links in the seal / barrier-team floods; a rope
+//    within 8 m of a barrier of team T must not cross it and must lie on T's side (authoring.ropes).
+//  - SITE_CENTER: per-site [x, z] for the site centre when the marker centre is not on open floor.
 // Seal rule (all maps): no leak in the walk or all-edge flood of either team, every callout listed
 // in SIDES has a nav node within 4 m (a callout off the graph can't be checked, so it fails), and
 // every callout of a team's own side is reached over all edges.
@@ -80,7 +86,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { parseRoundNav } from '../app/mods/aim-rounds/round-nav.mjs';
-import { TYPES, nodeIndex, nodesNear, nearestNode, flood, barrierMask, edgeCutBy } from './round_navlib.mjs';
+import { TYPES, nodeIndex, nodesNear, nearestNode, flood, barrierMask, edgeCutBy, segCross } from './round_navlib.mjs';
 import { attackPlot } from './round_navdata.mjs';
 import { Img } from './round_png.mjs';
 import { loadTerrain, terrainCacheFile, mapFile } from './round_terrain.mjs';
@@ -278,6 +284,96 @@ const MAPS = {
       },
     },
   },
+  // Split. Rays use the real pawn world (bonsai.collision.json has only 589 greybox boxes, no walls of
+  // the art meshes). The map's 9 SM_Barrier planes are all parked at the world origin, so the barriers
+  // are world MARKS (MARK_TEAMS: the strict flood rule must give each mark's team) and ROPES are links.
+  bonsai: {
+    name: 'Split',
+    WORLD: 'terrain', MINIMAP: 'mod', FACING: 'Mid Bottom',
+    SPAWNS: { attack: 'Attacker Spawn', defense: 'Defender Spawn' },
+    // Floor under each spawn callout (vertical rays against the pawn world).
+    SPAWN_Y: { 'Attacker Spawn': 3, 'Defender Spawn': 5 },
+    MARK_TEAMS: true,
+    ROPES: true,
+    // A's marker centre stands on the 4 m site box (no floor node within the defuse range): moved 3 m
+    // south onto the open site floor.
+    SITE_CENTER: { A: [-64.97, -79.58] },
+    NOTES: {
+      barriers: '9 world marks at the nav chokes between the sides (the 9 SM_Barrier planes are parked at the origin). Each snaps to the narrowest closed choke within 3 m; the flood rule (one team per barrier, >= 5 cut walk edges, none bypassed with every barrier up) gives the mark team, and the seal check (ropes included) passes. The chokes are narrower than the plane lengths (15.4 .. 4 m): warning only',
+      sides: "A Ramps neutral (the attackers' second way to A; defender barrier at the A Tower door); Mid Mail and Mid Vent defense; A Sewer attack (sewer room and its ropes are behind atk-a-sewer, reached by dropping from A Lobby)",
+      ropes: "7 ropes (bonsai.ropes.json) are two-way links in the seal and barrier-team floods (no rope edges in the nav graph); a rope within 8 m of a barrier of team T must not cross it and both ends must be on T's side (authoring.ropes)",
+      setupSpawnT: "setups: spawnT <= 10 s (shortest barrier) + attackers' fastest barrier -> zone time - 1 s (A 14 s, B 14.82 s; mid 11.5 s); the defender spawn is 9-12 s from both sites",
+      setupsInZone: 'A has no setup inside the zone: no spot in it sees a defender barrier within 30 m; the A setups stand on the site front band (0-8 m south of the zone) and at the A Main door',
+      mid: "mid group: Mail and Mail door (watch def-mid-mail / def-mid-vent) and A tower (watches def-a-tower, the A Ramps door; it is more than 12 m from the A zone, so it can't be an A setup)",
+      aRamps: 'A Ramps route: the bots cannot drop from A Tower to the site (more than 4.5 m), so their path goes back down the ramps stairs and through the A Main door; its entry waypoint is the ramps stairs (the path passes it), not a barrier doorway',
+      plant: 'second plant spots are 5 m from the default (Ascent: about 6 m)',
+    },
+    // Barrier marks [x, z] (world), by hand from the nav graph plot: each sits on the narrowest corridor
+    // between a team's barrier-phase area and the neutral middle; snapBarrier moves it up to 3 m across.
+    // floor = nav node height at the mark (vertical ray start hint).
+    MARKS: [
+      { id: 'atk-a-main', team: 'attack', name: 'A Lobby / A Main', a: [-38.5, -77], b: [-38.5, -64], floor: 2.5 },
+      { id: 'atk-a-sewer', team: 'attack', name: 'A Sewer / Mid Bottom', a: [-27.5, -44], b: [-20.5, -44], floor: 1.7 },
+      { id: 'atk-b-link', team: 'attack', name: 'B Lobby / B Link', a: [-23, 6.5], b: [-16.5, 6.5], floor: 3 },
+      { id: 'atk-b-garage', team: 'attack', name: 'B Lobby / B Garage', a: [-31, 9], b: [-31, 17], floor: 3 },
+      { id: 'def-a-main', team: 'defense', name: 'A Site / A Main', a: [-56, -68], b: [-56, -54], floor: 1.5 },
+      { id: 'def-a-tower', team: 'defense', name: 'A Tower / A Ramps', a: [-59, -50], b: [-59, -41], floor: 6.5 },
+      { id: 'def-mid-vent', team: 'defense', name: 'Mid Vent / Mid Top', a: [-58, -27.5], b: [-49.7, -27.5], floor: 6.5 },
+      { id: 'def-mid-mail', team: 'defense', name: 'Mid Mail / Mid Top', a: [-50, -15.5], b: [-43, -15.5], floor: 6.5 },
+      { id: 'def-b-garage', team: 'defense', name: 'B Site / B Garage', a: [-49, 23], b: [-49, 33], floor: 3 },
+    ],
+    // Barrier phase side of each callout, by hand from the map: lobbies, the sewer and the attacker spawn
+    // the attackers'; sites, the defender spawn and the defenders' back areas (A Back / Screens / Tower /
+    // Rafters, B Back / Alley / Rafters / Tower / Stairs, Mid Vent, Mid Mail) the defenders'; A Main, A
+    // Ramps, Mid Top / Bottom, B Garage and B Link neutral. The seal check proves it.
+    SIDES: {
+      'Attacker Spawn': 'attack', 'A Lobby': 'attack', 'B Lobby': 'attack', 'A Sewer': 'attack',
+      'Defender Spawn': 'defense', 'A Site': 'defense', 'A Back': 'defense', 'A Screens': 'defense', 'A Tower': 'defense', 'A Rafters': 'defense',
+      'B Site': 'defense', 'B Back': 'defense', 'B Alley': 'defense', 'B Rafters': 'defense', 'B Tower': 'defense', 'B Stairs': 'defense', 'Mid Vent': 'defense', 'Mid Mail': 'defense',
+      'A Main': 'neutral', 'A Ramps': 'neutral', 'Mid Bottom': 'neutral', 'Mid Top': 'neutral', 'B Garage': 'neutral', 'B Link': 'neutral',
+    },
+    // Defender setup spots, picked from `node tools/round_nav.mjs --map bonsai --setup-candidates <A|B|mid>`
+    // (mid: --near "-48,-11.5|-66,-46"): top candidates, 3+ m apart, every defender barrier watched by one
+    // group (A: def-a-main; B: def-b-garage; mid: def-mid-mail, def-mid-vent, def-a-tower); all are
+    // hidden from the attacker barriers. Drill spots checked as hints (split-a-main-hold-vs-flashes player
+    // spot = A screens, split-b-heaven-retake-peekers): they see no barrier, so none is used.
+    SETUPS: {
+      A: [[-69.33, 0.04, -69.83, 'A site'], [-63.33, 1, -65.83, 'A front'], [-75.33, 1, -63.33, 'A screens'],
+        [-55.33, 1.92, -62.83, 'A main door'], [-66.83, 1, -61.83, 'A site south']],
+      mid: [[-51.33, 8, -13.83, 'Mail'], [-47.33, 6.56, -14.83, 'Mail door'], [-62.83, 6.5, -42.33, 'A tower']],
+      B: [[-67.33, 3.66, 23.67, 'B site'], [-64.33, 3.16, 24.67, 'B site front'], [-56.83, 3, 19.67, 'B right'],
+        [-72.33, 3, 28.17, 'B back'], [-53.83, 3, 22.67, 'B corner']],
+    },
+    SPLITS: [[2, 1, 2], [2, 1, 2], [3, 0, 2], [2, 0, 3], [1, 1, 3], [3, 1, 1]],
+    // Retake staging points (`--candidates <site>`): best of two approach groups from different sides:
+    // A back (west, no detour) and A screens door (south band, 0.3 s); B alley (north-west, 0.06 s) and
+    // B back south (south corridor, 4.7 s detour).
+    RETAKE: {
+      A: [[-79.83, 0.62, -68.33, 'A back'], [-72.83, 1, -61.83, 'A screens door']],
+      B: [[-80.83, 4.83, 5.67, 'B alley'], [-74.83, 3, 30.17, 'B back south']],
+    },
+    // Attacker bot data (`--attack-candidates <site> --near "x,z|x,z"`): staging = candidates nearest the
+    // near point, 1.5 m apart (all neutral); entry = the defender barrier doorway the route passes (A Main
+    // door = def-a-main, B Garage door = def-b-garage, Mail door = def-mid-mail; the Mail route walks
+    // through Mail and B Tower and drops onto B), except A Ramps (see NOTES.aRamps). Plant: default =
+    // nearest the site goal, the second 5 m away on another part of the site.
+    ATTACK: {
+      routes: {
+        A: [
+          { name: 'A Main', entry: [-52.83, 2, -61.83, 'A Main door'], staging: [[-44.83, 2, -63.83, 'A Main 1'], [-43.33, 2, -63.83, 'A Main 2'], [-44.83, 2, -65.33, 'A Main 3']] },
+          { name: 'A Ramps', entry: [-45.83, 4, -51.33, 'A Ramps stairs'], staging: [[-50.33, 6.5, -44.83, 'A Ramps 1'], [-51.83, 6.5, -44.83, 'A Ramps 2'], [-50.33, 6.5, -43.33, 'A Ramps 3']] },
+        ],
+        B: [
+          { name: 'B Garage', entry: [-45.83, 3, 27.83, 'B Garage door'], staging: [[-38.33, 3, 22.17, 'B Garage 1'], [-36.83, 3, 22.17, 'B Garage 2'], [-38.33, 3, 23.67, 'B Garage 3']] },
+          { name: 'Mid Mail', entry: [-46.33, 6.5, -15.83, 'Mail door'], staging: [[-46.33, 6.5, -18.83, 'Mid Mail 1'], [-44.83, 6.5, -18.83, 'Mid Mail 2'], [-46.33, 6.5, -20.33, 'Mid Mail 3']] },
+        ],
+      },
+      plant: {
+        A: [[-64.83, 0, -79.83, 'A default'], [-68.83, 0, -76.83, 'A behind box']],
+        B: [[-66.33, 4, 16.67, 'B default'], [-66.33, 4, 11.67, 'B north']],
+      },
+    },
+  },
 };
 const M = MAPS[MAP];
 if (!M) throw new Error(`no hand input for map ${MAP}`);
@@ -407,10 +503,76 @@ const BARRIER_EXT = 0.4, BARRIER_MIN_CUT = 5;
 const r2 = (v) => +v.toFixed(2);
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
+// ROPES (maps with a <map>.ropes.json, Split): each rope is a two-way link between the nav node at its
+// bottom and the one at its top (the nav graph has no rope edges). Floods re-seed through the links
+// until nothing changes. Maps without ROPES flood exactly as before.
+const ROPE_LIST = M.ROPES ? JSON.parse(fs.readFileSync(mapFile(MAP, 'ropes.json'), 'utf8')).ropes : [];
+// Rope end -> nav node: within ROPE_R m (xz) of the rope point, floor 0.2-2.4 m under it (the point is
+// the grab / dismount height, the floor sits about 0.5-1.3 m lower).
+const ROPE_R = 3, ROPE_NEAR = 8;
+function ropeLinks(g, H) {
+  return ROPE_LIST.map((r) => {
+    const end = (p) => {
+      const l = nodesNear(g, H, p[0], p[2], ROPE_R).filter((i) => g.y[i] <= p[1] - 0.2 && g.y[i] >= p[1] - 2.4);
+      return l.length ? l[0] : -1;
+    };
+    const a = end(r.bottom), b = end(r.top);
+    return { label: r.label, a, b, bottom: r.bottom, top: r.top };
+  });
+}
+function floodR(g, srcs, opts, links) {
+  let par = flood(g, srcs, opts);
+  if (!links?.length) return par;
+  const seeds = [...srcs];
+  for (;;) {
+    const add = [];
+    for (const l of links) {
+      if (l.a < 0 || l.b < 0) continue;
+      const ra = par[l.a] !== -2, rb = par[l.b] !== -2;
+      if (ra && !rb) add.push(l.b); else if (rb && !ra) add.push(l.a);
+    }
+    if (!add.length) return par;
+    seeds.push(...add);
+    par = flood(g, seeds, opts);
+  }
+}
+const segDist = (ax, az, bx, bz, px, pz) => {
+  const vx = bx - ax, vz = bz - az, L = vx * vx + vz * vz, t = L ? Math.max(0, Math.min(1, ((px - ax) * vx + (pz - az) * vz) / L)) : 0;
+  return Math.hypot(ax + vx * t - px, az + vz * t - pz);
+};
+const segSegDist = (p, q, b) => segCross(p[0], p[2], q[0], q[2], b.a.x, b.a.z, b.b.x, b.b.z) ? 0
+  : Math.min(segDist(b.a.x, b.a.z, b.b.x, b.b.z, p[0], p[2]), segDist(b.a.x, b.a.z, b.b.x, b.b.z, q[0], q[2]),
+    segDist(p[0], p[2], q[0], q[2], b.a.x, b.a.z), segDist(p[0], p[2], q[0], q[2], b.b.x, b.b.z));
+// Rope rule: a rope within ROPE_NEAR m (xz) of a barrier of team T must not cross it and must lie on
+// T's side (both ends in T's flood with T's barriers up, all edges + ropes); else it could carry T past
+// its own barrier. Returns { report, errors }.
+function ropeCheck(g, H, spawnsIn, bars) {
+  const links = ropeLinks(g, H), errors = [], fl = {};
+  for (const team of ['attack', 'defense']) {
+    const sp = spawnsIn[team].map((p) => nearestNode(g, H, p.x, p.z, 0.75, p.y, 1));
+    fl[team] = floodR(g, sp, { types: TYPES.all, mask: barrierMask(g, bars.filter((b) => b.team === team)) }, links);
+  }
+  const report = links.map((l) => {
+    const near = [];
+    for (const b of bars) {
+      const d = segSegDist(l.bottom, l.top, b);
+      if (d > ROPE_NEAR) continue;
+      const cross = d === 0, own = l.a >= 0 && l.b >= 0 && fl[b.team][l.a] !== -2 && fl[b.team][l.b] !== -2;
+      near.push({ barrier: b.id, team: b.team, d: r2(d), cross, ownSide: own });
+      if (cross || !own) errors.push(`rope ${l.label}: ${cross ? 'crosses' : 'lies off the ' + b.team + ' side of'} barrier ${b.id} (${r2(d)} m)`);
+    }
+    if (l.a < 0 || l.b < 0) errors.push(`rope ${l.label}: no nav node at its ${l.a < 0 ? 'bottom' : 'top'} (within ${ROPE_R} m, 0.2-2.4 m under the point)`);
+    const side = (i) => i < 0 ? null : [fl.attack[i] !== -2 ? 'attack' : null, fl.defense[i] !== -2 ? 'defense' : null].filter(Boolean).join('+') || 'none';
+    return { rope: l.label, bottom: l.a, top: l.b, ...(l.a >= 0 ? { bottomFloor: r2(g.y[l.a]) } : {}), ...(l.b >= 0 ? { topFloor: r2(g.y[l.b]) } : {}), side: [side(l.a), side(l.b)], near };
+  });
+  return { report, errors };
+}
+
 // Seal check (see the header, step 7): returns { report, errors }.
 function sealCheck(g, H, spawnsIn, bars) {
   const report = { nav: { file: path.relative(ROOT, NAV_FILE).split(path.sep).join('/'), nodes: g.count, edges: g.edgeCount } };
-  const errors = [];
+  const errors = [], links = M.ROPES ? ropeLinks(g, H) : null;
+  if (links) report.ropeLinks = links.filter((l) => l.a >= 0 && l.b >= 0).length;
   const sample = (p) => {
     const [x, z] = [p[0], p[p.length - 1]], y = p.length === 3 ? p[1] : null;
     const n = y === null ? nearestNode(g, H, x, z, 4) : nearestNode(g, H, x, z, 4, y, 1.5); if (n < 0) return [];
@@ -427,7 +589,7 @@ function sealCheck(g, H, spawnsIn, bars) {
     const mask = barrierMask(g, bars.filter((b) => b.team === team));
     const res = {};
     for (const [mode, types] of [['walk', TYPES.walk], ['all', TYPES.all]]) {
-      const par = flood(g, sp, { types, mask });
+      const par = floodR(g, sp, { types, mask }, links);
       let nodes = 0; for (let i = 0; i < g.count; i++) if (par[i] !== -2) nodes++;
       const leaks = [], unreached = [];
       for (const c of spots) {
@@ -451,7 +613,8 @@ function barrierTeams(g, H, spawnsIn, bars) {
   const snapSp = (p) => nearestNode(g, H, p.x, p.z, 0.75, p.y, 1);
   const all = barrierMask(g, bars);
   const fl = {};
-  for (const team of ['attack', 'defense']) fl[team] = flood(g, spawnsIn[team].map(snapSp), { types: TYPES.all, mask: all });
+  const links = M.ROPES ? ropeLinks(g, H) : null;
+  for (const team of ['attack', 'defense']) fl[team] = floodR(g, spawnsIn[team].map(snapSp), { types: TYPES.all, mask: all }, links);
   const sideOf = (i) => { const a = fl.attack[i] !== -2, d = fl.defense[i] !== -2; return a && d ? 'both' : a ? 'attack' : d ? 'defense' : null; };
   const names = Object.keys(CAL).filter((n) => spotOf(n)).map((n) => { const p = spotOf(n); return { n, x: p[0], z: p[p.length - 1] }; });
   const errors = [], out = [], used = new Map();
@@ -506,9 +669,19 @@ if (CHECK) {
     errs.push(...errors);
     list.forEach((t, k) => { const b = stored.barriers[k]; if (t.team !== b.team || t.id !== b.id) errs.push(`barrier ${b.id}: flood says ${t.id} (${t.team})`); });
   }
+  if (M.MARK_TEAMS) {
+    const { list, errors } = barrierTeams(NAV, NAV_H, stored.spawns, stored.barriers);
+    errs.push(...errors);
+    list.forEach((t, k) => { const b = stored.barriers[k]; if (t.team !== b.team) errs.push(`barrier ${b.id}: mark team ${b.team}, flood says ${t.team}`); });
+  }
   const { report, errors } = sealCheck(NAV, NAV_H, stored.spawns, stored.barriers);
   errs.push(...errors);
   if (JSON.stringify(report) !== JSON.stringify(stored.authoring?.seal)) errs.push('stored seal report differs from the committed nav.bin');
+  if (M.ROPES) {
+    const { report: rr, errors: re } = ropeCheck(NAV, NAV_H, stored.spawns, stored.barriers);
+    errs.push(...re);
+    if (JSON.stringify(rr) !== JSON.stringify(stored.authoring?.ropes)) errs.push('stored rope report differs from the committed nav.bin');
+  }
   if (errs.length) { console.error(`${path.relative(ROOT, OUT)} ray-free check failed:\n  ` + errs.join('\n  ')); process.exit(1); }
   console.log(`${path.relative(ROOT, OUT)} ray-free check ok (seal report and barrier teams match ${path.relative(ROOT, NAV_FILE)})`);
   if (!TW && TERRAIN) {
@@ -601,6 +774,22 @@ else for (const b of M.MARKS.map(snapBarrier)) {
   const same = barriers.find((o) => o.team === b.team && Math.hypot(o.a.x - b.a.x, o.a.z - b.a.z) + Math.hypot(o.b.x - b.b.x, o.b.z - b.b.z) < 2);
   if (!same) barriers.push(b);
 }
+// MARK_TEAMS maps: the map's own SM_Barrier planes are parked at the origin (no position), but their
+// lengths say how wide the real barriers are. Widest choke <-> longest plane, in order; a difference
+// over 1.5 m is a warning only (the proof is the seal check), recorded under authoring.barriers.
+if (M.MARK_TEAMS) {
+  const lens = instances('gameplay', (n) => n === 'SM_Barrier').map(({ prim, m }) => {
+    const vs = trisOf([{ prim, m }]).flat(); let L = 0;
+    for (const p of vs) for (const q of vs) L = Math.max(L, Math.hypot(p[0] - q[0], p[2] - q[2]));
+    return r2(L);
+  }).sort((p, q) => q - p);
+  const order = [...barriers].sort((p, q) => q.width - p.width || p.id.localeCompare(q.id));
+  order.forEach((b, k) => {
+    const L = lens[k] ?? null;
+    b.primMatch = { primLengthM: L, diffM: L === null ? null : r2(b.width - L) };
+    if (L === null || Math.abs(b.width - L) > 1.5) console.warn(`warning: barrier ${b.id} choke ${b.width} m vs plane length ${L} m (rank ${k + 1} of ${lens.length} planes, ${barriers.length} barriers)`);
+  });
+}
 
 // ---------------------------------------------------------------- sites / plant zones
 const zoneTris = {}; // site id -> marker triangles (outline drawn in the plot)
@@ -624,7 +813,7 @@ function siteZones() {
     }
     heights.sort((p, q) => p - q);
     const lo = heights[Math.floor(heights.length * 0.02)], hi = heights[Math.floor(heights.length * 0.98)];
-    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+    const [cx, cz] = M.SITE_CENTER?.[id] ?? [(x0 + x1) / 2, (z0 + z1) / 2];
     out.push({
       id, zone: [[r2(x0), r2(z0)], [r2(x1), r2(z0)], [r2(x1), r2(z1)], [r2(x0), r2(z1)]],
       y: [r2(lo - 0.3), r2(hi + 0.6)],
@@ -701,7 +890,7 @@ if (M.ATTACK) {
 // side reached = leak = failure, so is a SIDES callout off the graph or an own callout not reached
 // over all edges (walk-only can miss some; listed). BARRIERS 'collision' maps get their barrier
 // teams / ids / names from the same graph first (barrierTeams).
-let sealReport = {};
+let sealReport = {}, ropeReport = null;
 if (!NAV) {
   console.error(`seal check: no ${path.relative(ROOT, NAV_FILE)}; write this file, run node tools/round_nav.mjs, then run this again`);
   process.exitCode = 1;
@@ -716,9 +905,25 @@ if (!NAV) {
     });
     for (const e of errors) { console.error(e); process.exitCode = 1; }
   }
+  // MARK_TEAMS (world marks without a picture, Split): the same strict flood rule as BARRIERS
+  // 'collision', but the team comes from the mark and the flood must agree with it.
+  if (M.MARK_TEAMS) {
+    const { list, errors } = barrierTeams(NAV, NAV_H, spawns, barriers);
+    list.forEach((t, k) => {
+      const b = barriers[k];
+      b.flood = { cutEdges: t.cut, votes: t.votes, inside: t.inside, conflict: t.conflict, floodTeam: t.team };
+      if (t.team !== b.team) errors.push(`barrier ${b.id}: mark team ${b.team}, flood says ${t.team}`);
+    });
+    for (const e of errors) { console.error(e); process.exitCode = 1; }
+  }
   const { report, errors } = sealCheck(NAV, NAV_H, spawns, barriers);
   sealReport = report;
   for (const e of errors) { console.error(e); process.exitCode = 1; }
+  if (M.ROPES) {
+    const { report: rr, errors: re } = ropeCheck(NAV, NAV_H, spawns, barriers);
+    ropeReport = rr;
+    for (const e of re) { console.error(e); process.exitCode = 1; }
+  }
 }
 
 // ---------------------------------------------------------------- optional picture checks
@@ -758,7 +963,7 @@ const data = {
   // attack = the team that carries the spike. Both lists hold 5 points with the facing yaw.
   spawns,
   // Barrier phase walls: a team can't cross its own segments until the barriers drop.
-  barriers: barriers.map(({ mark, shift, floors, meta, ...b }) => b),
+  barriers: barriers.map(({ mark, shift, floors, meta, flood: _f, primMatch: _p, ...b }) => b),
   sites,
   setups: { defense: setups, splits: M.SPLITS },
   // Retake staging points per site (defender bots group here before retaking a planted site).
@@ -775,9 +980,11 @@ const data = {
     } } : {}),
     ...(TERRAIN ? { world: 'terrain: rays against the pawn world of tools/round_terrain.mjs (the nav bake\'s triangles)' } : {}),
     ...(M.CALLOUT_SPOTS ? { calloutSpots: M.CALLOUT_SPOTS } : {}),
+    ...(M.SITE_CENTER ? { siteCenter: M.SITE_CENTER } : {}),
     ...(M.NOTES ? { notes: M.NOTES } : {}),
-    barriers: Object.fromEntries(barriers.map((b) => [b.id, b.meta ?? { mark: b.mark, shiftM: b.shift, widthM: b.width, floors: b.floors }])),
+    barriers: Object.fromEntries(barriers.map((b) => [b.id, b.meta ?? { mark: b.mark, shiftM: b.shift, widthM: b.width, floors: b.floors, ...(b.flood ?? {}), ...(b.primMatch ? { primMatch: b.primMatch } : {}) }])),
     seal: sealReport,
+    ...(ropeReport ? { ropes: ropeReport } : {}),
   },
 };
 const text = JSON.stringify(data, null, 1) + '\n';
@@ -910,8 +1117,13 @@ function plotPng() {
     im.rect(px(p.x), pz(p.z), 9, [0, 0, 0]); im.rect(px(p.x), pz(p.z), 7, [80, 200, 255]);
     im.label(px(p.x) + 7, pz(p.z) - 4, `RETAKE ${p.name}`, [150, 220, 255], 2);
   }
+  // Ropes (ROPES maps): magenta line bottom -> top, ring at the bottom.
+  for (const r of ROPE_LIST) {
+    im.line(px(r.bottom[0]), pz(r.bottom[2]), px(r.top[0]), pz(r.top[2]), [255, 0, 255], 3);
+    im.circle(px(r.bottom[0]), pz(r.bottom[2]), 4, [255, 0, 255], 2);
+  }
   [`${M.name} ROUND DATA. X RIGHT Z DOWN. GREY NAV FLOOR (LIGHT = HIGH). YELLOW PLANT ZONE, ORANGE SITE MARKER.`,
-    'BARRIERS RED DEFENDER, TEAL ATTACKER. RINGS = SPAWNS (TEAL ATK, RED DEF).',
+    `BARRIERS RED DEFENDER, TEAL ATTACKER. RINGS = SPAWNS (TEAL ATK, RED DEF).${ROPE_LIST.length ? ' MAGENTA = ROPES (RING = BOTTOM).' : ''}`,
     'ORANGE = SETUPS, BLUE = RETAKE. RINGED CALLOUT = MOVED SPOT (GREY = MINIMAP SPOT).'].forEach((t, k) => im.text(6, 4 + k * 13, t, [255, 255, 255], 2));
   const file = PLOT.replace(/[.]svg$/i, '') + '.png';
   im.save(file);

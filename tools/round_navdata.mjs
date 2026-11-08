@@ -338,9 +338,12 @@ export function setupCandidates(g, T, data, group, { near = null, range = 12, ma
     return { spawnT, sees, seenBy, hiddenAtk };
   };
   const zoneY = site ? site.y[0] + 0.3 : null;
+  // The spot must reach its site goal (any site for a non-site group) over walk + drop edges: a spot
+  // the bots can only leave by a rope (Split's Mid Vent room) can't rotate or retake.
+  const reachesGoal = (i) => site ? Number.isFinite(C.sites[site.id].field.dist[i]) : Object.values(C.sites).some((S) => Number.isFinite(S.field.dist[i]));
   const out = [];
   for (let i = 0; i < g.count; i++) {
-    if (C.defWalkBar[i] === -2 || !inArea(i) || !openFloor(g, i)) continue;
+    if (C.defWalkBar[i] === -2 || !inArea(i) || !openFloor(g, i) || !reachesGoal(i)) continue;
     const sp = Math.max(...spawnFields.map((f) => f[i]));
     if (!(sp <= maxSpawnT)) continue;
     const j = judge(i);
@@ -355,7 +358,7 @@ export function setupCandidates(g, T, data, group, { near = null, range = 12, ma
     const n = nearestNode(g, H, x, z, 0.75, y, 0.6);
     if (n < 0) return { name, node: -1 };
     const j = judge(n);
-    return { name, node: n, x: r2(g.x[n]), y: r2(g.y[n]), z: r2(g.z[n]), walk: C.defWalkBar[n] !== -2, open: openFloor(g, n), area: inArea(n), spawnT: r2(j.spawnT), sees: j.sees, seenBy: j.seenBy, hiddenAtk: j.hiddenAtk };
+    return { name, node: n, x: r2(g.x[n]), y: r2(g.y[n]), z: r2(g.z[n]), walk: C.defWalkBar[n] !== -2, open: openFloor(g, n), area: inArea(n), goal: reachesGoal(n), spawnT: r2(j.spawnT), sees: j.sees, seenBy: j.seenBy, hiddenAtk: j.hiddenAtk };
   });
   // Per entrance: the best few that watch it (same ranking, `gap` apart), so every entrance gets a look.
   const byEntrance = {};
