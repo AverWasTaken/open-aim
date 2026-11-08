@@ -312,7 +312,7 @@
     "spawner-18": 0.176
    }
   },
-  "a310c50fcccf6e64": {
+  "6f075ebbff4e25a6": {
    "codes": [
     "313818c034e0fb52"
    ],
@@ -322,25 +322,25 @@
    "name": "Bind A Showers: peekers",
    "map": "duality",
    "scores": {
-    "spawner-1": 0.333,
-    "spawner-2": 0.944,
-    "spawner-3": 0.833,
-    "spawner-4": 0.167,
-    "spawner-5": 0.056,
-    "spawner-6": 0,
-    "spawner-7": 0.222,
-    "spawner-8": 0.389,
-    "spawner-9": 0.444,
-    "spawner-10": 0.889,
-    "spawner-11": 0.556,
-    "spawner-12": 0.722,
-    "spawner-13": 0.611,
-    "spawner-14": 0.778,
-    "spawner-15": 0.278,
-    "spawner-16": 1,
+    "spawner-1": 0.5,
+    "spawner-2": 0.5,
+    "spawner-3": 0.5,
+    "spawner-4": 0.5,
+    "spawner-5": 0.5,
+    "spawner-6": 0.5,
+    "spawner-7": 0.5,
+    "spawner-8": 0.5,
+    "spawner-9": 0.5,
+    "spawner-10": 0.5,
+    "spawner-11": 0.5,
+    "spawner-12": 0.5,
+    "spawner-13": 0.5,
+    "spawner-14": 0.5,
+    "spawner-15": 0.5,
+    "spawner-16": 0.5,
     "spawner-17": 0.5,
-    "spawner-18": 0.111,
-    "spawner-19": 0.667
+    "spawner-18": 0.5,
+    "spawner-19": 0.5
    }
   },
   "6b9210595a436b5e": {
@@ -615,7 +615,7 @@
     "spawner-18": 0.176
    }
   },
-  "94ca99730662b476": {
+  "bba9810d0512ebca": {
    "codes": [
     "5268ac892259ed6f"
    ],
@@ -625,31 +625,31 @@
    "name": "Haven Garage push: peekers",
    "map": "triad",
    "scores": {
-    "spawner-1": 0.042,
-    "spawner-2": 0.208,
-    "spawner-3": 0.792,
-    "spawner-4": 0.583,
-    "spawner-5": 0.458,
-    "spawner-6": 0.625,
-    "spawner-7": 0.333,
-    "spawner-8": 0,
-    "spawner-9": 0.083,
-    "spawner-10": 0.125,
-    "spawner-11": 0.542,
-    "spawner-12": 0.75,
-    "spawner-13": 0.708,
-    "spawner-14": 0.958,
-    "spawner-15": 0.667,
-    "spawner-16": 0.875,
-    "spawner-17": 0.375,
-    "spawner-18": 0.417,
-    "spawner-19": 0.917,
-    "spawner-20": 0.167,
-    "spawner-21": 0.25,
-    "spawner-22": 0.292,
-    "spawner-23": 0.833,
+    "spawner-1": 0.5,
+    "spawner-2": 0.5,
+    "spawner-3": 0.5,
+    "spawner-4": 0.5,
+    "spawner-5": 0.5,
+    "spawner-6": 0.5,
+    "spawner-7": 0.5,
+    "spawner-8": 0.5,
+    "spawner-9": 0.5,
+    "spawner-10": 0.5,
+    "spawner-11": 0.5,
+    "spawner-12": 0.5,
+    "spawner-13": 0.5,
+    "spawner-14": 0.5,
+    "spawner-15": 0.5,
+    "spawner-16": 0.5,
+    "spawner-17": 0.5,
+    "spawner-18": 0.5,
+    "spawner-19": 0.5,
+    "spawner-20": 0.5,
+    "spawner-21": 0.5,
+    "spawner-22": 0.5,
+    "spawner-23": 0.5,
     "spawner-24": 0.5,
-    "spawner-25": 1
+    "spawner-25": 0.5
    }
   },
   "6187ec6c79377013": {
@@ -685,7 +685,7 @@
     "spawner-8": 0.421
    }
   },
-  "ffddc1b0d1e93bdf": {
+  "7f1d02bfa70ba946": {
    "codes": [
     "54d79166b4f48373"
    ],
@@ -695,24 +695,24 @@
    "name": "Ascent B retake: peekers",
    "map": "ascent",
    "scores": {
-    "spawner-1": 0.353,
-    "spawner-2": 0.941,
-    "spawner-3": 0.235,
-    "spawner-4": 0.882,
-    "spawner-5": 0.294,
-    "spawner-6": 0.176,
-    "spawner-7": 0.118,
-    "spawner-8": 0.412,
-    "spawner-9": 0.059,
-    "spawner-10": 0.588,
-    "spawner-11": 0.824,
-    "spawner-12": 0.471,
-    "spawner-13": 0.706,
-    "spawner-14": 1,
-    "spawner-15": 0.529,
-    "spawner-16": 0.765,
-    "spawner-17": 0,
-    "spawner-18": 0.647
+    "spawner-1": 0.5,
+    "spawner-2": 0.5,
+    "spawner-3": 0.5,
+    "spawner-4": 0.5,
+    "spawner-5": 0.5,
+    "spawner-6": 0.5,
+    "spawner-7": 0.5,
+    "spawner-8": 0.5,
+    "spawner-9": 0.5,
+    "spawner-10": 0.5,
+    "spawner-11": 0.5,
+    "spawner-12": 0.5,
+    "spawner-13": 0.5,
+    "spawner-14": 0.5,
+    "spawner-15": 0.5,
+    "spawner-16": 0.5,
+    "spawner-17": 0.5,
+    "spawner-18": 0.5
    }
   },
   "6ef127575be8a108": {
@@ -742,7 +742,7 @@
     "spawner-11": 0.071
    }
   },
-  "a56586046fe46083": {
+  "61e0b6a1d78ffad8": {
    "codes": [
     "61abe15ed0660f15"
    ],
@@ -752,26 +752,26 @@
    "name": "Split B Heaven retake: peekers",
    "map": "bonsai",
    "scores": {
-    "spawner-1": 0.75,
-    "spawner-2": 0.125,
-    "spawner-3": 0.688,
-    "spawner-4": 0.188,
-    "spawner-5": 0.875,
-    "spawner-6": 0.375,
+    "spawner-1": 0.5,
+    "spawner-2": 0.5,
+    "spawner-3": 0.5,
+    "spawner-4": 0.5,
+    "spawner-5": 0.5,
+    "spawner-6": 0.5,
     "spawner-7": 0.5,
-    "spawner-8": 0,
-    "spawner-9": 0.938,
-    "spawner-10": 0.813,
-    "spawner-11": 0.625,
-    "spawner-12": 1,
-    "spawner-14": 0.313,
-    "spawner-15": 0.063,
-    "spawner-13": 0.563,
-    "spawner-16": 0.25,
-    "spawner-17": 0.438
+    "spawner-8": 0.5,
+    "spawner-9": 0.5,
+    "spawner-10": 0.5,
+    "spawner-11": 0.5,
+    "spawner-12": 0.5,
+    "spawner-14": 0.5,
+    "spawner-15": 0.5,
+    "spawner-13": 0.5,
+    "spawner-16": 0.5,
+    "spawner-17": 0.5
    }
   },
-  "158faf7528245756": {
+  "108c46872a3092e2": {
    "codes": [
     "6d3afca83f6af549"
    ],
@@ -781,22 +781,22 @@
    "name": "Lotus B attack: peekers",
    "map": "jam",
    "scores": {
-    "spawner-1": 0.133,
-    "spawner-2": 0.067,
-    "spawner-3": 1,
-    "spawner-4": 0.333,
-    "spawner-5": 0.2,
-    "spawner-6": 0.267,
-    "spawner-7": 0.533,
-    "spawner-8": 0.667,
-    "spawner-9": 0.8,
-    "spawner-10": 0.933,
-    "spawner-11": 0.733,
-    "spawner-12": 0.867,
-    "spawner-13": 0.6,
-    "spawner-14": 0.467,
-    "spawner-15": 0.4,
-    "spawner-16": 0
+    "spawner-1": 0.5,
+    "spawner-2": 0.5,
+    "spawner-3": 0.5,
+    "spawner-4": 0.5,
+    "spawner-5": 0.5,
+    "spawner-6": 0.5,
+    "spawner-7": 0.5,
+    "spawner-8": 0.5,
+    "spawner-9": 0.5,
+    "spawner-10": 0.5,
+    "spawner-11": 0.5,
+    "spawner-12": 0.5,
+    "spawner-13": 0.5,
+    "spawner-14": 0.5,
+    "spawner-15": 0.5,
+    "spawner-16": 0.5
    }
   },
   "14ebc2c835410367": {
@@ -1218,7 +1218,7 @@
     "spawner-8": 0.421
    }
   },
-  "32323f7826d894af": {
+  "28d3aef1388be652": {
    "codes": [
     "e1d0240e16dc6cb9"
    ],
@@ -1228,29 +1228,29 @@
    "name": "Corrode Mid to A: peekers",
    "map": "rook",
    "scores": {
-    "spawner-1": 0.273,
+    "spawner-1": 0.5,
     "spawner-2": 0.5,
-    "spawner-3": 0.045,
-    "spawner-4": 0.682,
-    "spawner-5": 0.227,
-    "spawner-6": 0.955,
-    "spawner-7": 0.818,
-    "spawner-8": 0,
-    "spawner-9": 1,
-    "spawner-10": 0.636,
-    "spawner-11": 0.727,
-    "spawner-12": 0.909,
-    "spawner-13": 0.455,
-    "spawner-14": 0.182,
-    "spawner-15": 0.136,
-    "spawner-16": 0.591,
-    "spawner-17": 0.545,
-    "spawner-18": 0.409,
-    "spawner-19": 0.773,
-    "spawner-20": 0.318,
-    "spawner-21": 0.364,
-    "spawner-22": 0.864,
-    "spawner-23": 0.091
+    "spawner-3": 0.5,
+    "spawner-4": 0.5,
+    "spawner-5": 0.5,
+    "spawner-6": 0.5,
+    "spawner-7": 0.5,
+    "spawner-8": 0.5,
+    "spawner-9": 0.5,
+    "spawner-10": 0.5,
+    "spawner-11": 0.5,
+    "spawner-12": 0.5,
+    "spawner-13": 0.5,
+    "spawner-14": 0.5,
+    "spawner-15": 0.5,
+    "spawner-16": 0.5,
+    "spawner-17": 0.5,
+    "spawner-18": 0.5,
+    "spawner-19": 0.5,
+    "spawner-20": 0.5,
+    "spawner-21": 0.5,
+    "spawner-22": 0.5,
+    "spawner-23": 0.5
    }
   },
   "214487bd485df444": {

@@ -47,6 +47,37 @@
 .tr-last b { color: var(--es-soft); font-weight: 700; }
 .tr-last b.tr-streak { color: var(--es-green); }
 
+/* custom routines: ONE line of chips under the built-in cards at every window size, Start + Edit,
+   "+ New routine" at the end. The row scrolls sideways (wheel too, see training-routines.js). */
+.tr-custom {
+  display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 8px;
+  margin-top: 12px; padding-bottom: 4px;
+  overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+}
+/* theme-esports.css sets scrollbar-color on *, which makes Chromium ignore ::-webkit-scrollbar
+   (it drew a 15 px bar with arrows over the chips); auto here lets the 4 px bar apply */
+.tr-custom, .tr-rows { scrollbar-color: auto; }
+.tr-custom::-webkit-scrollbar, .tr-rows::-webkit-scrollbar { height: 4px; }
+.tr-custom::-webkit-scrollbar-button, .tr-rows::-webkit-scrollbar-button { display: none; }
+.tr-custom::-webkit-scrollbar-track, .tr-rows::-webkit-scrollbar-track { background: transparent; }
+.tr-custom::-webkit-scrollbar-thumb, .tr-rows::-webkit-scrollbar-thumb { background: var(--es-line-2); }
+.tr-chip {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+  box-sizing: border-box; min-width: 170px; max-width: 340px; height: 34px;
+  padding: 2px 2px 2px 10px;
+  background: var(--es-panel);
+  border: 1px solid var(--es-line);
+  border-left: 3px solid var(--es-line-2);
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.tr-chip:hover { background: var(--es-raised); border-left-color: var(--es-red); }
+.tr-chip-name { flex: 1 1 auto; min-width: 0; font-size: 13px; font-weight: 800; font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr-chip .tr-btn { height: 28px; padding: 0 10px; }
+.tr-chip .tr-btn.is-ghost { padding: 0 8px; }
+.tr-btn.tr-chip-new { flex: 0 0 auto; height: 34px; color: var(--es-soft); background: transparent; border: 1px solid var(--es-line); border-left: 3px solid var(--es-red); }
+.tr-btn.tr-chip-new:hover { color: var(--es-text); background: var(--es-raised); }
+.tr-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
+
 /* ---------- buttons (secondary look; the game's own buttons stay primary) ---------- */
 .tr-btn {
   flex: none;
@@ -98,14 +129,26 @@
 /* ---------- compact strip: one line on short windows (ux keeps the first drill row visible at
    1280x720). Same markup; the blurb, drill list and last-done line drop (both stay in the card's
    title). With a routine in progress only the resume row shows. ---------- */
+/* Right-edge fade while the compact chip row can still scroll right (scroll-driven: no fade when
+   the row fits, since an inactive scroll timeline leaves --tr-fade at 0). */
+@property --tr-fade { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@keyframes tr-rows-fade { 0%, 96% { --tr-fade: 32px; } 100% { --tr-fade: 0px; } }
 @media (max-height: 800px) {
-  .tr-strip { display: flex; align-items: center; gap: 12px; margin: 4px 0 8px; }
+  .tr-strip { display: flex; align-items: center; gap: 12px; margin: 2px 0 6px; }
   .tr-strip-head { flex: 0 1 auto; flex-wrap: nowrap; gap: 12px; min-width: 0; margin: 0; }
   .tr-strip-head h2 { flex: none; font-size: 15px; }
   .tr-strip-head p, .tr-blurb, .tr-drills, .tr-last { display: none; }
-  .tr-cards { display: flex; flex: 1 1 0; flex-wrap: nowrap; gap: 8px; min-width: 0; overflow: hidden; }
+  /* built-in chips and custom chips continue one line that scrolls sideways; the 4 px under the
+     chips holds the scrollbar so the strip never gets taller */
+  .tr-rows { display: flex; flex: 1 1 0; flex-wrap: nowrap; align-items: flex-start; gap: 8px; min-width: 0; height: 38px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--tr-fade)), transparent); mask-image: linear-gradient(to right, #000 calc(100% - var(--tr-fade)), transparent);
+    animation: tr-rows-fade linear both; animation-timeline: scroll(self inline); }
+  .tr-cards, .tr-custom { display: contents; }
   /* no corner cut here: on a 34 px chip it would clip the Start button */
-  .tr-card { flex: 1 1 0; flex-direction: row; align-items: center; gap: 8px; padding: 2px 2px 2px 10px; border-top-width: 1px; border-left: 3px solid var(--es-line-2); clip-path: none; }
+  /* built-in cards never shrink below their full name (they grow to fill spare room); when the
+     row runs out it scrolls sideways. With custom chips the drill counts drop (they stay in the
+     titles) so the names keep their room */
+  .tr-card { flex: 1 0 auto; min-width: 170px; max-width: 380px; box-sizing: border-box; height: 34px; flex-direction: row; align-items: center; gap: 8px; padding: 2px 2px 2px 10px; border-top-width: 1px; border-left: 3px solid var(--es-line-2); clip-path: none; }
   .tr-card:hover { border-left-color: var(--es-red); }
   .tr-card-head { flex: 1 1 auto; min-width: 0; gap: 6px; }
   .tr-card-head h3 { min-width: 0; font-size: 13px; }
@@ -114,10 +157,54 @@
   .tr-resume { flex: 1 1 0; flex-wrap: nowrap; min-width: 0; margin: 0; padding: 2px 2px 2px 10px; }
   .tr-resume-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .tr-resume-acts { flex: none; flex-wrap: nowrap; }
-  .tr-strip.has-run .tr-cards { display: none; }
+  /* custom chips also keep their natural width (200-240 px, long names ellipsize) */
+  .tr-chip { flex: 0 0 auto; min-width: 200px; max-width: 240px; }
+  .tr-strip:has(.tr-chip) .tr-rows .tr-meta { display: none; }
+  .tr-strip.has-run .tr-rows { display: none; }
 }
 @media (max-height: 800px) and (max-width: 1360px) {
   .tr-meta-min { display: none; }
+}
+
+/* ---------- custom routine editor (inside .es-tool) ---------- */
+.es-tool.tr-ed { width: min(880px, 100%); --tr-ed-h: max(120px, min(300px, calc(100vh - 400px))); }
+.tr-ed-label { display: block; margin: 4px 0 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--es-muted); }
+.tr-ed-input {
+  box-sizing: border-box; width: 100%; height: 34px; padding: 0 10px;
+  color: var(--es-text); background: var(--es-bg);
+  border: 1px solid var(--es-line-2); border-radius: 0;
+  font: 400 13px var(--es-head);
+}
+.tr-ed-input:hover { border-color: var(--es-muted); }
+.tr-ed-input:focus-visible { outline: 2px solid var(--es-red); outline-offset: 2px; }
+.tr-ed-input::placeholder { color: var(--es-muted); }
+.tr-ed-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.tr-ed-col h3 { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.tr-ed-count { font-size: 11px; font-weight: 400; letter-spacing: 0.06em; color: var(--es-muted); font-variant-numeric: tabular-nums; }
+.tr-ed-list { box-sizing: border-box; height: var(--tr-ed-h); margin: 0; padding: 0; list-style: none; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--es-line-2) transparent; }
+.tr-ed-col:first-child .tr-ed-list { height: calc(var(--tr-ed-h) - 42px); margin-top: 8px; }
+.tr-ed .es-tool-row { box-sizing: border-box; min-height: 40px; padding: 4px 4px 4px 10px; }
+.tr-ed .es-tool-row b { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr-ed .tr-type { display: block; margin-top: 2px; font-size: 11px; font-style: normal; text-transform: uppercase; letter-spacing: 0.06em; color: var(--es-muted); }
+.tr-ed .tr-ed-row button { flex: none; height: 28px; padding: 0 10px; }
+.tr-ed-acts { display: flex; flex: none; gap: 4px; }
+.tr-ed .tr-ed-acts button { width: 30px; padding: 0; }
+.tr-ed-no { flex: none; width: 18px; font-size: 13px; font-style: normal; color: var(--es-muted); font-variant-numeric: tabular-nums; }
+.tr-ed-row.is-missing { border-left-color: var(--es-warn, #ffd166); }
+.tr-ed-row.is-missing b { color: var(--es-soft); }
+.tr-ed-empty { padding: 8px 10px; }
+.tr-ed-hint { min-height: 18px; margin: 12px 0 0; font-size: 13px; color: var(--es-muted); }
+.tr-ed-warn { margin: 4px 0 0; font-size: 13px; color: var(--es-warn, #ffd166); }
+.tr-ed-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px; }
+.tr-ed-foot .es-tool-actions { margin: 0; }
+.tr-ed-del { display: flex; align-items: center; gap: 8px; }
+.tr-ed-ask { font-size: 13px; color: var(--es-text); }
+.tr-ed button.tr-ed-delete { color: var(--es-muted); background: transparent; }
+.tr-ed button.tr-ed-delete:hover { color: var(--es-text); }
+.tr-ed button:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
+.tr-ed button:focus-visible { outline: 2px solid var(--es-red); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .tr-ed-cols { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ---------- summary (inside .es-tool) ---------- */
@@ -140,3 +227,4 @@
 /* the site's base theme (vi.css) rounds buttons and drops uppercase with !important */
 html[data-aim-local]:not(#es) body :is(.tr-strip, .tr-bar) button.tr-btn { border-radius: 0 !important; text-transform: uppercase !important; }
 html[data-aim-local]:not(#es) body :is(.tr-strip, .tr-bar) :is(h2, h3, p) { margin-top: 0; }
+html[data-aim-local]:not(#es) body .tr-ed input.tr-ed-input { border-radius: 0 !important; }

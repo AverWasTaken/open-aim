@@ -308,10 +308,16 @@
   }
 
   // ---------- formatting ----------
+  // Kill time: under a second in whole ms ("520 ms"), from 1000 ms on in seconds ("17.72 s").
+  function killTimeText(ms) {
+    const a = Math.abs(ms);
+    const r = Math.round(a);
+    return r >= 1000 ? `${(Math.round(a / 10) / 100).toFixed(2)} s` : `${r} ms`;
+  }
   // "–" for no data, never NaN.
   function fmt(metric, v) {
     if (v === null || v === undefined || !num(v)) return "–";
-    if (metric === "killTime") return `${Math.round(v)} ms`;
+    if (metric === "killTime") return killTimeText(v);
     if (HABIT_IDS.has(metric)) return `${Math.round(v)}%`;
     return `${(Math.round(v * 10) / 10).toFixed(1)}%`;
   }
@@ -323,7 +329,7 @@
     const r = metric === "killTime" || whole ? Math.round(d) : Math.round(d * 10) / 10;
     if (r === 0) return { text: metric === "killTime" ? "0 ms" : whole ? "0" : "0.0", dir: "flat", good: null };
     const abs = Math.abs(r);
-    const text = metric === "killTime" ? `${abs} ms` : whole ? String(abs) : abs.toFixed(1);
+    const text = metric === "killTime" ? killTimeText(abs) : whole ? String(abs) : abs.toFixed(1);
     return { text, dir: r > 0 ? "up" : "down", good: (r > 0) === (m.better > 0) };
   }
 

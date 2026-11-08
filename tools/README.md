@@ -19,6 +19,7 @@ Run them from the repository root with Python 3.
 | `spot_scores.mjs` | Writes `app/mods/aim-ranks/spot-scores.json`: an off-angle score per spot of every shipped drill with a random spot pool, from the game's own bot-order planner. Runs against a test copy of the app (rerun steps below). |
 | `spotvary_patch.py` | Spot variation: in Human-like bot mode the static bots of the shipped pre-aim drills stand on one of their checked alternative positions (`spot_alts.mjs`), a new one each round (from the round seed; saved in the replay meta as `spotPos`). Edits the mods `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details in the script's docstring. |
 | `spot_alts.mjs` | Writes `app/mods/aim-ranks/spot-alts.json`: up to 5 checked alternative positions per static spot of every shipped pre-aim drill, and a sideways movement lane per position (ground, ledges, walls, sight lines and spacing tested with the game's own collision and sight test). `--check` re-tests the stored file. Runs against a test copy of the app (rerun steps below). |
+| `peek_cover.mjs` | Cover starts for the six `*-peekers` map drills: each pool spot gets a cover point next to it, hidden from where the player comes from (game planner route, saved in `tools/data/peek-viewpoints.json`); the bot starts there and walks a `path` loop cover -> spot -> jiggles -> cover. Rewrites the scenario files and their flat spot-score entries; `--check` fails when they are stale. Node only (runs on the real map collision). |
 | `peekmove_patch.py` | Pre-aim bots react and move: with Human-like bots and an explicit enemy rank, the static shooting bots of the shipped pre-aim drills walk ADAD along their checked lane once they see you, by rank (`aimPeekRanks` next to `aimBotRanks`; saved in the replay meta as `peekMove` and `spotLane`). Edits the mods `BiMsX6Xn.js`, `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details and the rank table in the script's docstring. |
 | `round_patch.py` | Round mode: the round controller in the sim (barrier phase, spike plant / defuse, outcomes, save/restore), the play page side (held keys, no replay, round end, result text, barrier and spike visuals) and `window.__aimLaunchScene` for the lobby panel. Edits the mods `CnrSARj_.js`, `OkAdunfX.js`, `ChJ6FlD4.js` and `Hwnlm6zD.js` (both copies). Only acts on scenes with `rules.round`. Details in the script's docstring. |
 | `round_bots_patch.py` | Round mode bots: the `roundBot` behaviour hook (logic in `app/mods/aim-rounds/round-bots.mjs`, whose header is the contract). Adds `roundBot` to the bot behaviours (its update also gets the game's mover `il`), to the movers list `dA` and to the sim's ground movers; the behaviour ctx gets `round:{cfg,state,bots}` in round runs only (a start-of-tick bot list) and the round tick gets `io.bots` (bot defuse); the shooter neither fires nor stops-to-shoot while `actor.roundDefusing===1` and re-rolls its reaction time while `actor.roundHoldFire===1` (barrier phase); the scene validator accepts the kind. Edits the mods `BiMsX6Xn.js`, `CnrSARj_.js` and `D_iGclxB.js` (both copies). `--print-pairs` dumps its (old, new) pairs for the A/B parity test (`scripts/test-round-bots-parity.mjs`). Details in the script's docstring. |
@@ -39,6 +40,8 @@ Run them from the repository root with Python 3.
 | `graphics_fx_patch.py` | Combat feedback effects (render only): wall impact sparks + dust, bot hit sparks, kill burst, optional enemy muzzle flash. Hooks the play page `Jy` in the mods `OkAdunfX.js` (both copies) into `app/mods/aim-fx/fx.mjs` (loaded with a dynamic import; until it loads every call is a no-op). See [Graphics effects](#graphics). |
 | `graphics_holes_patch.py` | Bullet holes from a fixed pool of 64 meshes (same look, no new mesh/material per hole). Edits `l1` in the mods `OkAdunfX.js` (both copies). Run after `graphics_fx_patch.py`. |
 | `graphics_botfx_patch.py` | Bot hit flash and death animation (render side only): a short white hit pulse on humanoid bots (stronger and longer on a headshot) and a short "drop" when a humanoid dies (sinks, squashes and glows white-hot, gone after 220 ms). Spheres (grid dots) are left exactly as before. Edits the actor renderer `Uf` in the mods `CnrSARj_.js` (both copies), so the game and the replay player both get it. No sim change. See [Graphics](#graphics). |
+| `map_sky_patch.py` | Daytime sky per map: map scenes take their sky (background) colour from one per-map table instead of each scene's own `skyColor` (white or night navy on most maps before). Edits the mods `BiMsX6Xn.js` (both copies); render only. Details in the script's docstring and below. |
+| `map_salt_patch.py` | Corrode salt crystals: the untextured magenta glTF material `MI_RockSalt` (roof ridges on rook) is recoloured pale salt in the map material conversion. Edits the mods `BiMsX6Xn.js` (both copies); render only. Details below. |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
@@ -111,6 +114,32 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
     saved runs and replays are unchanged. Tests: `npm run test:hit` (`--mods <dir>` patches another
     copy; includes real sim steps). It keeps each copy's own line ends.
 
+## Map sky (map_sky_patch.py)
+
+The sky colour (`scene.background`) used to come from each scene's `environment.skyColor`, so a
+map looked different per drill: white horizon on Corrode, Bind and Sunset scenes, night navy over
+midday light on Abyss, Summit, Split and Ascent. Now any scene on a known map uses that map's
+colour from the `aimSky` table (set in `SKY` in the script), whether a drill, a practice area or a
+round loaded it. Range drills and Studio arenas without a map keep their own sky; a Studio drill
+on a map gets the map's sky. Fog keeps the scene colour (fog is off in every shipped scene). No
+sim, replay or scene hash change.
+
+Tuning: `window.__aimMapSky = { rook: "#4a80c0" }` (dev tools or CDP) overrides a map's colour
+the next time a drill on it loads; a value that isn't `#rrggbb` falls back to the scene's own sky.
+To change the table for good, edit `SKY` in the script and the same `t:{...}` text after
+`/* maps-sky */` in both `BiMsX6Xn.js` copies (the test checks that they match). Test:
+`npm run test:map-sky` (in `app/`).
+
+## Corrode salt crystals (map_salt_patch.py)
+
+On Corrode (rook) the salt crystals on the roof ridges showed as flat magenta blobs. Their glTF
+material `MI_RockSalt` has no texture and a magenta base colour ([0.485, 0.072, 0.521]); it is
+used by 152 nodes, only on rook. In the map material conversion `tU`, a material named exactly
+`MI_RockSalt` with no colour map now gets a pale lilac colour (linear .78, .72, .80) before it is
+copied into the game's own map material. The lavender salt elsewhere is a real texture and stays as is;
+vertex colours are not touched. No sim, replay or scene hash change. Test: `npm run test:map-salt`
+(in `app/`).
+
 ## Range drill floor (graphics_look_patch.py)
 
 The shipped range drills (Micro flicks, Drift, the strafers...) store the old default light values
@@ -125,6 +154,8 @@ and the view model keep their colours. Studio arenas, the official non-map drill
 
 
 26. `round_minimap_patch.py` (after `round_patch.py`, independent of 15: it anchors on round_patch's `round-core.mjs` import line and refuses to run without it; only touches `OkAdunfX.js`; refuses to run twice: it looks for `/aim-rounds/round-minimap.mjs`). It keeps each copy's own line ends. Normal drills are unchanged: `scripts/test-round-minimap.mjs` rebuilds the un-patched minimap code from the script's own pairs and compares the canvas calls.
+27. `map_sky_patch.py` (BiMsX6Xn only; independent of the others, run after `graphics_look_patch.py`; refuses to run twice: it looks for `/* maps-sky */`; keeps each copy's own line ends). See below.
+28. `map_salt_patch.py` (BiMsX6Xn only; independent of the others, run after `map_sky_patch.py`; refuses to run twice: it looks for `MI_RockSalt`; keeps each copy's own line ends). See below.
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
@@ -227,6 +258,24 @@ node tools/spot_alts.mjs --cdp 9351 --check
 the authored spot (cyan). The same file holds the lanes the moving bots use (`tools/peekmove_patch.py`). `--only
 <code>,<code>` redoes some drills and keeps the rest. A rebuild never changes old replays: they keep
 the positions and lanes they were recorded with (`spotPos`, `spotLane` in the replay meta).
+
+## Peekers cover points (`*-peekers` drills)
+
+Bots of the six `scenarios/*-peekers.json` drills start on a cover point next to their spot and peek
+out (`tools/peek_cover.mjs`, header has the rules). Input: `tools/data/peek-viewpoints.json` = the game's
+bot-order planner run once on the ORIGINAL drills (route + where each spot is first seen) plus the
+original pool spawners and actors. These drills get flat 0.5 spot scores (`spot_scores.mjs` keeps them
+flat), since their spawners now sit on hidden cover points. After changing the tool or its rules:
+
+```bash
+node tools/peek_cover.mjs          # rewrites the 6 scenario files + their spot-scores.json entries
+node tools/peek_cover.mjs --check  # what scripts/test-training-peekers.mjs (npm run test:peekers) checks
+```
+
+The first run decodes the map collision (CPU heavy, cached in the OS temp folder). To redo the
+planner data (only needed if a drill's spots or player spawn change): restore the original drills,
+run `node tools/peek_planner.mjs <cdpPort> scenarios > planner.json` against a test copy of the app,
+then `node tools/peek_cover.mjs --init planner.json`.
 
 ## Round mode data
 

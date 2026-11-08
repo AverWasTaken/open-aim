@@ -1,0 +1,16 @@
+{
+  "drills": [
+    { "id": "pre-aim", "chip": "Pre-aim", "code": "87a361b2c17e0042", "name": "DDY's pre-aim: Ascent A Main", "noKillOk": "bots hold angles behind cover; the player has to walk to see them" },
+    { "id": "angle-holding", "chip": "Angle holding", "code": "29d97300304f802d", "name": "Boaster's flick drill (easy)" },
+    { "id": "anti-flash", "chip": "Anti-flash", "code": "2095160b573015ec", "name": "Ascent dock: flashes from every side", "noKillOk": "bots are out of sight from the spawn; the player has to walk to see them" },
+    { "id": "scenarios", "chip": "Scenarios", "code": "8e3c439a53c4dc6b", "name": "Erv's Sheriff 5k in 7 seconds" },
+    { "id": "fundamentals", "chip": "Fundamentals", "code": "d43f842fb33e4d46", "name": "Micro tiles", "result": true }
+  ],
+  "result": { "code": "d43f842fb33e4d46", "name": "Micro tiles", "seconds": 60 },
+  "light": { "code": "d43f842fb33e4d46", "name": "Micro tiles" },
+  "rankPicker": { "code": "c935a7a37b985842", "name": "Ascent B retake" },
+  "probe": [
+    { "code": "d43f842fb33e4d46", "name": "Micro tiles" },
+    { "code": "87a361b2c17e0042", "name": "DDY's pre-aim: Ascent A Main" }
+  ]
+}

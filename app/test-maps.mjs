@@ -2,7 +2,10 @@
 // over the DevTools protocol, loads several maps and reports console errors
 // and failed requests.
 //   node test-maps.mjs 9223
-const port = process.argv[2] || "9223";
+// The app's own port comes from AIM_PORT (as for main.js; default 8000), the debugging
+// port from the first argument or CDP_PORT.
+const port = process.argv[2] || process.env.CDP_PORT || "9223";
+const aimPort = process.env.AIM_PORT || "8000";
 const SCENES = process.argv.slice(3).length
   ? process.argv.slice(3)
   : ["C935A7", "CB2431", "03FB06", "FF8153", "E141B0", "5E7181", "F9B26B", "066349", "5A9E43", "74C0E1"];
@@ -11,7 +14,7 @@ async function waitForTarget() {
   for (let i = 0; i < 60; i++) {
     try {
       const list = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-      const page = list.find((t) => t.type === "page" && t.url.includes("localhost:8000"));
+      const page = list.find((t) => t.type === "page" && t.url.includes(`localhost:${aimPort}/`));
       if (page) return page;
     } catch {}
     await new Promise((r) => setTimeout(r, 1000));
