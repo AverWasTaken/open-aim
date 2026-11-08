@@ -980,3 +980,48 @@ test('R3 save -> step -> restore mid-plant (carrierAt set) matches a straight ru
   }
   assert.ok(a.st.spike.carrier !== null && a.st.botPlant > 0, 'dropped, picked up, planting again');
 });
+
+// ---------------------------------------------------------------- R4: every map with round data
+// Each app/mods/aim-rounds/<map>.json builds a round scene (round-<map>-attack-…) that roundPrepare
+// accepts: groups and splits match, 5 bots kept on the defender spawns, the scene validator passes.
+// (The defense-side code is not enabled yet; scripts/test-round-nav.mjs checks the map data itself.)
+test('R4 every map with round data builds a round scene that roundPrepare and the validator accept', async () => {
+  const maps = fs.readdirSync(path.join(MODS, 'aim-rounds')).filter((f) => /^[a-z0-9]+\.json$/.test(f)).map((f) => f.slice(0, -5)).sort();
+  assert.ok(maps.includes('ascent') && maps.includes('rook'), `maps: ${maps}`);
+  let validate = null, tmp = null;
+  if (fs.existsSync(path.join(root, JS[0], 'D_iGclxB.js'))) {
+    const src = read(JS[0], 'D_iGclxB.js').replace(/^import \{mapIds as localMapIds\} from "\/local\/map-registry\.mjs";/m, `const localMapIds=${JSON.stringify(maps)};`);
+    tmp = path.join(os.tmpdir(), `aim-round-validator-maps-${process.pid}.mjs`);
+    fs.writeFileSync(tmp, src);
+    ({ p: validate } = await import(pathToFileURL(tmp).href));
+  }
+  try {
+    for (const map of maps) {
+      const md = JSON.parse(read('app', 'mods', 'aim-rounds', `${map}.json`));
+      assert.equal(md.schema, 1); assert.equal(md.map, map);
+      const env = roundScene(MODS, `round-${map}-attack-vandal-20`);
+      assert.ok(env, `round-${map}-attack-vandal-20 resolves`);
+      const doc = JSON.parse(env.doc), r = doc.rules.round;
+      assert.equal(doc.environment.map, map);
+      assert.equal(r.map, map);
+      assert.deepEqual(r.sites.map((s) => s.id), md.sites.map((s) => s.id));
+      for (const team of ['attack', 'defense']) assert.equal(r.spawns[team].length, 5, `${map} ${team} spawns`);
+      const groups = Object.keys(r.setups.groups);
+      assert.deepEqual(groups, Object.keys(md.setups.defense));
+      assert.ok(r.setups.splits.length > 0);
+      for (const sp of r.setups.splits) { assert.equal(sp.length, groups.length, `${map} split ${sp}`); assert.equal(sp.reduce((a, b) => a + b, 0), 5, `${map} split ${sp}`); }
+      if (md.retake) assert.deepEqual(Object.keys(r.retake).sort(), md.sites.map((s) => s.id).sort());
+      const groupOf = (id) => groups.find((g) => r.setups.groups[g].includes(id));
+      for (const seed of [1, 2, 3, 99]) {
+        const p = core.roundPrepare(doc, seed);
+        assert.equal(p.spawners.length, 5, `${map} seed ${seed}`);
+        const split = groups.map((g) => p.spawners.filter((s) => groupOf(s.id) === g).length);
+        assert.ok(r.setups.splits.some((s) => s.join() === split.join()), `${map} seed ${seed}: split ${split}`);
+        const at = p.spawners.map((s) => md.spawns.defense.findIndex((q) => q.x === s.position.x && q.y === s.position.y && q.z === s.position.z));
+        assert.deepEqual([...at].sort(), [0, 1, 2, 3, 4], `${map} seed ${seed}: bots on the defender spawns`);
+        if (validate) validate(JSON.stringify(p));
+      }
+      if (validate) validate(env.doc);
+    }
+  } finally { if (tmp) fs.rmSync(tmp, { force: true }); }
+});

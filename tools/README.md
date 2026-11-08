@@ -24,13 +24,13 @@ Run them from the repository root with Python 3.
 | `round_bots_patch.py` | Round mode bots: the `roundBot` behaviour hook (logic in `app/mods/aim-rounds/round-bots.mjs`, whose header is the contract). Adds `roundBot` to the bot behaviours (its update also gets the game's mover `il`), to the movers list `dA` and to the sim's ground movers; the behaviour ctx gets `round:{cfg,state,bots}` in round runs only (a start-of-tick bot list) and the round tick gets `io.bots` (bot defuse); the shooter neither fires nor stops-to-shoot while `actor.roundDefusing===1` and re-rolls its reaction time while `actor.roundHoldFire===1` (barrier phase); the scene validator accepts the kind. Edits the mods `BiMsX6Xn.js`, `CnrSARj_.js` and `D_iGclxB.js` (both copies). `--print-pairs` dumps its (old, new) pairs for the A/B parity test (`scripts/test-round-bots-parity.mjs`). Details in the script's docstring. |
 | `feel_audio_patch.py` | Audio buses for the volume mixer and hooks for `app/feel-audio.js`: the sound engine gets five category buses (weapon, enemy, footsteps, hits, round/UI) and a soft clipper after the master volume (no change below 0.8), publishes `window.__aimAudio`, `__aimAudioEngine` and `__aimStepBuffers`, passes 3D info for bot shots, asks the shell for headshot / kill cues and calls it every frame. Render side only (no sim or replay change); without `app/feel-audio.js` every sound plays as before. Edits the mods `OkAdunfX.js` (both copies). Details in the script's docstring. |
 | `feel_xbloom_patch.py` | Crosshair spread: the in-game crosshair lines move out while you move or spray, like VALORANT, following each line's Movement/Firing error settings (see the patch order below). |
-| `round_author.mjs` | Writes `app/mods/aim-rounds/<map>.json` (Round mode map data: spawns, barriers, plant zones, defender setups, retake staging points, attacker routes and plant spots) from the map files in `site/aim-maps/`, node only. `--plot <file.svg>` draws it (also a `.png`), `--check` fails when the stored file is out of date, `--attack-plot <file.png>` draws the attacker data from the nav.bin header. See [Round mode data](#round-mode-data). |
+| `round_author.mjs` | Writes `app/mods/aim-rounds/<map>.json` (Round mode map data: spawns, barriers, plant zones, defender setups, retake staging points, attacker routes and plant spots) from the map files in `site/aim-maps/`, node only. Maps: Ascent and Corrode (`--map rook`). `--plot <file.svg>` draws it (also a `.png`), `--check` fails when the stored file is out of date, `--attack-plot <file.png>` draws the attacker data from the nav.bin header. See [Round mode data](#round-mode-data). |
 | `round_terrain.mjs` | Round mode helper (node module, no CLI): `loadTerrain(map)` rebuilds the game's real pawn and projectile collision in plain node with the game's own code (meshopt decoder, terrain worker, BVH builder and raycast, all lifted from the repo files at runtime). Triangle sets are cached in `%TEMP%/open-aim-round-cache/`. Used by `round_nav.mjs` and the round tests. |
 | `round_navdata.mjs`, `round_navlib.mjs`, `round_png.mjs` | Helpers for `round_nav.mjs`, `round_author.mjs` and the round tests: nav header data (setup facings, staging and zone checks, attacker route / plant / post-plant data, travel report, plots, retake and attacker staging candidates, plant spot candidates), graph searches (floods, Dijkstra, barrier edge mask), a small PNG canvas. |
-| `round_nav.mjs` | Writes `app/mods/aim-rounds/<map>.nav.bin`, the Round mode nav graph: the game's own nav builder run on the real collision from both spawns (2-3 min, below-normal priority). `--reuse` keeps the graph and only rewrites the header (setup facings, staging and zone checks, which need sight rays; helpers in `round_navdata.mjs`). See [Round mode nav graph](#round-mode-nav-graph). |
-| `round_author.mjs` | Writes `app/mods/aim-rounds/<map>.json` (Round mode map data: spawns, barriers, plant zones, defender setups) from the map files in `site/aim-maps/`, node only. `--plot <file.svg>` draws it (also a `.png`), `--check` fails when the stored file is out of date. See [Round mode data](#round-mode-data). |
+| `round_nav.mjs` | Writes `app/mods/aim-rounds/<map>.nav.bin`, the Round mode nav graph: the game's own nav builder run on the real collision from both spawns (2-3 min, below-normal priority). `--reuse` keeps the graph and only rewrites the header (setup facings, staging and zone checks, which need sight rays; helpers in `round_navdata.mjs`). `--candidates`, `--setup-candidates`, `--attack-candidates` list the spots the authored retake / setup / attacker data was picked from. See [Round mode nav graph](#round-mode-nav-graph). |
 | `maps_callouts.mjs` | Writes `app/mods/aim-maps/<map>.minimap.json` for every map: the game's callout list with Riot's in-game English names ("A Main", "B Boat House") in place of the Chinese ones, from `tools/maps-callouts-en.json`, node only. Only the names change; every spot and every other byte stays as in `site/aim-maps/` (juliett, which only exists in `app/mods/aim-maps/`, is renamed in place). `--check` fails when a file is out of date. See [Callout names](#callout-names). |
 | `maps_callout_patch.py` | Keeps the space in English callout names ("A Main", not "AMain") in the place line of the workshop cards and the workshop detail: the nearest-callout lookup `$u` in the mods `Dc2Dm9E6.js` (both copies) now removes only whitespace next to a non-ASCII character, so Chinese names give the same text as before. Details in the script's docstring. |
+| `training_launch_patch.py` | Training shell hooks in the lobby (`ChJ6FlD4.js`, both copies): `window.__aimLaunchWorkshop(item or code)` starts a drill exactly like a lobby click (rank picker gate, workshop brief, so the run is saved to the workshop history); it refuses while a drill is open or loading. `window.__aimLeaveTraining()` closes the open or loading drill like its Back button. Used by the routines and progress scripts; checked by `scripts/test-training-hooks.mjs`. Details in the script's docstring. |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
@@ -61,8 +61,16 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 12. `round_patch.py` (after `peekmove_patch.py`; refuses to run twice: it looks for `/aim-rounds/round-core.mjs`). It keeps each copy's own line ends.
 13. `round_bots_patch.py` (after `round_patch.py`, it refuses to run without it; refuses to run twice: it looks for `/aim-rounds/round-bots.mjs` in `BiMsX6Xn.js`/`CnrSARj_.js` and `a.kind==="roundBot"` in `D_iGclxB.js`). It keeps each copy's own line ends. Normal drills are unchanged: `scripts/test-round-bots-parity.mjs` rebuilds the un-patched files from the script's own pairs and compares drills tick for tick.
 14. `maps_callout_patch.py` (after `round_patch.py`; only touches `Dc2Dm9E6.js`; refuses to run twice: it looks for its new regex `/\s+(?=[^\x00-\x7f])|(?<=[^\x00-\x7f])\s+/g`).
-15. `feel_audio_patch.py` (after `maps_callout_patch.py`, order 14; refuses to run twice: it looks for `__aimAudioBuild`). It keeps each copy's own line ends.
-16. `feel_xbloom_patch.py` (after `feel_audio_patch.py`, order 15; refuses to run twice: it looks for `aimErrDeg` /
+15. `ux_result_patch.py` (ux; after `round_patch.py`, independent of 13 and 14; refuses to run twice: it looks for `__aimPb` in
+    `OkAdunfX.js` and the Target drill header in `Hwnlm6zD.js`). Result screen only, no sim or
+    replay code: the record check `uM` counts earlier runs only (no "new personal best" on a first
+    run, a 0-point run or a tie), RunReport gets a tie line, time to kill shows seconds
+    (`0.42s`, no delta), and Target drills get their own result header and back label. The
+    English for the new strings is in `app/english-fixes.js` ("ux result screen"). Tests:
+    `npm run test:result` (`--mods <dir>` patches another copy). It keeps each copy's own line ends.
+16. `training_launch_patch.py` (after `round_patch.py`; refuses to run twice: it looks for `__aimLaunchWorkshop`). It keeps each copy's own line ends.
+17. `feel_audio_patch.py` (after `training_launch_patch.py`, order 16; refuses to run twice: it looks for `__aimAudioBuild`). It keeps each copy's own line ends.
+18. `feel_xbloom_patch.py` (after `feel_audio_patch.py`, order 17; refuses to run twice: it looks for `aimErrDeg` /
     `__aimXbloomStep`). Crosshair spread: a read-only `aimErrDeg()` on the sim object (`CnrSARj_.js`)
     returns the firing error above the gun's resting error and the movement error, in degrees (no RNG
     draw, no state write: runs and replays are unchanged). The play page (`OkAdunfX.js`) turns them into
@@ -172,6 +180,71 @@ heights), and a flood fill over the real nav graph (`<map>.nav.bin`, below) chec
 barriers close off every callout outside its side, over walk edges only and over all edges.
 `--check` reads the committed nav.bin and needs no collision bake. A new map needs its own entry in `MAPS` at the top of the script (callout names, label and
 mark pixels from a reference picture, setup spots) and then the same two commands.
+
+### Other maps (Corrode = `rook`)
+
+Maps without a reference picture use per-map switches in `MAPS` (the script header has the details):
+
+- `WORLD: 'terrain'`: `rook.collision.json` has no greybox and no NavMesh, so rays go against the game's real
+  pawn world (`round_terrain.mjs` `loadTerrain`, the triangles the nav bake uses); floor rays start at height
+  hints (`SPAWN_Y`, the site marker top, the y of every authored point). Needs the triangle cache (built on
+  first use, about 30 s).
+- `MINIMAP: 'mod'`: English callouts from `app/mods/aim-maps/<map>.minimap.json`, used as they are.
+- `BARRIERS: 'collision'`: the barriers are the map's own placed `SM_Barrier` walls (zero-thickness planes,
+  each paired with a vision blocker): segment = the plane's long side, 0.4 m further into the walls at both
+  ends, height range from the floors next to it. The team comes from the nav graph: with every barrier up,
+  each barrier's cut edges must touch exactly one team's spawn flood (and at least 5 walk edges); anything
+  else fails. Id = team + nearest callout. The first run (no nav.bin yet) writes them without a team and
+  fails; bake, then run again.
+- `CALLOUT_SPOTS`: minimap spots that lie off the floor, moved onto it (Corrode: A Lobby, A Main, A Crane).
+- `SIDES` is written by hand from the map (lobbies/attacker spawn attack, sites/defender spawn/back areas
+  defense, mains/links/mid neutral). The seal check fails on a leak, on a SIDES callout with no nav node within
+  4 m, and on an own callout a team can't reach.
+
+Corrode, from scratch (on hp: `hp.sh run <name> "..."`, one bake at a time):
+
+```bash
+node tools/round_author.mjs --map rook          # 1. spawns, barriers (no team yet), sites; fails: no nav.bin
+node tools/round_nav.mjs --map rook             # 2. bake (~40 s on Corrode): 21693 nodes, 162053 edges
+node tools/round_author.mjs --map rook          # 3. barrier teams + seal check
+node tools/round_nav.mjs --map rook --setup-candidates A      # 4. defender setup candidates (also B, mid --near "x,z")
+node tools/round_nav.mjs --map rook --candidates A            #    retake staging candidates
+node tools/round_nav.mjs --map rook --attack-candidates A --near "x,z|x,z"   # plant + attacker staging candidates
+node tools/round_author.mjs --map rook          # 5. after writing SETUPS / RETAKE / ATTACK into MAPS.rook
+node tools/round_nav.mjs --map rook --reuse     # 6. header
+node tools/round_author.mjs --map rook --check --plot rook-round.svg --attack-plot rook-attack.png
+```
+
+### Split (`bonsai`)
+
+Split's 9 `SM_Barrier` planes are all parked at the world origin, so its barriers are world `MARKS` (no
+picture), with three more per-map switches:
+
+- `MARK_TEAMS: true`: each mark is snapped like Ascent's, then the same strict flood rule as `BARRIERS:
+  'collision'` runs on it (one team per barrier, at least 5 cut walk edges, none bypassed with every
+  barrier up) and must give the mark's team; build and ray-free `--check` fail otherwise. The plane lengths
+  are matched to the chokes (widest to longest) as a warning only (`authoring.barriers.<id>.primMatch`).
+- `ROPES: true`: the 7 ropes of `bonsai.ropes.json` are two-way links (bottom node <-> top node) in the seal
+  check and barrier-team floods (re-seeded until nothing changes; the nav graph has no rope edges). A rope
+  within 8 m of a barrier of team T must not cross it and must lie on T's side (both ends in T's flood),
+  else the build fails; `authoring.ropes` holds the result.
+- `SITE_CENTER`: A's marker centre is on the 4 m site box, so the site centre (site goal) is moved onto
+  the floor.
+
+Same order as Corrode with `--map bonsai` (bake ~45 s: 17913 nodes, 131407 edges). The barrier marks sit
+at the narrowest corridors between the sides on the nav graph plot; `MAPS.bonsai.NOTES` lists where the
+data differs from the Ascent rules (A Ramps route, mid group, setups outside the A zone).
+
+Setup candidates (`round_navdata.mjs` `setupCandidates`): defender-walkable inside the defender barriers, open
+floor, in the zone or within 12 m, reaches its site goal over walk + drop edges (any site for a mid group;
+Split's Mid Vent room is left only by rope), slowest defender spawn -> spot at most 10 s (shortest barrier) + the
+attackers' fastest barrier -> zone time - 1 s, sees at least one defender barrier (where attackers come in)
+within 30 m and is seen from at most 2 (the bots' sight test); it also reports `hiddenAtk` (no attacker
+barrier sample sees it), and the picks must include at least one such spot per site (tested). Thresholds
+that differ from Ascent's are written down in `MAPS.<map>.NOTES` (copied to `authoring.notes`).
+`scripts/test-round-nav.mjs` runs every check for every map that has a json + nav.bin (per-map counts in its
+`EXPECT`), loads the real collision for each (building the cache if needed, never skipped) and runs
+`round_author.mjs --check --map <map>` with the full rebuild.
 
 ## Round mode nav graph
 

@@ -2,6 +2,10 @@
 //
 //   node tools/round_nav.mjs [--map ascent] [--reuse] [--plot <dir>] [--report <file.json>]
 //   node tools/round_nav.mjs [--map ascent] --candidates <site>   (list retake staging candidates)
+//   node tools/round_nav.mjs [--map ascent] --setup-candidates <site|group> [--near "x,z|x,z"] [--hints "x,y,z,name|..."]
+//                                       (defender setup candidates, round_navdata.mjs setupCandidates)
+//   node tools/round_nav.mjs [--map ascent] --attack-candidates <site> [--near "x,z|x,z"]
+//                                       (plant spot candidates; attacker staging candidates around each near point)
 //
 // Runs the game's own nav builder Vv (lifted at runtime from OkAdunfX.js, with its BVH helpers
 // from BiMsX6Xn.js) on the pawn collision from tools/round_terrain.mjs, from the attacker spawn
@@ -29,7 +33,7 @@ import vm from 'node:vm';
 import { ROOT, loadTerrain, fnSrc, constSrc, importAlias, mapFile } from './round_terrain.mjs';
 import { parseRoundNav, writeRoundNav } from '../app/mods/aim-rounds/round-nav.mjs';
 import { TYPES, nodeIndex, nearestNode, flood } from './round_navlib.mjs';
-import { deriveHeader, travelReport, plots, inputsHash, stagingCandidates } from './round_navdata.mjs';
+import { deriveHeader, travelReport, plots, inputsHash, stagingCandidates, setupCandidates, plantCandidates, attackStagingCandidates } from './round_navdata.mjs';
 
 try { os.setPriority(os.constants.priority.PRIORITY_BELOW_NORMAL); } catch { /* not allowed: run anyway */ }
 
@@ -40,13 +44,16 @@ const REUSE = args.includes('--reuse');
 const PLOT = opt('--plot');
 const REPORT = opt('--report');
 const CANDIDATES = opt('--candidates');
+const SETUP_CANDIDATES = opt('--setup-candidates');
+const ATTACK_CANDIDATES = opt('--attack-candidates');
+const pts = (s) => (s ? s.split('|').map((p) => p.split(',').map((v, k, a) => (k === a.length - 1 && a.length === 4 ? v : Number(v)))) : null);
 const DATA = path.join(ROOT, 'app', 'mods', 'aim-rounds', `${MAP}.json`);
 const OUT = path.join(ROOT, 'app', 'mods', 'aim-rounds', `${MAP}.nav.bin`);
 const JS = path.join(ROOT, 'app', 'mods', 'next', 'js');
 
 const BAKE = { stepUp: 0.5, jumpUp: 1.1, maxDrop: 4.5, runSpeed: 6.75, gravity: 24.456521739, jumpSeconds: 0.45, maxNodes: 5e6 };
 // Known-good graph sizes (the M1 seal check graph); a different count fails the bake.
-const EXPECT = { ascent: { count: 21746, edgeCount: 161371 } };
+const EXPECT = { ascent: { count: 21746, edgeCount: 161371 }, rook: { count: 21693, edgeCount: 162053 }, bonsai: { count: 17913, edgeCount: 131407 } };
 
 const log = (...a) => console.log(...a);
 const data = JSON.parse(fs.readFileSync(DATA, 'utf8'));
@@ -160,6 +167,29 @@ async function main() {
     for (const q of stagingCandidates(g, T, data, CANDIDATES)) {
       log(`entry ${q.entry.join(',')} (${q.count} candidates):`);
       for (const k of q.best) log(`  [${k.x}, ${k.y}, ${k.z}]  t ${k.t} s  detour ${k.detour} s  node ${k.node}`);
+    }
+    return;
+  }
+  if (SETUP_CANDIDATES) {
+    const g = parseRoundNav(fs.readFileSync(OUT));
+    const r = setupCandidates(g, T, data, SETUP_CANDIDATES, { near: pts(opt('--near')), hints: pts(opt('--hints')) ?? [], ...(opt('--max-spawn-t') ? { maxSpawnT: Number(opt('--max-spawn-t')) } : {}) });
+    log(`${SETUP_CANDIDATES}: ${r.count} candidates (spawnT <= ${r.maxSpawnT} s); attackers' fastest barrier -> site zone: ${JSON.stringify(r.entryT)} s`);
+    for (const k of r.pick) log(`  [${k.x}, ${k.y}, ${k.z}]  spawnT ${k.spawnT}  sees ${k.sees.join('+')}  seenBy ${k.seenBy.join('+') || '-'}  hiddenAtk ${k.hiddenAtk}  inZone ${k.inZone}  high ${k.high}  d ${k.d}  node ${k.node}`);
+    for (const [id, l] of Object.entries(r.byEntrance)) for (const k of l) log(`  watches ${id}: [${k.x}, ${k.y}, ${k.z}]  spawnT ${k.spawnT}  seenBy ${k.seenBy.join('+')}  inZone ${k.inZone}  high ${k.high}  d ${k.d}`);
+    for (const k of r.hints) log(`  hint ${k.name}: ${JSON.stringify(k)}`);
+    return;
+  }
+  if (ATTACK_CANDIDATES) {
+    const g = parseRoundNav(fs.readFileSync(OUT));
+    const pc = plantCandidates(g, data, ATTACK_CANDIDATES);
+    log(`plant ${ATTACK_CANDIDATES}: ${pc.length} candidates (nearest the site goal first)`);
+    for (const k of pc.slice(0, 12)) log(`  [${k.x}, ${k.y}, ${k.z}]  d ${k.d}  margin ${k.margin}  spawnT ${k.spawnT}  node ${k.node}`);
+    const far = pc.filter((k) => k.d >= 5).slice(0, 6);
+    for (const k of far) log(`  (>=5 m) [${k.x}, ${k.y}, ${k.z}]  d ${k.d}  margin ${k.margin}  node ${k.node}`);
+    for (const [x, z] of pts(opt('--near')) ?? []) {
+      const sc = attackStagingCandidates(g, data, x, z).sort((a, b) => a.d - b.d || a.node - b.node);
+      log(`staging near ${x},${z}: ${sc.length}`);
+      for (const k of sc.slice(0, 8)) log(`  [${k.x}, ${k.y}, ${k.z}]  side ${k.side}  d ${k.d}  spawnT ${k.spawnT}  node ${k.node}`);
     }
     return;
   }

@@ -1,4 +1,5 @@
-// Shooting error graph and end-of-round shooting summary.
+// Weapon spread graph and end-of-round shooting summary (shown as "Weapon spread": it's the
+// weapon's spray + movement spread per shot, not aim error).
 //
 // Live graph: one bar per shot, on a time axis like a heart-rate monitor. The right edge is
 // "now" and the strip keeps scrolling left while the round runs (WINDOW seconds wide), so a
@@ -276,7 +277,7 @@
     if (max > top) top = Math.ceil(max / 15) * 15;
 
     g.font = "700 12px Bahnschrift, Segoe UI, sans-serif";
-    label("Shooting error", x0, 12, "#fff", "left");
+    label("Weapon spread", x0, 12, "#fff", "left");
     // legend, right-aligned over the plot
     g.font = "600 11px Bahnschrift, Segoe UI, sans-serif";
     if (!movingW) movingW = g.measureText("moving").width;
@@ -452,19 +453,19 @@
     const walked = r.walked >= 0.5 ? `You walked ${r.walked < 10 ? r.walked.toFixed(1) : Math.round(r.walked)} m.` : "You stayed in place.";
     const shotsRow = `<tr><th>Shots</th><td>${still.n} <small>${pct(still.n, total)}%</small></td><td>${moving.n} <small>${pct(moving.n, total)}%</small></td></tr>`;
     // compact (scenario) layout: one line per kind instead of the table
-    const line = (name, cls, t) => `<p class="es-shotgraph-sum-line"><b class="${cls}">${name}</b> ${t.n ? `${deg(t.err / t.n)} average error, ${t.hit} ${t.hit === 1 ? "hit" : "hits"} (${pct(t.hit, t.n)}%)` : "no shots"}</p>`;
+    const line = (name, cls, t) => `<p class="es-shotgraph-sum-line"><b class="${cls}">${name}</b> ${t.n ? `${deg(t.err / t.n)} average spread, ${t.hit} ${t.hit === 1 ? "hit" : "hits"} (${pct(t.hit, t.n)}%)` : "no shots"}</p>`;
     const headRow = `<tr><th>Headshots</th><td>${cell(still, still.head)}</td><td>${cell(moving, moving.head)}</td></tr>`;
     panel.innerHTML = `
       <canvas class="es-shotgraph-sum-map" width="1" height="1" role="img"></canvas>
       <div class="es-shotgraph-sum-text">
-        <h3>Shooting error</h3>
+        <h3>Weapon spread</h3>
         <p class="es-shotgraph-sum-lead">${total} ${total === 1 ? "shot" : "shots"}: <b class="is-still">${still.n} still</b>, <b class="is-moving">${moving.n} while moving</b>.${compact ? ` ${walked}` : ""}</p>
         <div class="es-shotgraph-sum-split" aria-hidden="true"><i class="is-still" style="flex-grow:${still.n}"></i><i class="is-moving" style="flex-grow:${moving.n}"></i></div>
         ${compact ? `${line("Still", "is-still", still)}${line("Moving", "is-moving", moving)}` : `<table>
           <thead><tr><th></th><th class="is-still">Still</th><th class="is-moving">Moving</th></tr></thead>
           <tbody>
             ${shotsRow}
-            <tr><th>Average error</th><td>${cell(still, deg(still.err / still.n))}</td><td>${cell(moving, deg(moving.err / moving.n))}</td></tr>
+            <tr><th>Average spread</th><td>${cell(still, deg(still.err / still.n))}</td><td>${cell(moving, deg(moving.err / moving.n))}</td></tr>
             <tr><th>Hits</th><td>${cell(still, `${still.hit} <small>${pct(still.hit, still.n)}%</small>`)}</td><td>${cell(moving, `${moving.hit} <small>${pct(moving.hit, moving.n)}%</small>`)}</td></tr>
             ${headRow}
           </tbody>
@@ -596,7 +597,7 @@
     if (!anchor || anchor.parentElement.querySelector(".es-shotgraph-setting")) return;
     const row = document.createElement("div");
     row.className = "hall-field es-shotgraph-setting";
-    row.innerHTML = '<span class="hall-field-text"><b>Shooting error graph</b><small>A bar for every shot. The graph scrolls left as the round goes on: the newest shot is on the right, and a gap means you stopped shooting. Taller bars mean the shot could land further off. Orange: you were standing still. Blue: you were moving. The result screen adds a summary and a map of where you fired.</small></span><div class="es-shotgraph-seg" role="radiogroup" aria-label="Shooting error graph"></div>';
+    row.innerHTML = '<span class="hall-field-text"><b>Weapon spread graph</b><small>A bar for every shot. The graph scrolls left as the round goes on: the newest shot is on the right, and a gap means you stopped shooting. Taller bars mean the shot could land further off. Orange: you were standing still. Blue: you were moving. The result screen adds a summary and a map of where you fired.</small></span><div class="es-shotgraph-seg" role="radiogroup" aria-label="Weapon spread graph"></div>';
     const seg = row.querySelector(".es-shotgraph-seg");
     for (const [value, text] of [["off", "Off"], ["graph", "Graph"], ["numbers", "Graph + numbers"]]) {
       const b = document.createElement("button");
