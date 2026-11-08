@@ -48,8 +48,10 @@ if len(sys.argv) > 2 and sys.argv[1] == "--mods":  # testing: patch another copy
 DIRS = [os.path.join("next", "js"), os.path.join("_assets", "r20261021-1", "next", "js")]
 
 MARKER = b"/* graphics-look */"
-FLOOR = b".46"  # floor colour multiplier (linear), Enhanced + legacy-lit range drills only.
-# Lit floor today ~1.33 linear (albedo .64 x irradiance 6.53 / pi); x.46 -> ~.61 linear = sRGB ~205.
+FLOOR = b".5"  # floor colour multiplier (linear), Enhanced + legacy-lit range drills only.
+# Irradiance on the floor per channel (warm default sun #ffe3c6 at 60 deg, sky #f9fcff, fills):
+# ~(6.32, 5.40, 4.61); floor #cfd2d4 -> lit ~(1.26, 1.11, .97) linear (clips white). x.5 plus the
+# small unscaled specular -> ~sRGB (212, 200, 189), the warm grey the default sun gives.
 
 FILES = {
     "BiMsX6Xn.js": [
@@ -64,11 +66,11 @@ FILES = {
          b"g&&g.isMesh&&g.material&&g.material.isMaterial&&g.material.color&&this.fl.set(S,{mesh:g,base:g.material,mat:null});this.tint()}"
          b"catch(e){console.error(\"aimLt.floor\",e)}},"
          b"drop(S){const o=this.fl.get(S);o&&o.mat&&(o.mesh.material=o.base,o.mat.dispose());this.fl.delete(S)},"
-         b"tint(){try{const e=this.enhanced();for(const f of this.fl.values()){"
+         b"tint(){const e=this.enhanced();for(const f of this.fl.values())try{"
          b"if(e){if(!f.mat){const m=f.base.clone();m.onBeforeCompile=f.base.onBeforeCompile;m.customProgramCacheKey=f.base.customProgramCacheKey;f.mat=m;f.mesh.material=m}"
          b"f.mat.color.copy(f.base.color).multiplyScalar(this.look.floor)}"
-         b"else if(f.mat){f.mesh.material=f.base;f.mat.dispose();f.mat=null}}}"
-         b"catch(e){console.error(\"aimLt.tint\",e)}},"
+         b"else if(f.mat){f.mesh.material=f.base;f.mat.dispose();f.mat=null}}"
+         b"catch(x){console.error(\"aimLt.tint\",x)}},"
          b"seen:new Set,ref:new WeakMap,track(t,g,L){"),
         # 2. apply() re-tints (live Enhanced/Original switch)
         (b"apply(){const m=this.sync(),l=this.look,n=this.renderer;Gu.lmScale.value=",

@@ -24,7 +24,7 @@ test("each look patch edit is present exactly once", () => {
     "lmChroma:.6,aniso:4,floor:",
     "fl:new Map,floor(c,E,S){",
     "drop(S){",
-    "tint(){try{const e=this.enhanced();",
+    "tint(){const e=this.enhanced();for(const f of this.fl.values())try{",
     "apply(){const m=this.sync(),l=this.look,n=this.renderer;this.tint();Gu.lmScale.value=",
     "mount(E){d&&i.remove(d.root),d=E,aimLt.floor(c,E,i),i.add(E.root),i.fog=E.fog",
   ]) assert.equal(count(src, s), 1, s);
@@ -166,5 +166,11 @@ test("stages are independent; a disposed stage is forgotten; errors never escape
   try {
     assert.doesNotThrow(() => lt.floor(RANGE, { blocks: new Map([["ground", bad]]) }, { children: [1] }));
     assert.doesNotThrow(() => lt.apply());
+    // a broken entry does not stop the other stages from being tinted
+    const lt2 = loadAimLt({});
+    const badStage = { children: [1] }, okStage = { children: [1] }, ok = built();
+    lt2.floor(RANGE, { blocks: new Map([["ground", bad]]) }, badStage);
+    lt2.floor(RANGE, ok, okStage);
+    assert.ok(Math.abs(ok.ground.material.color.r - 0.6 * lt2.look.floor) < 1e-12);
   } finally { console.error = err; }
 });
