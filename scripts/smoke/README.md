@@ -19,7 +19,7 @@ It is opt-in (`npm run smoke`); only its unit tests (`npm run test:smokelib`) ar
 | `settings` | sensitivity changed in the lobby survives a page reload, then is restored |
 | `rank-picker` | a card click on a bot drill shows the rank picker; Gold launches and is saved; leaves through the start screen's own Back button (`.al-scene-start-back`; the start overlay lies over `.hall-train-exit` and starts the drill on any click) |
 | `studio` | Studio: new Flicks drill, Play opens it in the trainer, it runs, Exit returns to Studio. Sets `studio-coach-done` first: on a fresh profile the first-run tour covers the editor |
-| `round` | Round: panel, start with the default map and side, round HUD live, Exit resets the round state. A load that falls back to the lobby (known app bug) is warned and started once more |
+| `round` | Round: panel, start with the default map and side, round HUD live, Exit resets the round state. A load that falls back to the lobby (see "Lobby fallback") is warned and started once more |
 | `probe` | only with `--only=probe`: load times (first and repeat), sim speed, frames per second |
 
 The pinned drills live in `drills.json`. If one disappears from the list, the step says so; pick
@@ -58,8 +58,10 @@ stop, or the launcher's 15-minute reaper), the run aborts with exit 4 and does n
 lock. The fresh profile `/tmp/openaim-profile-<port>` is only deleted when no slot lock (or
 half-started slot) names our port and nothing listens on our ports. Known limits: between
 reading the lock and running the stopper there is a gap of a few milliseconds; the stopper stops
-every copy started from the same hp worktree (only one smoke run per worktree can run anyway,
-same ports); and if our copy dies by itself and leaves its lock, the stopper only removes the lock
+every copy started from the same hp worktree, so the suite does not start (exit 4, busy) while
+another copy from its worktree runs (for example the team's own `hp.sh app-start <name>` copy),
+and logs a WARNING if one appears during the run (its stop would hit that copy too); and if our
+copy dies by itself and leaves its lock, the stopper only removes the lock
 (the suite never kills processes itself), so anything left in that session shows up in the
 `leftovers` line of `run.log` / `results.json`.
 
@@ -128,31 +130,44 @@ reason; `hpOnly` marks noise seen only on the hidden hp copy):
 
 ## Timing
 
-Measured with `--only=probe` on hp (hidden copy, xvfb, nice 15-19). Until 2026-11-07 ~20:00 the
-copies drew with software WebGL; since then on the Intel GPU (60 fps, about half a core). "Load" is launch
-until the start screen can take a start (workshop loader gone, button not covered or disabled);
-"start" is the Enter/click until the drill runs with the mouse lock (it includes the drill
-preparation). Frame rates are the page's `requestAnimationFrame` rate; they are function-check
-numbers only, not game FPS.
+Measured with `--only=probe` on hp (hidden copy, xvfb, nice 15-19). "Load" is launch until the
+start screen can take a start (workshop loader gone, button not covered or disabled); "start" is
+the Enter/click until the drill runs with the mouse lock (it includes the drill preparation).
+"Page fps" is the page's `requestAnimationFrame` rate over 1-2 s; the probe also prints
+`__aimTick` calls per second, which is not a frame rate. Function-check numbers only, not game FPS.
 
-| hp state (load avg, 8 cpus) | drill | load first / repeat | start | sim seconds per wall second | page fps |
+Current numbers (Intel GPU copies, since 2026-11-07 ~20:00; probe run 2026-11-08 01:01):
+
+| hp load (8 cpus) | drill | load first / repeat | start | sim seconds per wall second | page fps |
 |---|---|---|---|---|---|
-| quiet (3.4-3.9; 2026-11-07 18:15) | Micro tiles (targets) | 4.8 s / 3.9 s | 0.4 s | 1.00 | ~60 |
-| quiet (3.4-3.9) | DDY's pre-aim, Ascent (map) | 4.5 s (after one lobby fallback, see below) / 4.4 s | 0.4 s | 1.00 | ~60 |
-| busy (9.8-11.2, Soprano play-test; 17:34) | Micro tiles | about 20-30 s / about 20-30 s (from the load timeline; that run still had the old ready check) | 7-9 s | 0.98 then 0.24 | 0.4-2 during loads, 2-8 in the drill |
+| 5.4-7.0 | Micro tiles (targets, no map) | 4.6 s / 5.3 s | 0.4 s | 1.00 | 60 |
+| 5.4-7.0 | DDY's pre-aim, Ascent (map) | 10.7 s / 4.7 s | 0.4 s | 1.00 | 60 |
+
+A full run is about 2 min 10 s per batch on a quiet hp (batch 1: 8 steps incl. a 60 s drill
+played to its end; batch 2: 7 steps), far under the 12-minute cap. The two batches are kept so
+one busy spell or preemption only costs half a run; step time limits stay generous (drill loads
+180 s, steps 5-8 min) because a busy hp slows everything down unevenly, see below.
+
+Earlier, on software WebGL (before the Intel GPU), with the old ready check:
+
+| hp state | drill | load first / repeat | start | sim s/s | page fps |
+|---|---|---|---|---|---|
+| quiet (load 3.4-3.9; 2026-11-07 18:15) | Micro tiles | 4.8 s / 3.9 s | 0.4 s | 1.00 | ~60 |
+| busy (load 9.8-11.2, Soprano play-test; 17:34) | Micro tiles | about 20-30 s each (from the load timeline) | 7-9 s | 0.98 then 0.24 | 0.4-2 during loads, 2-8 in the drill |
 
 - On a busy hp everything slows down unevenly: the sim fell to a quarter of real time at about
-  2 frames per second, so a 60 s drill takes about 4 minutes of wall time. The suite waits out
+  2 frames per second, so a 60 s drill took about 4 minutes of wall time. The suite waits out
   loads (up to 180 s for drills) and the drill preparation after a start, but its timers are wall
   time, so a very busy hp can still fail steps on time. hp's own busy check refuses to start at
-  load 3 or more, so most runs get the quiet numbers.
-- A gate (`hp.sh gate`) running at the same time slows the app down further (nice 19 both).
+  load 5 or more (3 or more while a gradle build runs).
+- A gate (`hp.sh gate`) running at the same time slows the app down further.
 
 ## How a start is detected
 
 The start button already shows while the workshop loader is still preparing the drill. During that
 time it sits under `.al-wkload-stage`, and the loader's own panel (`.aim-scenario-loading`)
-swallows every key in the capture phase. The suite therefore waits until no `section.al-wkload` and
+swallows every key in the capture phase while it is shown (a hidden panel lets keys through; the
+suite treats any panel as not ready, to be safe). The suite therefore waits until no `section.al-wkload` and
 no `.aim-scenario-loading` exist, the button is enabled, and `elementFromPoint` at its centre is the
 button. Only then does it press Enter (later tries click the button). After a press it waits out
 the drill preparation panel instead of pressing again. If a start does not take, `run.log` gets a
@@ -169,20 +184,23 @@ their feet; head centre 1.88 m up standing, 1.48 m crouched, times `scale` x `he
 shapes come from the scene doc (`/prod-api/api/v1/public/val/aimlab/scenes/<code>`), fetched at
 launch. The helper fires single taps, only once the aim is on a target.
 
-## Known app bugs (found by the suite; not worked around silently)
+## Lobby fallback (was listed as an app bug; the suite's own launch caused it)
 
-- **A map drill's first load can end in the lobby with no error.** Seen on hp both quiet and busy,
-  on the first load of a map in the session; the repeat load works. In the full run of 2026-11-07
-  22:23 it hit every map drill after a fresh page (DDY's pre-aim and Ascent dock on Ascent, Erv's
-  Sheriff 5k on Haven) and most likely Round on Ascent. Repro: fresh page (`location.assign('/aim')`),
-  launch any map drill, wait without input: the loader closes to the lobby when the map finishes. Load
-  timeline from the quiet run, no input sent: launch 51.0 s; start button disabled "LOADING MAPS..."
-  from 51.3 s; `ascent.collision.json` / `ascent.lights.json` loaded at 51.4 s; workshop
-  preparation "Preparing visuals" 52.7 s, "Finishing up" 56.4 s, and in the same 200 ms poll the
-  button turned enabled (session map load done); lobby at 56.6 s. Likely cause (code reading): when
-  the session's map load finishes it rebuilds the scene (`loadScene`), which bumps the scene
-  generation the running workshop preparation checks; the preparation then throws an `AbortError`,
-  which the loader treats like the player pressing Back (`scenario-loading.mjs`
-  `if (error?.name === 'AbortError') back()`), so it closes to the lobby without the failure panel.
-  The suite logs a warning with the timeline and launches the drill once more; a second fallback
-  fails the step.
+Until 2026-11-08 01:00 the suite's direct launch (`__aimLaunchScene({shareCode, name})`) passed no
+map id. A map drill's first load in a page then ended back in the lobby with no error: the loader
+prepared the drill before the map was in, the map load that followed rebuilt the scene
+mid-preparation, the preparation threw an `AbortError`, and `scenario-loading.mjs` treats that like
+the player pressing Back (`if (error?.name === 'AbortError') back()`), so it closed without the
+failure panel. Load timeline (2026-11-07 18:15, no input sent): launch 51.0 s; button disabled
+"LOADING MAPS..." from 51.3 s; `ascent.collision.json` / `ascent.lights.json` in at 51.4 s;
+"Preparing visuals" 52.7 s, "Finishing up" 56.4 s, and in the same 200 ms poll the button turned
+enabled (map load done); lobby at 56.6 s. A card click passes the drill's map
+(`yt.begin({...mapId})`), so players launching from cards do not hit this. With the map id passed
+(from the scene doc's `environment.map`) the fallback has not happened again (full run 01:08:
+15/15, no fallback; probe 01:01: first Ascent load 10.7 s, no fallback).
+
+Still open: `app/round-panel.js:177` launches Round with `mapId: null`, i.e. the same way. Round
+passed in the five full runs since, but one earlier run (2026-11-07 22:23) waited 150 s on the lobby
+after Start, which fits this case. The round and drill steps still detect a fallback (`qa.fellBack`:
+a load was seen and the lobby shows with no loader on top), log the timeline, warn
+"app bug: ... fell back to the lobby" and launch once more; a second fallback fails the step.

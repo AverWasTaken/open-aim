@@ -415,9 +415,9 @@ async function startDrill(ctx, { loadTimeout = 120000 } = {}) {
   throw new Error(`drill did not start after 3 tries (${JSON.stringify(await status(ctx))}; ${JSON.stringify(await ctx.cdp.evaluate(START_DIAG).catch(() => null))})`);
 }
 
-// Launch + start. App bug seen on the slow hp copy: a map drill's load can end back in the
-// lobby with no error (README "Known app bugs"). That is logged as a warning with the load
-// timeline and the drill is launched once more; a second fallback fails the step.
+// Launch + start. A load that ends back in the lobby with no error (README "Lobby fallback";
+// the suite's own map-less launch caused it until the map id was passed) is logged as a
+// warning with the load timeline and launched once more; a second fallback fails the step.
 async function launchAndStart(ctx, d, via, opts = {}) {
   for (let attempt = 1; ; attempt++) {
     await launchDrill(ctx, d, via);
@@ -428,8 +428,8 @@ async function launchAndStart(ctx, d, via, opts = {}) {
       const tl = await ctx.cdp.evaluate("__qa.tl").catch(() => null);
       ctx.log?.(`${d.name}: load fell back to the lobby; timeline: ${JSON.stringify(tl)}`);
       await ctx.shot?.(`fell-back${attempt}`);
-      if (attempt >= 2) throw new Error(`${d.name}: load fell back to the lobby twice without an error (app bug, see README)`);
-      ctx.warn(`app bug: ${d.name} load fell back to the lobby without an error; launched again`);
+      if (attempt >= 2) throw new Error(`${d.name}: load fell back to the lobby twice without an error (README "Lobby fallback")`);
+      ctx.warn(`app bug: ${d.name} load fell back to the lobby without an error; launched again (README "Lobby fallback")`);
     }
   }
 }
@@ -856,7 +856,7 @@ const round = {
       if (v !== "LOBBY") break;
       ctx.log(`round load fell back to the lobby; timeline: ${JSON.stringify(await ctx.cdp.evaluate("__qa.tl").catch(() => null))}`);
       await ctx.shot(`fell-back${attempt}`);
-      if (attempt >= 2) throw new Error("round load fell back to the lobby twice without an error (app bug, see README)");
+      if (attempt >= 2) throw new Error("round load fell back to the lobby twice without an error (README 'Lobby fallback')");
       ctx.warn("app bug: round load fell back to the lobby without an error; started again");
     }
     ctx.note(`round loaded in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
