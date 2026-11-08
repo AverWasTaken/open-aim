@@ -230,7 +230,7 @@ top:top?{display:ts.display,visibility:ts.visibility,rect:R(top)}:null,hudZ:hs&&
 coversCenter:!!tr&&tr.left<=cx&&tr.right>=cx&&tr.top<=cy&&tr.bottom>=cy,
 minimap:mm?R(mm):null,coversMinimap:!!(tr&&mm&&(()=>{const m=mm.getBoundingClientRect();return m.width>0&&tr.left<m.right&&m.left<tr.right&&tr.top<m.bottom&&m.top<tr.bottom})()),
 layer:ov?{cls:ov.className,bg:os.backgroundColor,bgImage:os.backgroundImage.slice(0,80),alpha:a(os.backgroundColor)}:null,
-card:card?{cls:card.className,rect:R(card)}:null,chipsBottom:cb,topBottom:tr?Math.round(tr.bottom):null,topAboveCard:cb!==null&&!!cr&&cb<=cr.top,
+card:card?{cls:card.className,rect:R(card)}:null,chipsBottom:cb,topBottom:tr?Math.round(tr.bottom):null,topAboveCard:cb===null?null:(!!cr&&cb<=cr.top),
 meta:(q('.al-pause-meta')||{}).innerText||null,menuText:ov?ov.innerText.replace(/\\s+/g,' ').slice(0,300):null,roundHud:!!q('#aim-round-hud:not([hidden])')}})()`;
 // Loading overlay sample: shell stage text + any % shown by the workshop loader.
 const LOAD = `(()=>{const s=document.querySelector('.aim-loading-stage');const w=document.querySelector('.al-wkload');const t=w?w.innerText:'';const m=t.match(/(\\d+(?:\\.\\d+)?)\\s*%/);
@@ -304,6 +304,9 @@ async function drill(prefix, code, { loading = true, big = false } = {}) {
       D.big = await ev(HUD);
       await shot(prefix + "-hud-2560");
     } finally { try { await viewport(); } catch {} await sleep(1500); }
+    // The resize can drop key focus (Tab then does nothing): one click in the drill restores it.
+    try { const vp = await ev(`[innerWidth,innerHeight]`); await clickAt(vp[0] / 2, vp[1] / 2); } catch {}
+    await sleep(800);
   }
   Object.assign(D, await pausedCheck(prefix));
   if (!D.paused?.paused) RESULT.notes.push(prefix + ": Tab did not pause the drill (pointer lock: " + (D.start && D.start.lock) + ")");
@@ -316,7 +319,7 @@ async function drill(prefix, code, { loading = true, big = false } = {}) {
 const ROUND_STATE = `({panel:!!document.querySelector('.aim-round'),note:(document.querySelector('.aim-round-note')||{}).textContent||null,root:(${ROOT_OPEN}),rootInDom:!!document.querySelector('.al-aimlab-root'),loading:!!document.querySelector('section.al-wkload.is-loading'),roundOn:!!window.__aimRoundOn,round:window.__aimRound?{tick:window.__aimRound.tick,done:!!window.__aimRound.done}:null,phases:(window.__g3&&window.__g3.ph||[]).slice(-6),launchScene:typeof window.__aimLaunchScene})`;
 // Ready, or the drill closed again (Round on a cold map drops back to the lobby at ~94%: round-
 // panel.js launches with mapId:null, BOARD maps 23:22). 'gone' = back in the lobby.
-const READY_OR_GONE = `(()=>{const r=${READY};if(r)return r;return (${ROOT_OPEN})?null:'gone'})()`;
+const READY_OR_GONE = `(()=>{const r=${READY};if(r)return r;return (!(${ROOT_OPEN})&&!!document.querySelector('.hall-topnav'))?'gone':null})()`;
 async function roundAttempt(D, n) {
   const A = { n };
   const before = await ev(`window.__g3.scene`);
@@ -333,6 +336,8 @@ async function roundAttempt(D, n) {
   A.open = !!(await waitFor(`(${ROOT_OPEN})||window.__g3.scene>${before}`, 20000, "round drill open"));
   if (!A.open) { A.state = await ev(ROUND_STATE); await shot("round-not-open-" + n); return A; }
   A.ready = await waitFor(READY_OR_GONE, 150000, "round ready");
+  // 'gone' must hold on a second look (a scene swap can hide the root for a moment).
+  if (A.ready === "gone") { await sleep(1500); const again = await ev(READY_OR_GONE); if (again !== "gone") A.ready = again || (await waitFor(READY_OR_GONE, 150000, "round ready")); }
   if (A.ready !== "cue" && A.ready !== "btn") { A.state = await ev(ROUND_STATE); await shot("round-not-ready-" + n); }
   return A;
 }

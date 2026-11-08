@@ -518,8 +518,10 @@ html[data-aim-local]:not(#es) body :is(.al-wk-chip.al-wk-on, .al-wk-toggle.is-on
 html[data-aim-local]:not(#es) body .al-wk-sec-top :is(h2, h3) { font-weight: 800 !important; font-style: italic; }
 /* Short windows (up to 800px tall): a tighter toolbar and section head, so the first drill
    card's title clears the bottom bar at 1280x720 and 1366x768, also when it is a played drill
-   with its "My best" row (the routines strip sits in between). Nothing is hidden: the map strip, filter chips and sort keep all their parts. */
-@media (max-height: 800px) {
+   with its "My best" row (the routines strip sits in between). Nothing is hidden: the map
+   strip, filter chips and sort keep all their parts. Same component on the Target drills and
+   Community tabs, so they get it too. Not under 561px wide (ui-polish touch sizes apply). */
+@media (max-height: 800px) and (min-width: 561px) {
   html[data-aim-local]:not(#es) body .al-wk-tools { padding-top: 6px !important; padding-bottom: 6px !important; }
   html[data-aim-local]:not(#es) body .al-wk-strip { height: 80px !important; }
   html[data-aim-local]:not(#es) body .al-wk-strip-wrap { margin-bottom: 8px !important; }

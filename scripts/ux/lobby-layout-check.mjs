@@ -26,10 +26,10 @@ const argv = process.argv.slice(2);
 // hp.sh cdp-script already passes the port first; tolerate it being given twice.
 if (argv[1] && argv[1] === argv[0]) argv.splice(1, 1);
 const port = argv[0];
-const shotDir = argv[1] || "";
-const KEEP_WELCOME = argv[2] === "welcome";
+const shotDir = argv[1] === "welcome" ? "" : argv[1] || "";
+const KEEP_WELCOME = argv[2] === "welcome" || argv[1] === "welcome";
 if (!port) {
-  console.error("usage: node scripts/ux/lobby-layout-check.mjs <cdpPort> [shotDir]");
+  console.error("usage: node scripts/ux/lobby-layout-check.mjs <cdpPort> [shotDir] [welcome]  (welcome alone also works)");
   process.exit(2);
 }
 
