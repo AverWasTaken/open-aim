@@ -138,6 +138,73 @@ test('round panel: Ascent and Corrode in the map row; picking Corrode starts rou
   assert.ok(ctx.document.body.children.at(-1).querySelector('[data-k="map"]').children[0].classList.contains('is-active'));
 });
 
+test('round panel: Defense is enabled ("Stop the plant"), starts round-<map>-defense-..., is remembered, header text and subtitle follow the side; bad stored side -> Attack', async () => {
+  const launches = [];
+  const ctx = context({ fetch: async () => response(rnav()), __aimLaunchScene: (o) => { launches.push(o); return true; } });
+  vm.runInContext(src('round-panel.js'), ctx);
+  await flush();
+  const openShade = () => { ctx.__aimRoundPanel.open(); return ctx.document.body.children.at(-1); };
+  let shade = openShade();
+  let side = shade.querySelector('[data-k="side"]');
+  assert.deepEqual(side.children.map((b) => b.dataset.v), ['attack', 'defense']);
+  const [atk, def] = side.children;
+  assert.equal(def.disabled, false, 'Defense enabled');
+  assert.match(def.innerHTML, /<small>Stop the plant<\/small>/);
+  assert.ok(atk.classList.contains('is-active') && !def.classList.contains('is-active'), 'Attack by default');
+  assert.match(shade.querySelector('.aim-round-blurb').textContent, /plant the spike in a site/);
+  def.click();
+  assert.ok(def.classList.contains('is-active') && !atk.classList.contains('is-active'));
+  assert.match(shade.querySelector('.aim-round-blurb').textContent, /stop the attackers from planting, or defuse the spike/);
+  shade.querySelector('.aim-round-start').click();
+  assert.equal(launches.at(-1).shareCode, 'round-ascent-defense-vandal-20');
+  assert.equal(launches.at(-1).subtitle, 'Defense · stop the plant');
+  assert.equal(JSON.parse(ctx.localStorage.getItem('aim-round-setup')).side, 'defense');
+  // Remembered; Corrode defense too.
+  shade = openShade();
+  side = shade.querySelector('[data-k="side"]');
+  assert.ok(side.children[1].classList.contains('is-active'), 'Defense remembered');
+  shade.querySelector('[data-k="map"]').children[1].click();
+  assert.ok(side.children[1].classList.contains('is-active'), 'still Defense on Corrode');
+  shade.querySelector('.aim-round-start').click();
+  assert.equal(launches.at(-1).shareCode, 'round-rook-defense-vandal-20');
+  // Back to Attack: subtitle and stored side follow.
+  shade = openShade();
+  shade.querySelector('[data-k="side"]').children[0].click();
+  shade.querySelector('.aim-round-start').click();
+  assert.equal(launches.at(-1).shareCode, 'round-rook-attack-vandal-20');
+  assert.equal(launches.at(-1).subtitle, 'Attack · plant the spike');
+  assert.equal(JSON.parse(ctx.localStorage.getItem('aim-round-setup')).side, 'attack');
+  // A missing or unknown stored side -> Attack.
+  for (const v of [{ map: 'ascent' }, { map: 'ascent', side: 'retake' }, { map: 'ascent', side: 7 }]) {
+    ctx.localStorage.setItem('aim-round-setup', JSON.stringify(v));
+    const s = openShade().querySelector('[data-k="side"]');
+    assert.ok(s.children[0].classList.contains('is-active') && !s.children[1].classList.contains('is-active'), JSON.stringify(v));
+  }
+});
+
+test('round panel: a map without defense (defense: false) shows Defense as "Coming soon" there, and a picked or stored Defense falls back to Attack', async () => {
+  const launches = [];
+  const code = src('round-panel.js').replace('{ id: "rook", name: "Corrode", defense: true }', '{ id: "rook", name: "Corrode", defense: false }');
+  assert.ok(code.includes('defense: false }'), 'test patch applied');
+  const ctx = context({ fetch: async () => response(rnav()), __aimLaunchScene: (o) => { launches.push(o); return true; } });
+  vm.runInContext(code, ctx);
+  await flush();
+  ctx.localStorage.setItem('aim-round-setup', JSON.stringify({ map: 'rook', side: 'defense' }));
+  ctx.__aimRoundPanel.open();
+  const shade = ctx.document.body.children.at(-1), side = shade.querySelector('[data-k="side"]'), map = shade.querySelector('[data-k="map"]');
+  assert.equal(side.children[1].disabled, true);
+  assert.match(side.children[1].innerHTML, /<small>Coming soon<\/small>/);
+  assert.ok(side.children[0].classList.contains('is-active'), 'stored Defense on Corrode -> Attack');
+  map.children[0].click(); // Ascent: Defense available again
+  assert.equal(side.children[1].disabled, false);
+  side.children[1].click();
+  map.children[1].click(); // back to Corrode with Defense picked -> Attack
+  assert.equal(side.children[1].disabled, true);
+  assert.ok(side.children[0].classList.contains('is-active') && !side.children[1].classList.contains('is-active'));
+  shade.querySelector('.aim-round-start').click();
+  assert.equal(launches.at(-1).shareCode, 'round-rook-attack-vandal-20');
+});
+
 test('round panel maps: every listed map ships aim-rounds/<id>.json (schema 1, map = id, name = the label, A-C sites) and <id>.nav.bin (RNAV); its round scene builds', () => {
   const ctx = context({ fetch: async () => response(rnav()) });
   vm.runInContext(src('round-panel.js'), ctx);
@@ -254,6 +321,95 @@ test('round HUD: defused as the attacker = loss tone, no success chirp; as the d
     assert.equal(h.el().querySelector('.arh-banner').hidden, false, 'defuse: banner at once');
     assert.equal(h.el().querySelector('.arh-flash').hidden, true, 'defuse: no screen flash');
   }
+});
+
+test('round HUD defense: "Defend A and B" objective, no "Spike dropped", defuse hints after the plant; attack keeps "Spike dropped"', () => {
+  const h = hud();
+  const spike = () => h.el().querySelector('.arh-spike').textContent;
+  const hint = () => h.el().querySelector('.arh-hint');
+  const d = { ...base, side: 'defense', sites: ['A', 'B'], spike: { carrier: null, dropped: null, planted: null } };
+  let tick = 1;
+  h.show({ ...d, phase: 'barrier', tick: tick++ }, 0.1);
+  assert.equal(spike(), 'Defend A and B');
+  assert.match(hint().innerHTML, /^Barriers drop in/);
+  h.show({ ...d, phase: 'live', tick: tick++ }, 0.2);
+  assert.equal(spike(), 'Defend A and B');
+  assert.equal(hint().hidden, true, 'no center hint while live');
+  for (const [sites, want] of [[['A', 'B', 'C'], 'Defend A, B and C'], [['B'], 'Defend B'], [[], 'Defend the sites'], [['<b>'], 'Defend the sites']]) {
+    h.show({ ...d, phase: 'live', sites, tick: tick++ }, tick * 0.1);
+    assert.equal(spike(), want, String(sites));
+  }
+  // The attackers dropped their spike: the defender is not told.
+  h.show({ ...d, phase: 'live', spike: { carrier: null, dropped: { x: 1, y: 0, z: 2 }, planted: null }, tick: tick++ }, 1);
+  assert.equal(spike(), 'Defend A and B', 'no "Spike dropped" on defense');
+  // Planted: the site; far -> "Defuse the spike at B"; near -> the F hint; holding -> none.
+  const planted = { ...d, phase: 'planted', spike: { carrier: null, dropped: null, planted: { x: 0, y: 0, z: 0, site: 'B' } } };
+  h.show({ ...planted, tick: tick++ }, 1.1);
+  assert.equal(spike(), 'Spike planted · B');
+  assert.equal(hint().hidden, false); assert.equal(hint().innerHTML, 'Defuse the spike at B');
+  h.show({ ...planted, near: true, tick: tick++ }, 1.2);
+  assert.equal(hint().innerHTML, 'Hold <kbd>F</kbd> to defuse');
+  h.show({ ...planted, near: true, holding: 'defuse', defuse: 0.4, tick: tick++ }, 1.3);
+  assert.equal(hint().hidden, true);
+  assert.equal(h.el().querySelector('.arh-bar small').textContent, 'DEFUSING');
+  h.show({ ...planted, spike: { carrier: null, dropped: null, planted: { x: 0, y: 0, z: 0, site: '<i>' } }, tick: tick++ }, 1.4);
+  assert.equal(hint().innerHTML, 'Defuse the spike', 'odd site id dropped');
+  // Attack side: the dropped spike line stays.
+  const a = hud();
+  a.show({ ...base, phase: 'live', sites: ['A', 'B'], spike: { carrier: null, dropped: { x: 1, y: 0, z: 2 }, planted: null }, tick: 1 }, 0.1);
+  assert.equal(a.el().querySelector('.arh-spike').textContent, 'Spike dropped');
+});
+
+test('round HUD defense: the enemy plant sound follows plantCue (one looping voice, panned, level from gain), stops when the cue goes, on pause, on the plant, at the round end and off the defense side', () => {
+  const log = { osc: [], pan: [], lvl: [], stops: 0 }; // stops: the cue's two oscillators only (beeps stop too)
+  class Node { connect(n) { return n; } disconnect() {} }
+  // Only the cue uses setTargetAtTime: on the level gain (log.lvl) and on the panner (log.pan).
+  const param = (tag) => ({ value: 0, setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {}, setTargetAtTime(v) { log[tag].push(v); this.value = v; } });
+  const AC = class { constructor() { this.currentTime = 0; this.state = 'running'; this.destination = new Node(); }
+    createOscillator() { const o = new Node(); o.frequency = { value: 0 }; o.start = () => log.osc.push({ f: o.frequency.value, type: o.type }); o.stop = () => { if (o.frequency.value === 540 || o.frequency.value === 5) log.stops++; }; return o; }
+    createGain() { const g = new Node(); g.gain = param('lvl'); return g; }
+    createStereoPanner() { const p = new Node(); p.pan = param('pan'); return p; } };
+  const h = hud({ AudioContext: AC });
+  const voices = () => log.osc.filter((o) => o.f === 540).length;
+  const d = { ...base, side: 'defense', sites: ['A', 'B'], spike: { carrier: null, dropped: null, planted: null } };
+  let tick = 1;
+  const at = (r, t) => h.show({ ...d, tick: tick++, ...r }, t);
+  at({ phase: 'live', plantCue: null }, 0.1);
+  assert.equal(log.osc.length, 0, 'no cue, no sound');
+  at({ phase: 'live', plantCue: { pan: -0.75, gain: 0.5 } }, 0.2);
+  assert.equal(voices(), 1, 'one 540 Hz voice started');
+  assert.equal(log.osc.find((o) => o.f === 540).type, 'triangle');
+  assert.ok(log.osc.some((o) => o.f === 5 && o.type === 'square'), 'the 5 Hz pulse');
+  assert.equal(log.pan.at(-1), -0.75, 'panned left');
+  assert.ok(Math.abs(log.lvl.at(-1) - (0.03 + 0.09 * 0.5)) < 1e-9, `level ${log.lvl.at(-1)}`);
+  at({ phase: 'live', plantCue: { pan: 1, gain: 1 } }, 0.3);
+  assert.equal(voices(), 1, 'still one voice (updated, not restarted)');
+  assert.equal(log.pan.at(-1), 1); assert.ok(Math.abs(log.lvl.at(-1) - 0.12) < 1e-9);
+  // The cue goes away: the voice fades and stops.
+  at({ phase: 'live', plantCue: null }, 0.4);
+  assert.equal(log.stops, 2, 'voice + pulse stopped'); assert.equal(log.lvl.at(-1), 0);
+  at({ phase: 'live', plantCue: null }, 0.45);
+  assert.equal(log.stops, 2, 'stopped once');
+  // Starts again; the plant (phase planted) stops it even if a stale cue rides along.
+  at({ phase: 'live', plantCue: { pan: 0, gain: 0.3 } }, 0.5);
+  assert.equal(voices(), 2);
+  at({ phase: 'planted', plantCue: { pan: 0, gain: 0.3 }, spike: { carrier: null, dropped: null, planted: { x: 0, y: 0, z: 0, site: 'A' } } }, 0.6);
+  assert.equal(log.stops, 4, 'stopped on the plant');
+  // Paused (the same sim tick for > 0.25 s): silent.
+  const T = tick++;
+  h.show({ ...d, phase: 'live', plantCue: { pan: 0, gain: 0.3 }, tick: T }, 0.7);
+  assert.equal(voices(), 3);
+  h.show({ ...d, phase: 'live', plantCue: { pan: 0, gain: 0.3 }, tick: T }, 1.2);
+  assert.equal(log.stops, 6, 'stopped while paused');
+  // Round over (done): stopped.
+  at({ phase: 'live', plantCue: { pan: 0, gain: 0.3 } }, 1.3);
+  assert.equal(voices(), 4);
+  at({ phase: 'ended', done: true, plantCue: null }, 1.4);
+  assert.equal(log.stops, 8, 'stopped when the round view is done');
+  // Attack side: a cue never plays.
+  const a = hud({ AudioContext: AC });
+  a.show({ ...base, side: 'attack', phase: 'live', plantCue: { pan: 0, gain: 1 }, spike: { carrier: 'player', dropped: null, planted: null }, tick: 1 }, 0.1);
+  assert.equal(voices(), 4, 'attack side: no cue');
 });
 
 test('round HUD: beeps go through window.__aimAudio.bus.ui when present', () => {

@@ -134,6 +134,45 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
   // Beep spacing while planted: 1 s at the start, faster towards the end (VALORANT-like).
   const beepGap = (left) => (left > 20 ? 1 : left > 10 ? 0.5 : left > 5 ? 0.25 : 0.12);
 
+  // Enemy planting (defense side): a soft tone pulsing 5 times a second, panned left / right and as
+  // loud as round-core's plantCue says ({pan -1..1, gain 0.1..1}, quantised, null when nobody
+  // plants within 30 m). Silent while paused or when the round isn't live. One looping voice:
+  // triangle 540 Hz -> pulse gain (a 5 Hz square LFO) -> level -> StereoPanner (if any) -> out().
+  let cue = null;
+  function cueSet(c) {
+    try {
+      if (!cue) {
+        const { ctx, dest } = out();
+        if (ctx.state === "suspended") ctx.resume().catch(() => {});
+        const osc = ctx.createOscillator(), pulse = ctx.createGain(), lvl = ctx.createGain(), lfo = ctx.createOscillator(), depth = ctx.createGain();
+        const pan = typeof ctx.createStereoPanner === "function" ? ctx.createStereoPanner() : null;
+        osc.type = "triangle"; osc.frequency.value = 540;
+        lfo.type = "square"; lfo.frequency.value = 5;
+        pulse.gain.value = 0.5; depth.gain.value = 0.5; // pulse gain swings 0..1
+        lvl.gain.value = 0;
+        lfo.connect(depth); depth.connect(pulse.gain);
+        osc.connect(pulse); pulse.connect(lvl);
+        if (pan) { lvl.connect(pan); pan.connect(dest); } else lvl.connect(dest);
+        const t = ctx.currentTime;
+        osc.start(t); lfo.start(t);
+        cue = { ctx, osc, lfo, lvl, pan };
+      }
+      const t = cue.ctx.currentTime;
+      cue.lvl.gain.setTargetAtTime(0.03 + 0.09 * c.gain, t, 0.05);
+      if (cue.pan) cue.pan.pan.setTargetAtTime(Math.max(-1, Math.min(1, c.pan)), t, 0.05);
+    } catch {}
+  }
+  function cueStop() {
+    if (!cue) return;
+    const c = cue;
+    cue = null;
+    try {
+      const t = c.ctx.currentTime;
+      c.lvl.gain.setTargetAtTime(0, t, 0.015);
+      c.osc.stop(t + 0.08); c.lfo.stop(t + 0.08);
+    } catch {}
+  }
+
   // ---------- state ----------
   let last = null, nextBeep = 0, nextDefuseBeep = 0, endShownFor = null, seenTick = -1, seenAt = 0;
   // Detonation: the screen flash starts at flashAt and fades over FLASH_SEC; the end banner waits
@@ -158,6 +197,18 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
     sitesHint = list ? `Take the spike to ${list} site` : "Take the spike to a site";
     return sitesHint;
   }
+  // Defense objective, same ids: "Defend A", "Defend A and B", "Defend A, B and C"; none -> "Defend
+  // the sites". Cached per array.
+  let defRef = null, defText = "";
+  function defendHint(sites) {
+    if (sites === defRef && defText) return defText;
+    const ids = (Array.isArray(sites) ? sites : []).map(String).filter((s) => /^[A-Za-z0-9]{1,2}$/.test(s));
+    const list = ids.length > 1 ? `${ids.slice(0, -1).join(", ")} and ${ids[ids.length - 1]}` : ids[0];
+    defRef = sites;
+    defText = list ? `Defend ${list}` : "Defend the sites";
+    return defText;
+  }
+  const siteId = (id) => (typeof id === "string" && /^[A-Za-z0-9]{1,2}$/.test(id) ? id : "");
 
   function render(r, now) {
     pips(el.us, 1, r.playerAlive ? 1 : 0);
@@ -170,7 +221,9 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
     el.clockText.textContent = r.phase === "ended" ? "0:00" : fmt(r.timeLeft);
     const s = r.spike || {};
     const botDefusing = r.phase === "planted" && !!r.botDefusing;
-    el.spike.textContent = r.phase === "ended" ? "" : botDefusing ? "Spike being defused" : s.planted ? `Spike planted${s.planted.site ? " · " + s.planted.site : ""}` : r.carrying ? "You carry the spike" : s.dropped ? "Spike dropped" : "";
+    // Defense: the objective until the plant; never where the attackers' spike lies (dropped).
+    const defense = r.side === "defense";
+    el.spike.textContent = r.phase === "ended" ? "" : botDefusing ? "Spike being defused" : s.planted ? `Spike planted${s.planted.site ? " · " + s.planted.site : ""}` : r.carrying ? "You carry the spike" : defense ? defendHint(r.sites) : s.dropped ? "Spike dropped" : "";
 
     // Progress bar (your plant / defuse, or an enemy defusing your spike).
     const holding = r.holding;
@@ -192,7 +245,10 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
     let hint = "";
     if (r.phase === "barrier") hint = `Barriers drop in ${Math.ceil(r.timeLeft)} s`;
     else if (r.phase === "live" && r.carrying && r.playerAlive) hint = r.zone ? (holding ? "" : `Hold <kbd>4</kbd> to plant`) : siteHint(r.sites);
-    else if (r.phase === "planted" && r.side === "defense" && r.near && !holding) hint = `Hold <kbd>F</kbd> to defuse`;
+    else if (r.phase === "planted" && defense && r.playerAlive && !holding) {
+      const site = siteId(s.planted?.site);
+      hint = r.near ? `Hold <kbd>F</kbd> to defuse` : site ? `Defuse the spike at ${site}` : "Defuse the spike";
+    }
     el.hint.hidden = !hint;
     if (hint && el.hint.innerHTML !== hint) el.hint.innerHTML = hint;
     el.dead.hidden = !(r.phase === "planted" && !r.playerAlive);
@@ -229,6 +285,9 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
     // An enemy is defusing your spike: two short low beeps every 0.5 s.
     if (!botDefusing || paused) nextDefuseBeep = Math.max(nextDefuseBeep, now);
     else if (now >= nextDefuseBeep) { beep(260, 0.05, 0.16, "square"); setTimeout(() => beep(260, 0.05, 0.16, "square"), 90); nextDefuseBeep = now + 0.5; }
+    // An enemy is planting nearby (defense side): the panned pulsing tone.
+    const pc = defense && r.phase === "live" && !paused && r.plantCue && Number.isFinite(r.plantCue.pan) && Number.isFinite(r.plantCue.gain) ? r.plantCue : null;
+    if (pc) cueSet(pc); else cueStop();
     last = { phase: r.phase };
   }
 
@@ -236,7 +295,7 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
   function frame() {
     raf = 0;
     const r = window.__aimRound;
-    if (!window.__aimRoundOn || !r || r.done) { root.hidden = true; last = null; flashAt = null; bannerAt = 0; return; }
+    if (!window.__aimRoundOn || !r || r.done) { root.hidden = true; last = null; flashAt = null; bannerAt = 0; cueStop(); return; }
     mount();
     root.hidden = false;
     // Paused (pointer unlocked): the sim stops, so the view stops changing; keep showing it.

@@ -3,7 +3,7 @@
 // (round-<map>-<side>-<weapon>-<barrierSec>, served by main.js from app/round-scene.js) through
 // window.__aimLaunchScene (tools/round_patch.py). The rank is the same setting the drills use
 // (localStorage "aim-enemy-rank", read by the game when a round starts); "Default" = the round's
-// own bots. Last choices (map, weapon, barrier) are kept in "aim-round-setup".
+// own bots. Last choices (map, side, weapon, barrier) are kept in "aim-round-setup".
 // Maps: MAPS below; each needs app/mods/aim-rounds/<id>.json (name = the label) and <id>.nav.bin
 // (scripts/test-round-ui.mjs checks this). It also prefetches the bots' nav graph of every round
 // map (see prefetchNav below).
@@ -11,8 +11,15 @@
   if (window.__aimRoundPanel) return;
   const SETUP_KEY = "aim-round-setup";
   const RANK_KEY = "aim-enemy-rank";
-  const MAPS = [{ id: "ascent", name: "Ascent" }, { id: "rook", name: "Corrode" }];
-  const SIDES = [{ id: "attack", name: "Attack", sub: "Plant the spike" }, { id: "defense", name: "Defense", sub: "Coming soon", off: true }];
+  // defense: false = the attacker bots aren't ready on that map: Defense shows "Coming soon" there.
+  const MAPS = [{ id: "ascent", name: "Ascent", defense: true }, { id: "rook", name: "Corrode", defense: true }];
+  const SIDES = [
+    { id: "attack", name: "Attack", sub: "Plant the spike", subtitle: "Attack · plant the spike", blurb: "One round against 5 bots. Barriers hold both teams in their spawn area at the start; then plant the spike in a site and keep it alive." },
+    { id: "defense", name: "Defense", sub: "Stop the plant", subtitle: "Defense · stop the plant", blurb: "One round against 5 bots. Barriers hold both teams in their spawn area at the start; then stop the attackers from planting, or defuse the spike." },
+  ];
+  const SOON = "Coming soon";
+  const hasDefense = (map) => MAPS.some((m) => m.id === map && m.defense !== false);
+  const sideOf = (id) => SIDES.find((s) => s.id === id) || SIDES[0];
   const WEAPONS = [["vandal", "Vandal"], ["phantom", "Phantom"], ["spectre", "Spectre"], ["guardian", "Guardian"], ["sheriff", "Sheriff"], ["marshal", "Marshal"], ["outlaw", "Outlaw"], ["operator", "Operator"]];
   const BARRIERS = [10, 20, 30];
   const NONE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4M5 19 19 5"/></svg>';
@@ -50,9 +57,11 @@
     let v = {};
     try { v = JSON.parse(get(SETUP_KEY) || "{}") || {}; } catch {}
     const rank = get(RANK_KEY);
+    const map = MAPS.some((m) => m.id === v.map) ? v.map : MAPS[0].id;
     return {
-      map: MAPS.some((m) => m.id === v.map) ? v.map : MAPS[0].id,
-      side: "attack",
+      map,
+      // A missing or unknown side, or Defense on a map without it -> Attack.
+      side: v.side === "defense" && hasDefense(map) ? "defense" : "attack",
       weapon: WEAPONS.some((w) => w[0] === v.weapon) ? v.weapon : "vandal",
       barrier: BARRIERS.includes(v.barrier) ? v.barrier : 20,
       rank: ranks().some((r) => r[0] === rank) ? rank : "default",
@@ -104,7 +113,7 @@
     const shade = document.createElement("div");
     shade.className = "es-tool-shade aim-pick-shade";
     shade.innerHTML = `<section class="es-tool aim-pick aim-round" role="dialog" aria-modal="true" aria-label="Round">
-      <header class="es-tool-head"><div><h2>Round (beta)</h2><p>One round against 5 bots. Barriers hold both teams in their spawn area at the start; then plant the spike in a site and keep it alive.</p></div>
+      <header class="es-tool-head"><div><h2>Round (beta)</h2><p class="aim-round-blurb">${esc(sideOf(cur.side).blurb)}</p></div>
       <button type="button" class="es-tool-x" aria-label="Close">✕</button></header>
       <div class="es-tool-body">
         <div class="aim-round-row"><h3>Map</h3><div class="aim-round-opts" data-k="map"></div></div>
@@ -131,12 +140,29 @@
         e.stopPropagation();
         cur[k] = typeof cur[k] === "number" ? Number(value) : value;
         for (const o of b.parentElement.children) o.classList.toggle("is-active", o === b);
+        if (k === "map" || k === "side") syncSide();
       });
       return b;
     };
     const box = (k) => shade.querySelector(`[data-k="${k}"]`);
     for (const m of MAPS) box("map").append(opt("map", m.id, m.name));
-    for (const s of SIDES) box("side").append(opt("side", s.id, s.name, s.sub, s.off));
+    for (const s of SIDES) box("side").append(opt("side", s.id, s.name, s.sub));
+    // Defense only where the map has it (else "Coming soon", and a picked Defense falls back to
+    // Attack); the header text follows the side.
+    function syncSide() {
+      const can = hasDefense(cur.map);
+      if (!can && cur.side === "defense") cur.side = "attack";
+      for (const o of Array.from(box("side").children)) {
+        if (o.dataset.v === "defense") {
+          const s = sideOf("defense");
+          o.disabled = !can;
+          o.innerHTML = `<span>${esc(s.name)}</span><small>${esc(can ? s.sub : SOON)}</small>`;
+        }
+        o.classList.toggle("is-active", o.dataset.v === cur.side);
+      }
+      shade.querySelector(".aim-round-blurb").textContent = sideOf(cur.side).blurb;
+    }
+    syncSide();
     for (const [id, name] of WEAPONS) box("weapon").append(opt("weapon", id, name));
     for (const sec of BARRIERS) box("barrier").append(opt("barrier", sec, `${sec} s`));
 
@@ -173,14 +199,14 @@
       Promise.race([pending, new Promise((r) => setTimeout(r, 5000))]).then(() => { waiting = false; if (open?.shade === shade) launch(); });
     };
     const launch = () => {
-      put(SETUP_KEY, JSON.stringify({ map: cur.map, weapon: cur.weapon, barrier: cur.barrier }));
+      put(SETUP_KEY, JSON.stringify({ map: cur.map, side: cur.side, weapon: cur.weapon, barrier: cur.barrier }));
       put(RANK_KEY, cur.rank === "default" ? null : cur.rank);
       dispatchEvent(new Event("aim-bot-settings-change"));
       const map = MAPS.find((m) => m.id === cur.map);
       const code = `round-${cur.map}-${cur.side}-${cur.weapon}-${cur.barrier}`;
       close();
       // Inside the click handler, so the game's fullscreen request counts as a user action.
-      window.__aimLaunchScene({ shareCode: code, name: `Round · ${map ? map.name : cur.map}`, subtitle: "Attack · plant the spike", mapId: null });
+      window.__aimLaunchScene({ shareCode: code, name: `Round · ${map ? map.name : cur.map}`, subtitle: sideOf(cur.side).subtitle, mapId: null });
     };
     shade.querySelector(".aim-round-start").addEventListener("click", (e) => { e.stopPropagation(); start(); });
     for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) shade.addEventListener(type, (e) => e.stopPropagation());

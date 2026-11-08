@@ -52,11 +52,12 @@ function team(planSeed, { barrierSec = 20 } = {}) {
   return { N, doc, r, plan: r.attack, A: I.atkData(N, r), state, actors, ctxAt, tickAll, place };
 }
 
-test('R3 defense scene: buildDoc adds the map\'s attack data on the defense side only; defense stays off in the lobby (SIDES)', () => {
+test('R3 defense scene: buildDoc adds the map\'s attack data on the defense side only; defense is a lobby side (SIDES); this file runs on Ascent', () => {
+  assert.equal(SW.MAP, 'ascent', 'round-bots-sweep.mjs MAP must be ascent here (unset ROUND_MAP / --map)');
   const d = buildDoc(ASCENT, { side: 'defense', weapon: 'vandal', barrierSec: 20 }).rules.round;
   assert.deepEqual(d.attackData, ASCENT.attack);
   assert.equal('attackData' in buildDoc(ASCENT, { side: 'attack', weapon: 'vandal', barrierSec: 20 }).rules.round, false);
-  assert.deepEqual(SIDES, ['attack']);
+  assert.deepEqual(SIDES, ['attack', 'defense']);
   for (const [k, site, lurk] of [['A', 'A', false], ['A_LURK', 'A', true], ['B', 'B', false], ['B_LURK', 'B', true], ['A_MID', 'A', null]]) {
     const a = SW.defenseDoc({ planSeed: PLAN[k] }).rules.round.attack;
     assert.equal(a.site, site, `plan seed ${k}`);
@@ -126,15 +127,42 @@ test('R3 fallbacks: no nav / no plan / no plan site -> static at the spawn (face
   runFallback((r) => { r.attack.site = 'C'; });
 });
 
-test('R3 go: not before the gather time while bots are still out; every bot latches it on the same tick (gather time / all staged / any go in the snapshot)', () => {
+test('R3 go: not before the gather time while bots are still out; every bot latches it on the same tick (gather time + half staged / 15 s cap / all staged / any go in the snapshot)', () => {
   const go = (t) => t.actors.map((a) => a.behavior.roundBot.go);
-  // Gather time.
+  // Ticks only the living bots (the sim doesn't update dead actors); the snapshot keeps the dead ones
+  // with alive false, like aimRoundBotList does.
+  const tickLiving = (t, tick) => { const ctx = t.ctxAt(tick); for (const a of t.actors) if (a.alive) bots.roundBotUpdate({}, a, ctx, 1 / TPS, () => {}); };
+  // Gather time with ceil(5/2) - 1 = 2 of 5 members staged: no go, until the 15 s cap.
   let t = team(PLAN.A);
+  assert.equal(t.plan.lurker, null, 'plan A has no lurker: 5 members');
   t.state.phase = 'live';
-  const g0 = Math.ceil(t.plan.gatherSec * TPS);
-  for (const k of [1, 2, g0 - 1]) { t.tickAll(k); assert.deepEqual(go(t), [0, 0, 0, 0, 0], `tick ${k}`); }
+  const g0 = Math.ceil(t.plan.gatherSec * TPS), cap = Math.ceil((t.plan.gatherSec + 15) * TPS);
+  for (const a of t.actors.slice(0, 2)) t.place(a, a.behavior.roundBot.goal);
+  for (const k of [1, 2, g0 - 1, g0, g0 + 1, cap - 1]) { t.tickAll(k); assert.deepEqual(go(t), [0, 0, 0, 0, 0], `2 of 5 staged, tick ${k}`); }
+  assert.deepEqual(t.actors.map((a) => a.behavior.roundBot.atStage), [1, 1, 0, 0, 0], '2 of 5 staged');
+  t.tickAll(cap);
+  assert.deepEqual(go(t), [1, 1, 1, 1, 1], 'all at gatherSec + 15 s (cap)');
+  // Nobody staged at all: the cap alone.
+  t = team(PLAN.A);
+  t.state.phase = 'live';
+  for (const k of [g0, cap - 1]) { t.tickAll(k); assert.deepEqual(go(t), [0, 0, 0, 0, 0], `0 staged, tick ${k}`); }
+  t.tickAll(cap);
+  assert.deepEqual(go(t), [1, 1, 1, 1, 1], '0 staged: the cap');
+  // ceil(5/2) = 3 staged: no go before the gather time, then all 5 on the gather tick.
+  t = team(PLAN.A);
+  t.state.phase = 'live';
+  for (const a of t.actors.slice(1, 4)) t.place(a, a.behavior.roundBot.goal);
+  for (const k of [1, 2, g0 - 1]) { t.tickAll(k); assert.deepEqual(go(t), [0, 0, 0, 0, 0], `3 of 5 staged, tick ${k}`); }
   t.tickAll(g0);
-  assert.deepEqual(go(t), [1, 1, 1, 1, 1], 'all at the gather time');
+  assert.deepEqual(go(t), [1, 1, 1, 1, 1], '3 of 5 staged: all at the gather time');
+  // Deaths shrink the count: 2 of 5 dead -> 3 members, ceil(3/2) = 2 staged is enough at the gather time.
+  t = team(PLAN.A);
+  t.state.phase = 'live';
+  t.actors[3].alive = false; t.actors[4].alive = false;
+  for (const a of t.actors.slice(0, 2)) t.place(a, a.behavior.roundBot.goal);
+  for (const k of [1, 2, g0 - 1]) { tickLiving(t, k); assert.deepEqual(go(t).slice(0, 3), [0, 0, 0], `2 of 3 staged, tick ${k}`); }
+  tickLiving(t, g0);
+  assert.deepEqual(go(t).slice(0, 3), [1, 1, 1], '2 of 3 living staged: all living at the gather time');
   // All staged (members only: the lurker doesn't count): staged this tick -> go on the next.
   t = team(PLAN.A_LURK);
   t.state.phase = 'live';
@@ -334,6 +362,69 @@ test('R3 real Ascent: the player in sight (idle on the plan site): the attackers
     assert.ok(m.maxPlanters <= 1 && m.plantingNotCarrier === 0);
     assert.ok(m.outcome === 'died' || m.plant >= 0, `${tag}: ended by kills or planted (outcome ${m.outcome})`);
     console.log(`${tag}: seen ${m.seen} ticks, ${m.shots} shots, outcome ${m.outcome}, planted ${m.plant >= 0 ? m.plantAfterLive : '-'}`);
+  }
+});
+
+// S4: the defending player against a real bot plant (save -> edit -> restore after the plant).
+// killAll: every attacker dead (alive false, round-core's enemiesDead = enemyCount). The player
+// stands 0.3 m from the spike (any facing counts that close). Hold use with s.setRoundHold after the
+// restore (a restore clears the held keys).
+function afterPlant(m, { killAll = true } = {}) {
+  const s = m.s, st = s.saveState(), r = st.aimRound, sp = r.spike.planted;
+  assert.equal(r.phase, 'planted', 'planted');
+  if (killAll) {
+    for (const a of st.actors) if (a.behavior?.roundBot) { a.alive = false; a.health = 0; }
+    r.enemiesDead = 5;
+  }
+  st.player.position = { x: sp.x + 0.3, y: sp.y + 0.02, z: sp.z };
+  s.restoreState(st);
+  return s;
+}
+const stepUntil = (s, maxSec, fn) => {
+  for (let i = 0; i < maxSec * TPS; i++) { s.step(IDLE); const r = s.saveState().aimRound; if (fn(r) || r.phase === 'ended') return r; }
+  return s.saveState().aimRound;
+};
+
+test('S4 real Ascent: defending against a bot plant: every attacker dead after the plant -> the round goes on; hold use at the spike -> defused in 7 s with the 3.5 s checkpoint (win); no hold -> detonated (loss)', { skip }, async () => {
+  for (const planSeed of [PLAN.A, PLAN.B]) {
+    // Defuse.
+    let m = await run({ doc: SW.defenseDoc({ planSeed, barrierSec: 10 }), seed: 3, postSec: 3 });
+    assert.ok(m.plant >= 0, `plan ${m.plan.site}: the bots planted`);
+    let s = afterPlant(m);
+    let r = stepUntil(s, 1, () => false);
+    assert.equal(r.phase, 'planted', 'all attackers dead after the plant: still planted');
+    assert.equal(r.playerAlive, true); assert.equal(r.near, true, 'at the spike');
+    assert.equal(r.defuse, 0, 'no defuse without the key');
+    s.setRoundHold({ use: true });
+    const t0 = r.tick;
+    let cp = -1;
+    r = stepUntil(s, 9, (q) => { if (cp < 0 && q.checkpoint) cp = q.tick; return false; });
+    s.setRoundHold({ use: false });
+    assert.equal(r.reason, 'defused', `plan ${m.plan.site}: ${r.reason}`); assert.equal(r.winner, 'defense');
+    const ts = 1 / TPS, took = (r.endTick - t0) * ts, cpAt = (cp - t0) * ts;
+    assert.ok(took >= 7 - 1e-9 && took <= 7.3, `defuse took ${took} s`);
+    assert.ok(cpAt >= 3.5 - 1e-9 && cpAt <= 3.8, `checkpoint at ${cpAt} s`);
+    assert.equal(s.snapshot().round.win, true, 'view: win');
+    const took1 = took, cp1 = cpAt;
+    // Detonation.
+    m = await run({ doc: SW.defenseDoc({ planSeed, barrierSec: 10 }), seed: 3, postSec: 3 });
+    s = afterPlant(m);
+    r = stepUntil(s, 47, () => false);
+    assert.equal(r.reason, 'detonated', `plan ${m.plan.site}: no hold -> ${r.reason}`); assert.equal(r.winner, 'attack');
+    const boom = (r.endTick - m.plant) / TPS;
+    assert.ok(Math.abs(boom - 45) < 0.05, `detonated ${boom} s after the plant`);
+    console.log(`defense plan ${m.plan.site}: defused in ${took1.toFixed(2)} s (checkpoint ${cp1.toFixed(2)} s); no hold: detonated at +${boom.toFixed(2)} s`);
+  }
+});
+
+test('S4 real Ascent: the defending player at the spike in sight of the living attackers (post-plant spots) -> killed: "died" (loss)', { skip }, async () => {
+  for (const planSeed of [PLAN.A, PLAN.B]) {
+    const m = await run({ doc: SW.defenseDoc({ planSeed, barrierSec: 10 }), seed: 3, postSec: 10 });
+    assert.ok(m.plant >= 0, 'planted');
+    const s = afterPlant(m, { killAll: false });
+    const r = stepUntil(s, 46, () => false);
+    assert.equal(r.reason, 'died', `plan ${m.plan.site}: ${r.reason}`); assert.equal(r.winner, 'attack'); assert.equal(r.playerAlive, false);
+    console.log(`defense plan ${m.plan.site}: player at the spike died ${((r.endTick - m.plant) / TPS).toFixed(2)} s after the plant`);
   }
 });
 

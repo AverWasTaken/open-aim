@@ -9,7 +9,7 @@ const CODE = /^round-([a-z0-9]+)-(attack|defense)-([a-z]+)-(\d{1,2})$/;
 const WEAPONS = ["vandal", "phantom", "sheriff", "operator", "spectre", "guardian", "marshal", "outlaw", "odin", "bulldog", "ghost", "classic"];
 const AUTO = new Set(["vandal", "phantom", "spectre", "odin", "bulldog", "stinger", "ares"]);
 const BARRIERS = [10, 20, 30];
-const SIDES = ["attack"]; // defense comes with the attacker bots (milestone 3)
+const SIDES = ["attack", "defense"];
 
 function parseCode(code) {
   const m = CODE.exec(String(code || ""));
@@ -51,7 +51,8 @@ function buildDoc(data, opts) {
       });
     }
   } else {
-    // Defense side (milestone 3): attacker bots stand at their spawn until they get movement.
+    // Defense side: one attacker bot per attacker spawn; the roundBot behaviour runs the attack plan
+    // (cfg.attack from roundPrepare, the map's attackData): wait, stage, go, plant.
     groups.spawn = [];
     data.spawns.attack.forEach((p, i) => {
       const id = `round-spawn-${i + 1}`;
@@ -129,11 +130,13 @@ function roundScene(modsDir, code) {
   // Shown on the game's brief card before the round (round-hud.js hides the card's generic parts
   // and keeps the line breaks). Plain text: the card escapes it. Restart is a user keybind, shown
   // live by the game's control hint under the card, so it isn't listed here.
-  // TODO(defense side): the goal and key lines are the attacker's.
+  // The goal and key lines follow the side (attack: plant with 4; defense: defuse with F, the
+  // game's default "use" key; round_patch.py feeds the held "use" action to round-core).
+  const attack = opts.side === "attack";
   const description = [
     `${data.name} · ${cap(opts.side)} · ${cap(opts.weapon)} · ${opts.barrierSec} s barrier.`,
-    "Plant the spike. Defenders hold the sites.",
-    "Enter: start · Hold 4: plant · Esc: menu",
+    attack ? "Plant the spike. Defenders hold the sites." : "Stop the plant, or defuse it.",
+    attack ? "Enter: start · Hold 4: plant · Esc: menu" : "Enter: start · Hold F: defuse · Esc: menu",
   ].join("\n");
   return {
     authorNickname: "open-aim", authorUid: "local", blockCount: 0, createTime: time,

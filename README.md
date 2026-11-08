@@ -130,26 +130,47 @@ attack and **inspect (Y)** animations. Choose yours in **Settings**.
 
 ## Round mode (beta)
 
-Play **one VALORANT-style round** against 5 bots. Open it with **Round (beta)** in the lobby's
-top bar, pick the map (Ascent for now), the enemy rank, your weapon and how long the barriers stay
-up (10, 20 or 30 seconds), then press **Start**.
+Play **one VALORANT-style round**, you against 5 bots. Open it with **Round (beta)** in the
+lobby's top bar, pick the map (**Ascent** or **Corrode**), your side (**Attack** or **Defense**),
+the enemy rank, your weapon and how long the barriers stay up (10, 20 or 30 seconds), then press
+**Start**. The panel remembers your picks.
 
-- You attack. At the start, barriers keep you in the attacker side of the map (you see them as
-  coloured walls); the defenders stand in their setup spots near both sites and mid (5 bots, a
-  different setup every round). Nobody can shoot until the barriers drop.
-- Then you have 1:40 to plant. Walk into site A or B and **hold 4** for 4 seconds (stand still or
-  walk; running, jumping or letting go starts it over). You can't shoot while planting.
-- After the plant the spike goes off in 45 seconds (it beeps faster near the end).
+Both sides start the same way: barriers keep each team in its spawn area (you see them as coloured
+walls) and nobody can shoot until they drop. Then the round lasts 1:40, and a planted spike goes
+off 45 seconds after the plant (it beeps faster near the end).
+
+**Attack** (you plant):
+- The 5 defenders walk from their spawn to setup spots near both sites and mid (a different setup
+  every round). After a plant they come back to the site and one of them defuses.
+- Walk into a site and **hold 4** for 4 seconds to plant (stand still or walk; running, jumping or
+  letting go starts it over). You can't shoot while planting.
 - **You win** when the spike goes off or every defender is dead. **You lose** when you die before
-  the plant or the time runs out before the plant. If you die after the plant, the round goes on
-  and the spike decides it.
+  the plant, the time runs out before the plant, or they defuse it. If you die after the plant,
+  the round goes on and the spike decides it.
+
+**Defense** (you stop the plant):
+- The 5 attackers wait behind their barriers, then gather on one route to one site (A or B, picked
+  at random; sometimes one of them takes the other route). They go in together, one plants, and the
+  rest hold spots around the spike. If the bot with the spike dies, another one picks it up.
+- The top of the screen says which sites to defend. You hear a soft pulsing tone while an attacker
+  plants within about 30 m: left or right tells you where, louder means closer.
+- After the plant, find the spike and **hold F** for 7 seconds to defuse (stand still or walk). Past
+  3.5 seconds a release keeps half the progress.
+- **You win** when you defuse, the time runs out before the plant, or every attacker dies before the
+  plant. **You lose** when you die or the spike goes off. Killing every attacker after the plant is
+  not enough: you still have to defuse.
+
+For both sides:
 - A banner shows the result, then the normal result screen. Round runs are not saved to your drill
   history and leave no replay.
 - The rank tiles are the same Enemy rank setting the drills use (Default = the round's own bots).
+- 4 and F are the plant and defuse keys shown in game; F is the game's "use" key, so if you moved
+  "use" to another key, defuse with that one.
 
-Known limits of the beta: the bots don't move yet (they hold their spot and shoot), there is no
-defense side yet, you can walk through bots, and the barriers were placed from the map data, not
-checked in game on every corner. How the map data is made: [tools/README.md](tools/README.md#round-mode-data).
+Known limits of the beta: you can walk through bots; on Ascent the attackers reach B from the
+defender side of B Main (they don't take the gap jump), so you may see them early from the
+defender spawn; and the barriers were placed from the map data, not checked in game on every
+corner. How the map data is made: [tools/README.md](tools/README.md#round-mode-data).
 
 <br>
 

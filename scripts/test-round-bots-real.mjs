@@ -227,6 +227,10 @@ test('real Ascent: a setup just beyond def-mid -> the bot waits within 2 m of th
 // their setups (barrier 1 s); the plant is forced (save -> edit -> restore) with the player hidden
 // at the attacker spawn or dead, except the one real hold-plant test.
 const SW = HAVE_SITE ? await import(pathToFileURL(path.join(root, 'scripts', 'round-bots-sweep.mjs')).href) : null;
+// The sweep module loads the map named by --map / ROUND_MAP; these tests are Ascent's.
+test('real Ascent: the sweep module runs on Ascent (ROUND_MAP / --map unset)', { skip }, () => {
+  assert.equal(SW.MAP, 'ascent', 'unset ROUND_MAP (or --map) before running the Ascent bot tests');
+});
 const SITE_NODE = (N, site) => N.g.header.siteGoals[site].node;
 const T_DEFUSE = Math.round(7 * TPS), T_CHECK = Math.round(3.5 * TPS);
 const plantMs = [];

@@ -189,7 +189,9 @@
 //   Live: walk to the slot (mode stage there, facing the route entry). atStage = the bot's node is
 //   within 0.15 s (field) of its slot. go (latched, the same tick in every bot: snapshot + round state
 //   only): any snapshot entry has go, OR every member (alive, nav, not stuck, not the lurker, not the
-//   fetcher) is atStage, OR gatherSec after the drop, OR round time left < group travel (the carrier's
+//   fetcher) is atStage, OR gatherSec after the drop AND >= ceil(members / 2) of them are atStage (no
+//   members: gatherSec alone), OR gatherSec + GO_CAP (15 s) after the drop (a fight near staging can't
+//   hold the team until the time-short rule), OR round time left < group travel (the carrier's
 //   field time to its nearer plant spot, else the max over members; x 6.75 / run speed + 0.3 s) +
 //   plantSec + 10 s. After go: the carrier (ctx.round.state.spike.carrier === actor.id; the view hides
 //   it) walks to its plant spot (nearer by field, latched while it carries), everyone else (lurker
@@ -261,7 +263,7 @@ const ROT_DELAY = { iron: -1, bronze: -1, silver: 6, gold: 6, platinum: 4, diamo
 const ROT_DEFAULT = 5;
 const ROUND_DEF = { spikeSec: 45, defuseSec: 7, defuseCheckpointSec: 3.5, roundSec: 100, plantSec: 4 }; // = round-core ROUND_DEFAULTS
 // R3 attackers
-const GO_MARGIN = 10, GATHER_DEF = 20, AT_STAGE = 0.15, PLANT_AT = 0.3, PLANT_PRESS = 3;
+const GO_MARGIN = 10, GO_CAP = 15, GATHER_DEF = 20, AT_STAGE = 0.15, PLANT_AT = 0.3, PLANT_PRESS = 3;
 const FETCH_XZ = 1.0, FETCH_DY = 1.8, FETCH_LRU = 8;
 // The game mover's step-up (il / JU: a walking bot climbs at most 0.45 m; the nav was baked with
 // 0.5): attackers path only over walk edges that rise <= STEP_MAX, and a straight line may not cross
@@ -1059,16 +1061,18 @@ function attackTick(N, actor, ctx, st, cfg, rs, barrier, mask) {
     const lurker = typeof cfg.attack?.lurker === 'string' ? cfg.attack.lurker : null, plantF = A.plant.map((pl) => fieldFor(N, pl.node, null, 1));
     const tOf = (o) => (Number.isInteger(o.node) && o.node >= 0 && o.node < g.count ? Math.min(...plantF.map((f) => f.dist[o.node])) : Infinity);
     const c = carrier !== null ? list.find((o) => o.id === carrier) ?? null : null;
-    let anyGo = false, all = true, travel = c ? tOf(c) : -Infinity;
+    let anyGo = false, all = true, members = 0, staged = 0, travel = c ? tOf(c) : -Infinity;
     for (const o of list) {
       if (o.go === 1) anyGo = true;
       if (o.nav !== 1 || o.mode === MODE.stuck || o.spawnerId === lurker || o.id === st.fetch) continue;
-      if (o.atStage !== 1) all = false;
+      members++;
+      if (o.atStage === 1) staged++; else all = false;
       if (!c) { const t = tOf(o); if (finite(t)) travel = Math.max(travel, t); }
     }
     const sec = finite(travel) ? (travel * RUN_SPEED) / runSpeed(ctx, false) + ACCEL_MARGIN : 0;
     const liveT = (ctx.tick - rs.liveTick) * ts, left = num(cfg.roundSec, ROUND_DEF.roundSec) - liveT;
-    if (anyGo || all || liveT >= num(cfg.attack?.gatherSec, GATHER_DEF) || left < sec + num(cfg.plantSec, ROUND_DEF.plantSec) + GO_MARGIN) st.go = 1;
+    const gather = num(cfg.attack?.gatherSec, GATHER_DEF), half = liveT >= gather && staged >= Math.ceil(members / 2);
+    if (anyGo || all || half || liveT >= gather + GO_CAP || left < sec + num(cfg.plantSec, ROUND_DEF.plantSec) + GO_MARGIN) st.go = 1;
   }
   // Post-plant latch (first tick that sees the plant): the planter first, then by id -> the plant
   // spot's post-plant spots in order; the rest hold their clear spot.
