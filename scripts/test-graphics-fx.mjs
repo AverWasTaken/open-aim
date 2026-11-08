@@ -324,7 +324,7 @@ test('spark streak quads are wound CCW (front-facing; the material culls back fa
   // The JS mirror below follows these exact shader lines.
   assert.match(vs, /vec3 sd = cross\(normalize\(hv\), ax\);/);
   assert.match(vs, /vec3 p = mix\(tv, hv, aCorner\.y\) \+ sd \* aCorner\.x \* w;/);
-  assert.notEqual(fx.pools.sparks.material.side, 2, 'single-sided material: winding matters');
+  assert.ok(fx.pools.sparks.material.side === undefined || fx.pools.sparks.material.side === 0, 'single-sided (FrontSide) material: winding matters');
   const corner = fx.pools.sparks.geometry.attributes.aCorner.array, index = fx.pools.sparks.geometry.index.array;
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   const norm = (a) => { const l = Math.hypot(...a); return a.map((x) => x / l); };
