@@ -31,6 +31,7 @@ Run them from the repository root with Python 3.
 | `maps_callouts.mjs` | Writes `app/mods/aim-maps/<map>.minimap.json` for every map: the game's callout list with Riot's in-game English names ("A Main", "B Boat House") in place of the Chinese ones, from `tools/maps-callouts-en.json`, node only. Only the names change; every spot and every other byte stays as in `site/aim-maps/` (juliett, which only exists in `app/mods/aim-maps/`, is renamed in place). `--check` fails when a file is out of date. See [Callout names](#callout-names). |
 | `maps_callout_patch.py` | Keeps the space in English callout names ("A Main", not "AMain") in the place line of the workshop cards and the workshop detail: the nearest-callout lookup `$u` in the mods `Dc2Dm9E6.js` (both copies) now removes only whitespace next to a non-ASCII character, so Chinese names give the same text as before. Details in the script's docstring. |
 | `training_launch_patch.py` | Training shell hooks in the lobby (`ChJ6FlD4.js`, both copies): `window.__aimLaunchWorkshop(item or code)` starts a drill exactly like a lobby click (rank picker gate, workshop brief, so the run is saved to the workshop history); it refuses while a drill is open or loading. `window.__aimLeaveTraining()` closes the open or loading drill like its Back button. Used by the routines and progress scripts; checked by `scripts/test-training-hooks.mjs`. Details in the script's docstring. |
+| `training_stats_patch.py` | End-of-run aim stats for the training shell scripts (`OkAdunfX.js`, both copies): in `Ks` (the live run's onRoundComplete handler), right before `p.value=wt,h.value=Math.round(wt.smoothness)`, it dispatches the window event `aim-run-stats` once per live run: the run record's id/shareCode (null for Studio/plaza and Round runs), outcome, `round`/`tracking` tags, the `up()` stats, one compact row per `cp()` life (ticks, first/second hit, moving, approach stop/radius/stop depth) and the killLog spawn-to-kill ticks. Read-only after the run ended: no sim change, no replay flag. `app/training-analytics.js` stores a summary per run in `aim-training-analytics-v1`; other scripts can listen to the event too. Checked by `npm run test:stats`. |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
@@ -84,6 +85,7 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 19. `graphics_look_patch.py` (needs `lighting_patch.py`; BiMsX6Xn only; refuses to run twice: it looks
     for `/* graphics-look */`; keeps each copy's own line ends). It doesn't share code with the other
     graphics scripts (fx, holes, botfx, warm, leak) and applies on top of them in any order. See below.
+20. `training_stats_patch.py` (OkAdunfX only, independent of the others; refuses to run twice: it looks for `"aim-run-stats"`). It keeps each copy's own line ends.
 
 ## Range drill floor (graphics_look_patch.py)
 

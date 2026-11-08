@@ -180,6 +180,11 @@ const VALORANT_IMPORT_JS = ["valorant-import.js", "valorant-import-ui.js"]
 const CROSSHAIR_PROFILES_JS = fs.readFileSync(path.join(__dirname, "feel-crosshair-profiles.js"), "utf-8");
 const VALORANT_IMPORT_CSS = fs.readFileSync(path.join(__dirname, "valorant-import.css"), "utf-8");
 
+// Aim analytics per saved run (data only): stores the game's end-of-run "aim-run-stats" event
+// (tools/training_stats_patch.py) in aim-training-analytics-v1. The core (pure math) is loaded first.
+const TRAINING_ANALYTICS_JS = ["training-analytics-core.js", "training-analytics.js"]
+  .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
+
 // The Studio (studio/ folder, served at /studio/) replaces the site's own scenario editor:
 // /aim/studio redirects there. studio-launch.js lets the Studio start a drill in the lobby.
 const STUDIO_DIR = path.join(__dirname, "studio");
@@ -214,6 +219,7 @@ const UI_SCRIPTS = [
   ["SHOT GRAPH", SHOT_GRAPH_JS],
   ["CROSSHAIR PROFILES", CROSSHAIR_PROFILES_JS],
   ["VALORANT IMPORT", VALORANT_IMPORT_JS],
+  ["TRAINING ANALYTICS", TRAINING_ANALYTICS_JS],
 ];
 // The startup screen goes in on its own, straight away (see createWindow).
 const STARTUP_SCREEN_RUN = `try {

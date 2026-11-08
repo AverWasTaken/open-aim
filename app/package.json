@@ -30,7 +30,8 @@
     "test:feelxbloom": "node --test ../scripts/test-feel-xbloom.mjs",
     "test:feelxprof": "node --test ../scripts/test-feel-xprofiles.cjs",
     "test:feelcstrafe": "node --test ../scripts/test-feel-cstrafe.cjs ../scripts/test-feel-cstrafe-sim.mjs",
-    "test:graphics-look": "node --test ../scripts/test-graphics-look.mjs"
+    "test:graphics-look": "node --test ../scripts/test-graphics-look.mjs",
+    "test:stats": "node --test ../scripts/test-training-stats.mjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
@@ -82,7 +83,9 @@
       "fan-audio.js",
       "feel-audio.js",
       "sniper-scopes.js",
-      "advanced-tracers.js"
+      "advanced-tracers.js",
+      "training-analytics-core.js",
+      "training-analytics.js"
     ],
     "extraResources": [
       {
