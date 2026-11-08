@@ -67,7 +67,9 @@ void main(){
   vec3 ax = len > 1e-5 ? axis / len : normalize(dirV + vec3(1e-4));
   float w = max(aT.w * (1.0 - 0.45 * vU), -hv.z * 0.0011);
   if (len < w * 2.0) tv = hv - ax * w * 2.0;
-  vec3 sd = cross(ax, normalize(hv));
+  // side vector 90 deg clockwise from the streak axis on screen, so the quad is wound CCW (front
+  // facing): the material culls back faces, and the other order drew nothing.
+  vec3 sd = cross(normalize(hv), ax);
   float sl = length(sd);
   sd = sl > 1e-5 ? sd / sl : vec3(1.0, 0.0, 0.0);
   vec3 p = mix(tv, hv, aCorner.y) + sd * aCorner.x * w;

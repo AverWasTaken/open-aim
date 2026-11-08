@@ -315,3 +315,30 @@ test('fx: shotgun-style bursts are thinned; billboard shaders use centred corner
   assert.match(fx.pools.kills.material.fragmentShader, /varying float vHead;/);
   fx.dispose();
 });
+
+test('spark streak quads are wound CCW (front-facing; the material culls back faces)', async () => {
+  const { createFx } = await import(pathToFileURL(FX).href);
+  const { T } = stubThree();
+  const fx = createFx(T, {});
+  const vs = fx.pools.sparks.material.vertexShader;
+  // The JS mirror below follows these exact shader lines.
+  assert.match(vs, /vec3 sd = cross\(normalize\(hv\), ax\);/);
+  assert.match(vs, /vec3 p = mix\(tv, hv, aCorner\.y\) \+ sd \* aCorner\.x \* w;/);
+  assert.notEqual(fx.pools.sparks.material.side, 2, 'single-sided material: winding matters');
+  const corner = fx.pools.sparks.geometry.attributes.aCorner.array, index = fx.pools.sparks.geometry.index.array;
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const norm = (a) => { const l = Math.hypot(...a); return a.map((x) => x / l); };
+  // view space (camera at origin looking -z); streaks 3 m away in 8 screen directions
+  for (let k = 0; k < 8; k++) {
+    const ang = (k / 8) * Math.PI * 2, hv = [0.05 * Math.cos(ang), 0.05 * Math.sin(ang), -3], tv = [0, 0, -3];
+    const ax = norm(hv.map((x, i) => x - tv[i])), sd = norm(cross(norm(hv), ax)), w = 0.01;
+    const P = [0, 1, 2, 3].map((v) => { const cx = corner[v * 2], cy = corner[v * 2 + 1];
+      const p = tv.map((t, i) => t + (hv[i] - t) * cy + sd[i] * cx * w); return [p[0] / -p[2], p[1] / -p[2]]; });
+    for (let t = 0; t < 6; t += 3) {
+      const [a, b, c] = [P[index[t]], P[index[t + 1]], P[index[t + 2]]];
+      const area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+      assert.ok(area > 0, `streak dir ${k}, triangle ${t / 3}: clockwise (would be culled)`);
+    }
+  }
+  fx.dispose();
+});
