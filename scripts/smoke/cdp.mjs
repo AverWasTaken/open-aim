@@ -192,6 +192,8 @@ export class Cdp {
     Tab: { key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 },
     Escape: { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 },
     t: { key: "t", code: "KeyT", windowsVirtualKeyCode: 84, text: "t" },
+    r: { key: "r", code: "KeyR", windowsVirtualKeyCode: 82, text: "r" },
+    w: { key: "w", code: "KeyW", windowsVirtualKeyCode: 87, text: "w" },
   };
 
   async key(name) {
@@ -201,6 +203,21 @@ export class Cdp {
     await this.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...base });
     if (k.text) await this.send("Input.dispatchKeyEvent", { type: "char", ...base, text: k.text, unmodifiedText: k.text });
     await this.send("Input.dispatchKeyEvent", { type: "keyUp", ...base });
+  }
+
+  // Hold / release a key separately (edge:blur holds W through an alt-tab).
+  async keyDown(name) {
+    const k = Cdp.KEYS[name];
+    if (!k) throw new Error("unknown key " + name);
+    const base = { key: k.key, code: k.code, windowsVirtualKeyCode: k.windowsVirtualKeyCode, nativeVirtualKeyCode: k.windowsVirtualKeyCode };
+    await this.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...base });
+    if (k.text) await this.send("Input.dispatchKeyEvent", { type: "char", ...base, text: k.text, unmodifiedText: k.text });
+  }
+
+  async keyUp(name) {
+    const k = Cdp.KEYS[name];
+    if (!k) throw new Error("unknown key " + name);
+    await this.send("Input.dispatchKeyEvent", { type: "keyUp", key: k.key, code: k.code, windowsVirtualKeyCode: k.windowsVirtualKeyCode, nativeVirtualKeyCode: k.windowsVirtualKeyCode });
   }
 
   async screenshot(file) {

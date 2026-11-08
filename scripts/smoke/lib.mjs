@@ -344,6 +344,7 @@ const SHELL_SCRIPT_PREFIX = /^[A-Z][A-Z0-9 ]{2,}:/; // "ROUND HUD:", "STARTUP SC
 // Returns 'fail' | 'warn' | 'ignore'.
 export function classifyError(e) {
   const text = String(e.text || "");
+  if (e.kind === "health") return "warn"; // main.log health lines: only soak/edge steps fail on them (run.mjs)
   if (e.kind === "exception") return "fail";
   if (e.kind === "shell") return ALLOW.some((a) => a.shell && a.test(e)) ? "ignore" : "fail"; // main.log ERROR / shell problem
   if (e.level === "warning" || e.level === "warn" || e.level === "verbose" || e.level === "info") return "warn";
@@ -394,4 +395,147 @@ export function findLeftovers(cdpPort, marks) {
     const i = l.indexOf("|");
     return { pid: Number(l.slice(0, i)), cmd: low(l.slice(i + 1)) };
   }).filter((p) => p.cmd.includes(`--remote-debugging-port=${cdpPort}`) && ms.some((m) => p.cmd.includes(m)));
+}
+
+// ---------------------------------------------------------------- soak / edge (opt-in groups)
+// main.log health lines the shell writes at WARN level (ERROR lines such as PAGE CRASHED are
+// already caught by mainLogError). The soak and edge steps fail on these (plan W2 R12);
+// default steps only list them as warnings. A helper process that exits cleanly (reason
+// clean-exit, e.g. an idle utility process) is only a warning everywhere.
+// Returns {level: 'fail'|'warn', text} or null.
+export function mainLogHealth(line) {
+  const m = String(line).match(/^\d{4}-\d\d-\d\dT[\d:.]+Z (WARN|ERROR) (.*)$/);
+  if (!m || m[1] !== "WARN") return null;
+  const text = m[2];
+  if (/^CHILD PROCESS GONE:/.test(text)) return { level: /\breason=clean-exit\b/.test(text) ? "warn" : "fail", text };
+  if (/^PAGE NOT RESPONDING\b/.test(text)) return { level: "fail", text };
+  if (/^PAGE RELOAD\b/.test(text)) return { level: "fail", text };
+  return null;
+}
+
+// Time (ms since epoch) of the shell's "START: AimTrainer ..." line in main.log, or null.
+export function startLineTime(line) {
+  const m = String(line).match(/^(\d{4}-\d\d-\d\dT[\d:.]+Z) \w+ START: /);
+  if (!m) return null;
+  const t = Date.parse(m[1]);
+  return Number.isFinite(t) ? t : null;
+}
+
+// Startup timeline of one app start (plan W2 R11): launcher spawn -> main.log START: line ->
+// lobby ready. Missing points give null; times in ms.
+export function startupTimes({ spawnAt = null, startLineAt = null, cdpAt = null, lobbyAt = null } = {}) {
+  const d = (a, b) => (a != null && b != null ? b - a : null);
+  return { spawnToStartLine: d(spawnAt, startLineAt), spawnToCdp: d(spawnAt, cdpAt), spawnToLobby: d(spawnAt, lobbyAt), startLineToLobby: d(startLineAt, lobbyAt) };
+}
+
+export function median(a) {
+  const s = a.filter(Number.isFinite).sort((x, y) => x - y);
+  if (!s.length) return null;
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+// Theil-Sen slope: the median of all pairwise slopes. One odd sample (a GC that ran late, a
+// texture upload in flight) barely moves it, unlike a least-squares fit. Null with fewer than
+// two distinct x values.
+export function theilSen(xs, ys) {
+  const sl = [];
+  for (let i = 0; i < xs.length; i++) {
+    for (let j = i + 1; j < xs.length; j++) {
+      if (!Number.isFinite(ys[i]) || !Number.isFinite(ys[j]) || xs[j] === xs[i]) continue;
+      sl.push((ys[j] - ys[i]) / (xs[j] - xs[i]));
+    }
+  }
+  return median(sl);
+}
+
+// Soak thresholds (plan W2 R4), per restart (or per cycle for soak:switch).
+//   slope: Theil-Sen slope >= fail -> FAIL, >= warn -> WARN.
+//   growth: median of the last 3 samples above the median of the first 3 -> FAIL.
+//   gcOnly: only rows sampled right after a forced GC.
+export const SOAK_RULES = [
+  { col: "heap_mb", what: "JS heap after GC", unit: "MB", gcOnly: true, warn: 200 / 1024, fail: 1 },
+  { col: "nodes", what: "DOM nodes", unit: "", gcOnly: true, warn: 5 },
+  { col: "js_listeners", what: "JS event listeners (renderer)", unit: "", gcOnly: true, fail: 0.5 },
+  { col: "win_listeners", what: "window listeners", unit: "", fail: 0.5 },
+  { col: "doc_listeners", what: "document listeners", unit: "", fail: 0.5 },
+  { col: "gl_texture", what: "live WebGL textures", unit: "", gcOnly: true, fail: 0.5 },
+  { col: "gl_buffer", what: "live WebGL buffers", unit: "", gcOnly: true, fail: 0.5 },
+  { col: "gl_framebuffer", what: "live WebGL framebuffers", unit: "", gcOnly: true, fail: 0.5 },
+  { col: "gl_renderbuffer", what: "live WebGL renderbuffers", unit: "", gcOnly: true, fail: 0.5 },
+  { col: "gl_program", what: "live WebGL programs", unit: "", gcOnly: true, fail: 0.5 },
+  { col: "gl_vertexarray", what: "live WebGL vertex arrays", unit: "", gcOnly: true, fail: 0.5 },
+  { col: "gl_contexts", what: "live WebGL contexts", unit: "", gcOnly: true, growth: true },
+  // A lost context still reachable after GC: an old drill's canvas/renderer is kept (Chrome
+  // force-loses the oldest context once a page has too many).
+  { col: "gl_contexts_lost", what: "lost WebGL contexts still reachable", unit: "", gcOnly: true, growth: true },
+  // Cross-checks from Runtime.queryObjects (independent of the page probe).
+  { col: "q_gl_contexts", what: "WebGL context objects on the heap", unit: "", gcOnly: true, growth: true },
+  { col: "q_canvases", what: "canvas elements on the heap", unit: "", gcOnly: true, growth: true },
+  { col: "q_gl_buffers", what: "WebGLBuffer objects on the heap", unit: "", gcOnly: true, fail: 0.5 },
+  { col: "q_gl_textures", what: "WebGLTexture objects on the heap", unit: "", gcOnly: true, fail: 0.5 },
+  { col: "workers", what: "live workers (page)", unit: "", growth: true },
+  { col: "worker_targets", what: "worker targets (CDP)", unit: "", growth: true },
+  { col: "audio_ctx", what: "live AudioContexts", unit: "", growth: true },
+  { col: "renderer_pss_mb", what: "renderer PSS", unit: "MB", warn: 2 },
+];
+
+// rows: [{x, gc, <col>: number}], analysed from x >= from. Returns one verdict per rule:
+// {col, what, n, slope, first, last, verdict: 'pass'|'warn'|'fail'|'n/a', text}.
+export function soakVerdicts(rows, { from = 10, rules = SOAK_RULES } = {}) {
+  const out = [];
+  for (const r of rules) {
+    const use = rows.filter((x) => x.x >= from && Number.isFinite(x[r.col]) && (!r.gcOnly || x.gc));
+    const xs = use.map((x) => x.x);
+    const ys = use.map((x) => x[r.col]);
+    const v = { col: r.col, what: r.what, n: use.length, slope: null, first: ys[0] ?? null, last: ys[ys.length - 1] ?? null, verdict: "n/a", text: "" };
+    if (use.length < 3) {
+      v.text = `${r.what}: n/a (${use.length} samples)`;
+      out.push(v);
+      continue;
+    }
+    v.slope = theilSen(xs, ys);
+    const fmt = (n) => (Math.abs(n) >= 10 ? n.toFixed(0) : Math.abs(n) >= 1 ? n.toFixed(2) : n.toFixed(3));
+    if (r.growth) {
+      const a = median(ys.slice(0, 3));
+      const b = median(ys.slice(-3));
+      v.verdict = b > a ? "fail" : "pass";
+      v.text = `${r.what}: ${fmt(a)} -> ${fmt(b)}${v.verdict === "fail" ? " (grows; any growth fails)" : ""}`;
+    } else {
+      v.verdict = r.fail != null && v.slope >= r.fail ? "fail" : r.warn != null && v.slope >= r.warn ? "warn" : "pass";
+      const lim = [r.warn != null ? `warn ${fmt(r.warn)}` : null, r.fail != null ? `fail ${fmt(r.fail)}` : null].filter(Boolean).join(", ");
+      v.text = `${r.what}: ${fmt(v.slope)}${r.unit}/step (${fmt(v.first)} -> ${fmt(v.last)}${r.unit}, n ${use.length}; ${lim})`;
+    }
+    out.push(v);
+  }
+  return out;
+}
+
+// One CSV line (RFC 4180 quoting; null/undefined -> empty).
+export function csvLine(values) {
+  return values.map((v) => {
+    if (v == null || (typeof v === "number" && !Number.isFinite(v))) return "";
+    const s = String(v);
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }).join(",");
+}
+
+// /proc/<pid>/smaps_rollup -> {rssKb, pssKb} (null fields when missing).
+export function parseSmapsRollup(text) {
+  const g = (k) => {
+    const m = String(text || "").match(k === "Rss" ? /^Rss:\s+(\d+) kB/m : /^Pss:\s+(\d+) kB/m);
+    return m ? Number(m[1]) : null;
+  };
+  return { rssKb: g("Rss"), pssKb: g("Pss") };
+}
+
+// Chromium process kind from /proc/<pid>/cmdline: the --type= value (renderer, gpu-process,
+// utility, zygote, ...), "browser" for electron itself, else null. Arguments are NUL-separated,
+// except in Chromium's child processes, which rewrite their title into one space-joined string.
+export function procType(cmdline) {
+  const args = String(cmdline || "").split(/[\0 ]/).filter(Boolean);
+  if (!args.length) return null;
+  const t = args.find((a) => a.startsWith("--type="));
+  if (t) return t.slice(7);
+  return /(^|\/)electron$/.test(args[0]) ? "browser" : null;
 }

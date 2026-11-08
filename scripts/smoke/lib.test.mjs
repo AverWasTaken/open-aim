@@ -12,6 +12,7 @@ import {
   parseLauncherOutput, parseLock, readLock, lockIsOurs, once, electronPath, exitCodeFor, EXIT,
   LAUNCHER_PROFILE_RE, safeLauncherProfile, launcherConfig, mainLogError, ALLOW, pidAlive, sleep,
   portClaimed, stopperName,
+  mainLogHealth, startLineTime, startupTimes, median, theilSen, SOAK_RULES, soakVerdicts, csvLine, parseSmapsRollup, procType,
 } from "./lib.mjs";
 // Everything run.mjs imports from launch.mjs (a missing export only shows when the suite starts).
 import { startLauncher, stopApp, preempted, startApp, appGone, sessionReport, REPO } from "./launch.mjs";
@@ -20,6 +21,7 @@ assert.equal(typeof appGone, "function");
 assert.equal(typeof sessionReport, "function");
 assert.equal(typeof REPO, "string");
 import { STEPS, PAGE_LIB, recover } from "./steps.mjs";
+import { EXTRA_STEPS, PROBE_LIB } from "./steps-extra.mjs";
 import { Cdp } from "./cdp.mjs";
 
 test("steps module: imports resolve, page library parses, step names unique", () => {
@@ -496,4 +498,111 @@ test("ports: portOpen sees a real listener", async () => {
   srv.close();
   await new Promise((r) => srv.once("close", r));
   assert.equal(await portOpen(port), false);
+});
+
+// ---------------------------------------------------------------- soak / edge helpers
+test("extra steps: opt-in only, soak/edge names, unique with the default steps, probe library parses", () => {
+  assert.doesNotThrow(() => new Function(PROBE_LIB), "PROBE_LIB is valid JS");
+  const all = [...STEPS, ...EXTRA_STEPS].map((s) => s.name);
+  assert.equal(new Set(all).size, all.length);
+  for (const s of EXTRA_STEPS) {
+    assert.ok(s.optional, `${s.name} must be opt-in`);
+    assert.match(s.name, /^(soak|edge):[a-z-]+$/);
+    assert.ok(typeof s.run === "function" && s.timeoutMs > 0 && s.timeoutMs <= 11 * 60000, s.name);
+  }
+});
+
+test("mainLogHealth: child process gone / not responding / reload fail; clean exit warns; other lines null", () => {
+  const L = (lvl, t) => `2026-11-08T10:00:00.000Z ${lvl} ${t}`;
+  assert.deepEqual(mainLogHealth(L("WARN", "CHILD PROCESS GONE: type=GPU reason=crashed exitCode=139")), { level: "fail", text: "CHILD PROCESS GONE: type=GPU reason=crashed exitCode=139" });
+  assert.equal(mainLogHealth(L("WARN", "CHILD PROCESS GONE: type=Utility reason=clean-exit exitCode=0 name=Audio Service")).level, "warn");
+  assert.equal(mainLogHealth(L("WARN", "PAGE NOT RESPONDING")).level, "fail");
+  assert.equal(mainLogHealth(L("WARN", "PAGE RELOAD: http://x/aim (1/3)")).level, "fail");
+  assert.equal(mainLogHealth(L("ERROR", "PAGE CRASHED: reason=oom exitCode=1")), null, "ERROR lines go through mainLogError");
+  assert.equal(mainLogHealth(L("INFO", "PAGE RESPONDING AGAIN")), null);
+  assert.equal(mainLogHealth(L("WARN", "something else")), null);
+  assert.equal(mainLogHealth("CHILD PROCESS GONE: no prefix"), null);
+});
+
+test("startLineTime + startupTimes", () => {
+  const t = startLineTime("2026-11-08T10:00:01.500Z INFO START: AimTrainer 1.0 (Electron 33) packaged=false headless=true port=8270 pid=1");
+  assert.equal(t, Date.parse("2026-11-08T10:00:01.500Z"));
+  assert.equal(startLineTime("2026-11-08T10:00:01.500Z INFO RESTART: skipped"), null);
+  assert.equal(startLineTime("garbage"), null);
+  assert.deepEqual(startupTimes({ spawnAt: 1000, startLineAt: 1800, cdpAt: 2500, lobbyAt: 9000 }), { spawnToStartLine: 800, spawnToCdp: 1500, spawnToLobby: 8000, startLineToLobby: 7200 });
+  assert.deepEqual(startupTimes({ spawnAt: 1000 }), { spawnToStartLine: null, spawnToCdp: null, spawnToLobby: null, startLineToLobby: null });
+});
+
+test("median + theilSen: robust to one outlier, null without two x values", () => {
+  assert.equal(median([3, 1, 2]), 2);
+  assert.equal(median([4, 1, 2, 3]), 2.5);
+  assert.equal(median([]), null);
+  const xs = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+  assert.equal(theilSen(xs, xs.map((x) => 2 * x + 5)), 2);
+  const noisy = xs.map((x) => 100 + 0.5 * x);
+  noisy[4] = 1000; // one wild sample
+  assert.equal(theilSen(xs, noisy), 0.5);
+  assert.equal(theilSen(xs, xs.map(() => 7)), 0);
+  assert.equal(theilSen([5], [1]), null);
+  assert.equal(theilSen([5, 5], [1, 2]), null);
+  assert.equal(theilSen([1, 2, 3], [1, NaN, 3]), 1);
+});
+
+test("soakVerdicts: thresholds per rule, gc-only heap, growth rule, from cut-off, n/a with few samples", () => {
+  const rows = [];
+  for (let x = 1; x <= 50; x++) {
+    rows.push({
+      x, gc: x % 5 === 0,
+      heap_mb: x % 5 === 0 ? 40 + 0.5 * x : 400, // gc rows grow 0.5 MB/step (warn), non-gc rows ignored
+      nodes: 3000 + (x < 10 ? 500 : 0) + 6 * x, // early rows excluded by from=10; 6/step warns
+      js_listeners: 800 + x, // 1/step fails
+      win_listeners: 40 + (x % 2), // flat noise passes
+      gl_texture: 120,
+      workers: x > 40 ? 3 : 2, // grows -> fail
+      audio_ctx: 1,
+      renderer_pss_mb: 300 + 0.1 * x,
+    });
+  }
+  const v = Object.fromEntries(soakVerdicts(rows, { from: 10 }).map((r) => [r.col, r]));
+  assert.equal(v.heap_mb.verdict, "warn");
+  assert.equal(v.heap_mb.n, 9); // 10, 15, ..., 50
+  assert.ok(Math.abs(v.heap_mb.slope - 0.5) < 1e-9);
+  assert.equal(v.nodes.verdict, "warn");
+  assert.equal(v.nodes.slope, 6);
+  assert.equal(v.js_listeners.verdict, "fail");
+  assert.equal(v.win_listeners.verdict, "pass");
+  assert.equal(v.gl_texture.verdict, "pass");
+  assert.equal(v.workers.verdict, "fail");
+  assert.equal(v.audio_ctx.verdict, "pass");
+  assert.equal(v.renderer_pss_mb.verdict, "pass");
+  assert.equal(v.doc_listeners.verdict, "n/a"); // column never sampled
+  assert.match(v.js_listeners.text, /JS event listeners .*: 1\.00\/step/);
+  // Heap over 1 MB/step fails; a slope right at the warn line warns.
+  const big = [10, 15, 20, 25].map((x) => ({ x, gc: true, heap_mb: 50 + 1.2 * x }));
+  assert.equal(soakVerdicts(big, { from: 10 }).find((r) => r.col === "heap_mb").verdict, "fail");
+  assert.equal(soakVerdicts([1, 2, 3].map((x) => ({ x, gc: true, nodes: 5 * x })), { from: 1 }).find((r) => r.col === "nodes").verdict, "warn");
+  // Node / listener counts include garbage until a GC: rows without one are not judged.
+  assert.equal(soakVerdicts([1, 2, 3, 4].map((x) => ({ x, gc: false, nodes: 100 * x, js_listeners: 10 * x })), { from: 1 }).find((r) => r.col === "js_listeners").verdict, "n/a");
+  assert.equal(soakVerdicts([1, 2, 3, 4].map((x) => ({ x, gc: true, gl_contexts_lost: x })), { from: 1 }).find((r) => r.col === "gl_contexts_lost").verdict, "fail");
+  assert.equal(soakVerdicts([{ x: 10, nodes: 1 }, { x: 11, nodes: 2 }], { from: 10 }).find((r) => r.col === "nodes").verdict, "n/a");
+  assert.ok(SOAK_RULES.every((r) => r.col && r.what && (r.growth || r.warn != null || r.fail != null)));
+});
+
+test("csvLine quotes commas, quotes and newlines; blanks null and NaN", () => {
+  assert.equal(csvLine([1, "a", null, undefined, NaN, 2.5]), "1,a,,,,2.5");
+  assert.equal(csvLine(['say "hi"', "a,b", "x\ny"]), '"say ""hi""","a,b","x\ny"');
+});
+
+test("parseSmapsRollup + procType", () => {
+  const roll = "55d0-7ffd ---p 00000000 00:00 0 [rollup]\nRss:              345678 kB\nPss:              210000 kB\nPss_Anon:  1 kB\n";
+  assert.deepEqual(parseSmapsRollup(roll), { rssKb: 345678, pssKb: 210000 });
+  assert.deepEqual(parseSmapsRollup(""), { rssKb: null, pssKb: null });
+  assert.equal(procType("/x/electron/dist/electron\0--type=renderer\0--foo"), "renderer");
+  assert.equal(procType("/x/electron/dist/electron\0--type=gpu-process"), "gpu-process");
+  assert.equal(procType("/x/electron/dist/electron\0/x/app\0--remote-debugging-port=9470"), "browser");
+  assert.equal(procType("Xvfb\0:99"), null);
+  // Chromium children rewrite their title into one space-joined string.
+  assert.equal(procType("/x/electron/dist/electron --type=renderer --enable-crash-reporter=x --lang=en-US\0\0\0"), "renderer");
+  assert.equal(procType("node_modules/electron/dist/electron\0.\0--remote-debugging-port=9470"), "browser");
+  assert.equal(procType(""), null);
 });

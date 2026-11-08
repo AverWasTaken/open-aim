@@ -21,9 +21,86 @@ It is opt-in (`npm run smoke`); only its unit tests (`npm run test:smokelib`) ar
 | `studio` | Studio: new Flicks drill, Play opens it in the trainer, it runs, Exit returns to Studio. Sets `studio-coach-done` first: on a fresh profile the first-run tour covers the editor |
 | `round` | Round: panel, start with the default map and side, round HUD live, Exit resets the round state. A load that falls back to the lobby (see "Lobby fallback") is warned and started once more |
 | `probe` | only with `--only=probe`: load times (first and repeat), sim speed, frames per second |
+| `soak:*`, `edge:*` | only with `--only`: see "Soak and edge groups" |
 
 The pinned drills live in `drills.json`. If one disappears from the list, the step says so; pick
 another light drill in that category.
+
+## Soak and edge groups (opt-in)
+
+Two extra step groups look for bugs a player would hit and measure stability. They are never
+part of the default run (that stays two batches of about 2 minutes each); run them on their own:
+
+```bash
+bash /c/Users/Jacob/open-aim-hq/qa-smoke.sh <hpname> --only=soak   # 2 batches: soak:retries, soak:switch
+bash /c/Users/Jacob/open-aim-hq/qa-smoke.sh <hpname> --only=edge   # 2 batches (list below)
+bash /c/Users/Jacob/open-aim-hq/qa-smoke.sh <hpname> --only=edge:hitch,edge:resize   # any steps, one start
+```
+
+The wrapper turns `--only=soak` / `--only=edge` (exactly that value) into batches of their own,
+each its own app start under the 12-minute cap. A failing soak/edge step is a finding about the
+app: its notes carry the numbers and a repro, and its screenshots are in the batch folder. Soak
+and edge steps also fail on main.log health lines that are only warnings for the default steps:
+`CHILD PROCESS GONE` (unless `reason=clean-exit`), `PAGE NOT RESPONDING`, `PAGE RELOAD`.
+
+The first soak/edge step that needs counters installs a page probe and reloads `/aim` once. The
+probe wraps `WebGL(2)RenderingContext.prototype.create*/delete*` (textures, buffers,
+framebuffers, renderbuffers, programs, shaders, vertex arrays) and the `AudioContext` and
+`Worker` constructors, so live object counts can be read (WebGL objects are held by weak reference, so objects the page dropped and the browser collected do not count). Runs without such a step never get it.
+
+| step | what it does | fails when |
+|---|---|---|
+| `soak:retries` | bot drill (Angle holding; the aim helper gets kills): up to 40 restarts through the light pause menu (lock lost, Restart), shots each cycle; then up to 10 retries with R from the result screen of the 7 s Scenarios drill. Self-budget 8 min. Samples each restart in the paused menu / on the result screen; GC (twice) before every 2nd pause sample and every result sample. Writes `soak.csv` row by row | a slope or growth rule below fails |
+| `soak:switch` | cycles lobby, Micro tiles, lobby, Ascent pre-aim, lobby, Round, lobby (up to 8 cycles, budget 8 min); samples in the lobby after GC. Writes `soak-switch.csv` | the same rules, per cycle, from cycle 1 on |
+| `edge:blur` | Ascent pre-aim: holds W + left mouse, then alt-tab (lock lost + window `blur`, no key-up or mouse-up), 2.5 s paused, Resume | the player keeps walking or firing for 2 s after Resume; the player moves while paused; the timer runs while paused although "Pause timer" is on; the drill does not go on |
+| `edge:rapid-retry` | R every 50 ms for 2 s as the Scenarios result appears; then 10 restarts back to back (lock lost + T) | not exactly one retry from the result; R restarts a running drill; more than one trainer root or HUD; `__aimTick` rate over 1.5x the baseline (a doubled game loop); more live AudioContexts than before; no shot in a normal run after |
+| `edge:hitch` | Micro tiles: a 2.5 s busy loop on the page's main thread mid-drill | the sim runs ahead of real time, sim speed after is outside 0.8-1.25, under 20 fps 3 s later, the HUD timer drops more than wall time + 1 s |
+| `edge:start-overlay` | Ascent pre-aim: clicks the screen centre every 300 ms while the loader is up (it clicks the loader on purpose, so no covered-click check here) | falls back to the lobby, the load fails, the loader is stuck for 60 s, more than one trainer root or HUD, the drill does not run |
+| `edge:back-spam` | backs out of an Ascent load (Esc x5, then any uncovered back button) and launches Micro tiles at once; Esc x6 on a result screen; lock lost + Esc x6 in a drill; a drill still starts | the next drill shows another drill's actors or stops running; Esc on the result screen leaves neither the result nor the lobby; in-drill Esc leaves no pause menu. No way to cancel a load is a warning |
+| `edge:resize` | `Emulation.setDeviceMetricsOverride` 1280x720, 800x600, 1920x1080, 1024x768 @1.25, 1280x720 @1.5, in the lobby and mid-drill (tries `Browser.setWindowBounds` once first; the override is cleared in `finally`) | wrong page size, top nav outside the window, the canvas does not fill the view (2 px), the drawing buffer does not follow (buffer / (css x dpr) differs by over 10% between sizes), a DOM crosshair off centre by over 2 px, HUD text outside the view, no shot after. Sideways scroll in the lobby is a warning |
+| `edge:settings-mid` | in a drill: Tab menu, Settings (the lobby's settings dialog, "changes save right away and apply to this run"): sensitivity typed on General, the first switch on Crosshair, FOV and a quality choice on Video, then Done and Resume; the localStorage snapshot is restored after | no sensitivity box in the dialog; the typed sensitivity is not saved; the camera does not turn by the new sensitivity at once (yaw for 100 counts off by over 10%); the drill does not resume and register shots. Crosshair / FOV / quality controls that are not found, or that save nothing, are warnings (best effort) |
+| `edge:saved` | writes garbage, then wrong-type values into saved settings (`al-sensitivity-v1`, `al-display-settings-v1`, `aim-bot-mode`, `aim-enemy-rank`, `aim-rank-picks`, `aim-round-setup`, `aim-unlimited-v1`, history-like keys) and reloads | the lobby does not come up, page errors, the camera yaw goes non-finite or does not turn, the sensitivity box shows a non-number. The exact localStorage snapshot is restored after (never `clear()`) |
+| `edge:sens` | types into the lobby sensitivity box (`Input.insertText` + Enter + blur): 0.001, 10, 0.0001, 11, 99999, -1, 0, abc, empty, 1e3, 0.5; then 10 and 0.001 in a drill after a reload | a stored value outside 0.001-10 or not a number; shown and stored differ; not kept over a reload; yaw for 100 counts off by over 10% from 0.07 deg x sens. Restored after |
+
+Run the groups through the wrapper: `npm run smoke -- --only=soak` (or the wrapper's space form
+`--only soak`) puts both soak steps into one app start, and their time limits (10.5 min each) go
+past the 12-minute cap. Only the exact `--only=soak` / `--only=edge` value is split into batches.
+
+Edge batches: 1 = `edge:blur,edge:rapid-retry,edge:hitch,edge:start-overlay,edge:back-spam`,
+2 = `edge:resize,edge:settings-mid,edge:saved,edge:sens` (sens last: it changes the
+sensitivity, then restores it).
+
+### Soak thresholds and why
+
+Before each GC'd sample the suite drops the inspector's stored console messages
+(`Runtime.discardConsoleEntries`), so objects kept only for the console don't look like a leak.
+Slopes are Theil-Sen (the median of all pairwise slopes), so one odd sample (a late GC, a
+texture upload in flight) barely moves them. The pause path is judged from restart 10 on (the
+first restarts warm caches), the result path from retry 2 on and on its own (it may grow its
+run history on purpose), `soak:switch` from cycle 1 on (the first cycle loads the map).
+
+| metric | source | rule |
+|---|---|---|
+| JS heap after GC | `Performance.getMetrics` JSHeapUsedSize after `HeapProfiler.collectGarbage` x2 | over 200 KB/restart warns, over 1 MB/restart fails |
+| DOM nodes | getMetrics Nodes, GC'd samples only (the count includes garbage until a GC) | over 5/restart warns |
+| JS event listeners | getMetrics JSEventListeners (GC'd samples only); window and document listeners via `getEventListeners` (every sample) | 0.5/restart or more fails (a listener added per restart and never removed); the types that grew are in the notes |
+| live WebGL objects | page probe (textures, buffers, framebuffers, renderbuffers, programs, vertex arrays): made, not deleted, still reachable (weak reference), in a live, not-lost context; GC'd samples only (the browser frees an object whose wrapper is collected) | 0.5/restart or more fails |
+| live WebGL contexts | page probe | any growth fails |
+| lost WebGL contexts still reachable | page probe (a context Chrome force-lost, e.g. once a page has too many, whose object is still held after GC: an old drill's canvas/renderer kept) | any growth fails |
+| WebGL context / canvas / WebGLBuffer / WebGLTexture objects on the heap | `Runtime.queryObjects` after GC (cross-check without the probe) | contexts, canvases: any growth fails; buffers, textures: 0.5/restart or more fails |
+| live workers | page probe (`Worker` made minus terminated) and CDP worker targets | any growth (median of the last 3 samples above the first 3) fails |
+| live AudioContexts | page probe (made minus closed) | any growth fails |
+| renderer PSS | `/proc/<pid>/smaps_rollup` of the copy's session processes, by `--type=` | over 2 MB/restart warns |
+
+`soak.csv` columns: `x` (restarts done), `path`, `t_s`, `gc`, the metrics above, renderer, GPU
+and browser RSS, `load1` (hp load), `restart_ms` (how long the restart before the sample took).
+
+### Startup time
+
+Every run records the startup timeline of its app start: launcher spawn, the shell's `START:`
+line in main.log, CDP attached, lobby ready, plus the hp load at that moment. It is in
+`results.json` (`startup`), the summary header and `run.log`. Relative numbers only (hp is
+shared and its load changes).
 
 ## Run it on hp (the normal way)
 

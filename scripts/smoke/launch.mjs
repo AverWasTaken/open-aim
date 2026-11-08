@@ -130,6 +130,7 @@ export async function startLauncher({ cfg, port, cdp, outDir, log = console.log,
     log(`fresh profile ${h.profile}`);
   }
   const tStart = Date.now();
+  h.spawnAt = tStart; // startup timeline (plan W2 R11)
   const r = await runClosed(cfg.starter, [appDir, port, cdp], { timeout: 150000 });
   let p = parseLauncherOutput(r.stdout, r.code);
   if (p.kind === "garbage") {

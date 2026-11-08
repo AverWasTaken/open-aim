@@ -492,6 +492,7 @@ const boot = {
   async run(ctx) {
     const t0 = Date.now();
     await waitFor(ctx, "window.__qa && __qa.lobbyReady()", { timeout: 120000, what: "lobby ready" });
+    ctx.data("lobbyAt", Date.now());
     ctx.note(`lobby ready ${((Date.now() - t0) / 1000).toFixed(1)} s after attach`);
     // First run: "Import VALORANT settings" modal over the lobby (fresh profile only).
     const modal = await waitFor(ctx, "!!__qa.visq('.es-tool-shade.valorant-import-shade')", { timeout: 8000, what: "first-run import modal" }).catch(() => false);
@@ -894,3 +895,6 @@ const round = {
 
 // Order matters: settings AFTER result-replay (a run with changed settings saves no replay).
 export const STEPS = [boot, probe, lobby, ...DRILLS.drills.map(drillStep), resultReplay, playAgain, pause, settings, rankPicker, studio, round];
+
+// Shared with steps-extra.mjs (opt-in soak/edge groups).
+export { J, waitFor, status, clickSel, waitLobby, isVariant, launchDrill, startDrill, launchAndStart, shootFor, exitDrill, playToResult, leaveFromStartScreen };
