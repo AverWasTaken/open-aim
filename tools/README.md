@@ -267,7 +267,7 @@ bot-order planner run once on the ORIGINAL drills (route + where each spot is fi
 original pool spawners and actors. These drills get flat 0.5 spot scores (`spot_scores.mjs` keeps them
 flat), since their spawners now sit on hidden cover points. Spots with no cover keep their position and
 jiggle there; if no jiggle fits, a shorter or other-direction jiggle, else the original strafe (original
-spawner + `actor-1`), so no bot ever stands still. The walk-clearance side rays sit at +-0.25 m
+spawner + `actor-1`), so no bot ever stands still. The walk-clearance side rays sit at +-0.30 m
 (`G.WALK`). After changing the tool or its rules:
 
 ```bash

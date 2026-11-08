@@ -121,19 +121,20 @@ test('every pool spawner starts on its path loop (cover first), size 0, no straf
 });
 
 // Restore (b)/(c) on a fake map (no spot on the real maps needs them today): every jiggle blocked, only
-// +-0.8 m strafe legs along one direction clear. World X clear -> original spawner + actor-1; else
+// strafe legs (max(travel)/2 = 0.8 m) along one direction clear. World X clear -> original spawner + actor-1; else
 // rotationY r with strafe axis (cos r, -sin r) down the clear direction.
 test('no cover, no jiggle: original strafe along world X, else rotationY down a clear direction', () => {
   const tpl = DATA.drills[PC.STEMS[0]].source.actors.find((a) => a.id === PC.STRAFE_ACTOR);
   const src = { id: 'spawner-x', kind: 'fixed', actorTemplateId: PC.STRAFE_ACTOR, position: { x: 0, y: 0, z: 0 }, size: { x: 0, y: 0, z: 0 }, faceTarget: true, groundSnap: true, maxAlive: 1, spawnDelay: [0.3, 1.2], name: 'x' };
   const vp = { first: [0, 1.75, -10], samples: [], from: [0, 0, -10] };
+  const reach = Math.max(...tpl.behaviors.find((b) => b.kind === 'strafe').travel) / 2;
   const fake = (deg) => ({
     floorAt: () => 0,
     seen: () => true,
     walk: (A, B) => {
       const dx = B.x - A.x, dz = B.z - A.z, L = Math.hypot(dx, dz), r = (deg * Math.PI) / 180;
       const along = Math.abs(Math.abs((dx * Math.cos(r) - dz * Math.sin(r)) / (L || 1)) - 1) < 1e-9;
-      return Math.abs(L - 0.8) < 1e-9 && along ? null : 'blocked';
+      return Math.abs(L - reach) < 1e-9 && along ? null : 'blocked';
     },
   });
   const b = PC.coverSpot(fake(0), src, tpl, vp);

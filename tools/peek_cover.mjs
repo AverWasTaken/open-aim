@@ -25,7 +25,7 @@
 // Jiggles: 0.7 / -0.5 / 0.6 m sideways from the spot, toward the open side (away from the cover);
 // a jiggle whose leg is blocked is dropped. Area spawners collapse to their box centre (size 0).
 // A no-cover spot left without any jiggle must still move (never a bot standing still), in order:
-//  (a) path jiggles in another direction or shorter (+-0.3 m sideways, along the view line, 45 deg);
+//  (a) path jiggles in another direction or shorter (+-0.3 m sideways, 45 deg, along the view line);
 //  (b) the original strafe (spawner + actor-1 exactly as in the original drill) if +-0.8 m along world
 //      X is a clear walk; (c) the original strafe with a spawner rotationY that turns the strafe axis
 //      down a clear direction (the one closest to sideways as seen from the first-sight point).
@@ -47,8 +47,10 @@ export const DATA = path.join(ROOT, 'tools', 'data', 'peek-viewpoints.json');
 export const SCORES = path.join(ROOT, 'app', 'mods', 'aim-ranks', 'spot-scores.json');
 export const STEMS = ['ascent-b-retake', 'bind-a-showers', 'corrode-mid-to-a', 'haven-garage-push', 'lotus-b-attack', 'split-b-heaven-retake'].map((s) => `${s}-peekers`);
 // HALF = sideways offset of the hidden test; WALK = sideways offset of the walk-clearance rays (bot hit
-// capsules are ~0.2 m in radius; 0.25 / 0.30 / 0.35 compared in the P2 report, 0.25 picked).
-export const G = { HEAD: 1.86, CHEST: 1.2, HALF: 0.35, WALK: 0.25, STEP: 0.25, MAX: 3, RAYS: [0.6, 1.2], STEP_H: 0.5, PROBE: 0.25, SAMPLE: 2, AHEAD: 10 };
+// capsules are ~0.2 m in radius). 0.25 / 0.30 / 0.35 compared in the P2 check: at 0.25 the covers that
+// only fit with < 0.30 m to spare had the bot's rifle (pointing at the player) inside or past the cover
+// wall, one of them visible to the player; 0.30 picked.
+export const G = { HEAD: 1.86, CHEST: 1.2, HALF: 0.35, WALK: 0.3, STEP: 0.25, MAX: 3, RAYS: [0.6, 1.2], STEP_H: 0.5, PROBE: 0.25, SAMPLE: 2, AHEAD: 10 };
 // Restored movement for no-cover spots without any fitting jiggle.
 export const SHORT = [0.3, -0.3, 0.3];
 export const STRAFE_ACTOR = 'actor-1';
