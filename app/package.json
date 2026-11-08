@@ -21,8 +21,9 @@
     "sweep:round-bots": "node ../scripts/round-bots-sweep.mjs",
     "test:shell": "node --test ../scripts/test-shell-hardening.cjs",
     "test:feelsens": "node --test ../scripts/test-feel-sens.cjs",
-    "test:maps": "node --test ../scripts/test-maps-callouts.mjs"
-
+    "test:maps": "node --test ../scripts/test-maps-callouts.mjs",
+    "test:result": "node --test ../scripts/test-ux-result.mjs",
+    "test:words": "node --test ../scripts/test-ux-words.mjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
@@ -43,6 +44,7 @@
       "rank-picker.js",
       "round-panel.js",
       "round-hud.js",
+      "ux-keys.js",
       "round-scene.js",
       "drill-variants.js",
       "interface-mode.js",
