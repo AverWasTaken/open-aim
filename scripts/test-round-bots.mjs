@@ -95,10 +95,15 @@ test('aimRoundBotList / aimRoundIoBots: only round bots, flat entries', () => {
   a.behavior.shooter = { lastSeenTick: 4 };
   const list = bots.aimRoundBotList([a, plain, b]);
   assert.deepEqual(list.map((e) => e.id), [1, 2]);
-  assert.deepEqual(list[0], { id: 1, spawnerId: 'sp', alive: true, x: 3, y: 1.5, z: -4, mode: 0, defusing: 1, seenTick: 4, nav: 0, node: -1, goal: -1, arrived: 1, moving: 0, pushed: 0, staged: 0, cand: -1, air: 0 });
+  assert.deepEqual(list[0], { id: 1, spawnerId: 'sp', alive: true, x: 3, y: 1.5, z: -4, mode: 0, defusing: 1, seenTick: 4, nav: 0, node: -1, goal: -1, arrived: 1, moving: 0, pushed: 0, staged: 0, cand: -1, air: 0, atStage: 0, go: 0, fetch: -1, planting: 0 });
   assert.equal(list[1].alive, false);
   assert.equal(list[1].seenTick, -1);
   assert.deepEqual(bots.aimRoundIoBots([plain, a, b]), [{ id: 1, spawnerId: 'sp', alive: true, x: 3, y: 1.5, z: -4, defusing: 1, planting: 0 }, { id: 2, spawnerId: 'sp', alive: false, x: 3, y: 1.5, z: -4, defusing: 0, planting: 0 }]);
+  // R3: a planting bot publishes planting 1 and defusing 0 (roundDefusing = hands busy); dead -> 0.
+  a.behavior.roundBot.planting = 1;
+  b.behavior.roundBot.planting = 1;
+  assert.deepEqual(bots.aimRoundIoBots([a, b]).map((e) => [e.defusing, e.planting]), [[0, 1], [0, 0]]);
+  assert.equal(bots.aimRoundBotList([a])[0].planting, 1);
 });
 
 // ---------------------------------------------------------------- real sim, flat ground
