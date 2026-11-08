@@ -17,6 +17,9 @@
 //   Next drill, Continue). The launch can still be dropped after it (rank picker cancelled).
 // - Start / Continue do nothing while window.__aimSensFinderActive is truthy; the strip shows
 //   "Finish or stop the sensitivity finder first." for 4 s instead.
+// Custom routines (player-made, localStorage aim-training-routines-custom-v1, see the core): one
+// line of chips under the built-in cards with Start / Edit and "+ New routine", and an editor
+// modal (name, drill search, chosen list with up / down / remove). Same runner as the built-ins.
 (() => {
   if (window.__aimTrainingRoutines) return;
   window.__aimTrainingRoutines = true;
@@ -56,21 +59,25 @@
   load();
   addEventListener("focus", () => load());
 
-  function routines() {
+  const customStore = () => C.readCustom(local.get(C.CUSTOM_KEY));
+  function warnMissing(code, id) {
+    const key = id + ":" + code;
+    if (warned.has(key)) return;
+    warned.add(key);
+    console.warn(`ROUTINES: drill ${code} of routine "${id}" is not in the drill list; skipped`);
+  }
+  // Built-ins (plus the test-only routine), then the player's own routines.
+  function routines(cstore = customStore()) {
     if (!catalogue) return [];
     const defs = C.ROUTINES.slice();
     const t = C.testRoutine(session.get(C.TEST_KEY));
     if (t) defs.unshift(t);
     const out = [];
     for (const def of defs) {
-      const r = C.resolve(def, catalogue, variants, (code, id) => {
-        const key = id + ":" + code;
-        if (warned.has(key)) return;
-        warned.add(key);
-        console.warn(`ROUTINES: drill ${code} of routine "${id}" is not in the drill list; skipped`);
-      });
+      const r = C.resolve(def, catalogue, variants, warnMissing);
       if (r) out.push(r);
     }
+    for (const def of C.customDefs(cstore)) out.push(C.resolveCustom(def, catalogue, variants, warnMissing));
     return out;
   }
 
@@ -161,7 +168,7 @@
   function startRoutine(id) {
     if (refusedBySensFinder()) return;
     const r = routines().find((x) => x.id === id);
-    if (!r) return;
+    if (!r || !r.steps.length) return; // a custom routine with none of its drills in the list
     closeSummary();
     stopWatching();
     setRun(C.start(r, Date.now()));
@@ -269,7 +276,7 @@
   }
   // Model and markup live in the core (same markup at every window size; CSS makes it one line
   // at max-height 800px).
-  const stripSig = (list, now) => C.stripModel(list, run, C.readStore(local.get(C.STORE_KEY)), now, notice);
+  const stripSig = (list, now, cstore) => C.stripModel(list, run, C.readStore(local.get(C.STORE_KEY)), now, notice, { custom: cstore });
   function onStripClick(e) {
     const b = e.target.closest("button[data-act]");
     if (!b) return;
@@ -279,11 +286,33 @@
     else if (act === "continue") continueRoutine();
     else if (act === "summary") { if (run) openSummary(run); }
     else if (act === "end") endRoutine();
+    else if (act === "edit" || act === "new") {
+      if (b.disabled || (run && run.phase === "launching")) return;
+      openEditor(act === "edit" ? b.dataset.routine : null, b);
+    }
+  }
+  // Chip rows (data-wheel-x): the vertical wheel scrolls them sideways while they can still move
+  // (smooth-scroll.js leaves those events alone), else the lobby scrolls as usual.
+  function onStripWheel(e) {
+    if (e.defaultPrevented || e.ctrlKey || e.shiftKey || !e.deltaY || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    const row = wheelRow(e.target, e.deltaY);
+    if (!row) return;
+    e.preventDefault();
+    const dy = e.deltaMode === 1 ? e.deltaY * 40 : e.deltaMode === 2 ? e.deltaY * row.clientWidth : e.deltaY;
+    row.scrollLeft += dy;
+  }
+  function wheelRow(target, dy) {
+    for (let n = target && target.closest ? target.closest("[data-wheel-x]") : null; n; n = n.parentElement && n.parentElement.closest("[data-wheel-x]")) {
+      const max = n.scrollWidth - n.clientWidth;
+      if (max > 1 && /(auto|scroll)/.test(getComputedStyle(n).overflowX) && ((dy > 0 && n.scrollLeft < max - 1) || (dy < 0 && n.scrollLeft > 1))) return n;
+    }
+    return null;
   }
   function syncStrip() {
     const anchor = lobbyAnchor();
     let strip = document.querySelector(".tr-strip");
-    const list = routines();
+    const cstore = customStore();
+    const list = routines(cstore);
     // No drill list on screen (another tab, or every section filtered out): no strip. While a
     // drill is open the lobby stays underneath, so the strip is left alone.
     if (!anchor || !list.length) { if (strip && !layerOpen()) strip.remove(); return; }
@@ -292,15 +321,193 @@
       strip.className = "tr-strip";
       strip.setAttribute("aria-label", "Routines");
       strip.addEventListener("click", onStripClick);
+      strip.addEventListener("wheel", onStripWheel, { passive: false });
     }
     if (strip.nextElementSibling !== anchor || strip.parentElement !== anchor.parentElement) anchor.before(strip);
-    const sig = JSON.stringify(stripSig(list, Date.now()));
+    const sig = JSON.stringify(stripSig(list, Date.now(), cstore));
     if (strip.dataset.sig !== sig) {
       strip.dataset.sig = sig;
       const model = JSON.parse(sig);
       strip.classList.toggle("has-run", !!model.state);
       strip.innerHTML = C.stripHtml(model);
     }
+  }
+
+  // ---------- custom routine editor ----------
+  // Opens only from the lobby strip. Keys: Esc cancels, Enter does nothing in the text fields and
+  // clicks a focused button, Tab stays inside. Every key event is stopped at window (capture) so
+  // the game's hotkeys (R, Q, Esc...) never see typing; printable keys keep their default.
+  let editor = null;
+  function trySet(k, v) {
+    try { localStorage.setItem(k, v); return true; } catch { return false; }
+  }
+  function openEditor(id, trigger) {
+    if (editor) return;
+    const cstore = customStore();
+    if (cstore.readOnly) return;
+    const old = id ? cstore.routines.find((r) => r.id === id) : null;
+    if (id && !old) return;
+    if (!id && cstore.routines.length >= C.CUSTOM_MAX) return;
+    let draft = C.newDraft(cstore, old);
+    let query = "";
+    let confirming = false;
+    let error = "";
+    const shade = document.createElement("div");
+    shade.className = "es-tool-shade tr-ed-shade";
+    shade.innerHTML = `<section class="es-tool tr-ed" role="dialog" aria-modal="true" aria-labelledby="tr-ed-title">
+      <header class="es-tool-head"><div><h2 id="tr-ed-title">${old ? "Edit routine" : "New routine"}</h2>
+      <p>Pick ${C.CUSTOM_MIN_DRILLS} to ${C.CUSTOM_MAX_DRILLS} drills. They play in this order.</p></div>
+      <button type="button" class="es-tool-x" data-act="cancel" aria-label="Close">✕</button></header>
+      <div class="es-tool-body">
+        <label class="tr-ed-label" for="tr-ed-name">Name</label>
+        <input id="tr-ed-name" class="tr-ed-input" type="text" maxlength="${C.NAME_MAX}" autocomplete="off" spellcheck="false">
+        <div class="tr-ed-cols">
+          <div class="tr-ed-col">
+            <h3>Drills</h3>
+            <input class="tr-ed-input" type="search" data-search placeholder="Search drills or paste a code" aria-label="Search drills" autocomplete="off" spellcheck="false">
+            <div class="es-tool-list tr-ed-list" data-pick></div>
+          </div>
+          <div class="tr-ed-col">
+            <h3>Your routine <span class="tr-ed-count" data-count></span></h3>
+            <ol class="es-tool-list tr-ed-list tr-ed-chosen" data-chosen></ol>
+          </div>
+        </div>
+        <p class="tr-ed-hint" data-hint></p>
+        <p class="tr-ed-warn" data-warn hidden>Saving ends the paused run.</p>
+        <p class="es-tool-status is-bad" data-error role="status" aria-live="polite"></p>
+        <div class="tr-ed-foot"><div class="tr-ed-del" data-del></div>
+        <div class="es-tool-actions"><button type="button" data-act="cancel">Cancel</button><button type="button" class="es-tool-primary" data-act="save">Save</button></div></div>
+      </div></section>`;
+    const panel = shade.querySelector("section");
+    const nameEl = shade.querySelector("#tr-ed-name");
+    const searchEl = shade.querySelector("[data-search]");
+    const pickEl = shade.querySelector("[data-pick]");
+    const chosenEl = shade.querySelector("[data-chosen]");
+    const saveBtn = shade.querySelector('[data-act="save"]');
+    nameEl.value = draft.name;
+    nameEl.placeholder = C.defaultName(cstore, draft.id); // what an empty name saves as
+
+    function render() {
+      const full = draft.codes.length >= C.CUSTOM_MAX_DRILLS;
+      const items = C.pickerItems(catalogue, variants, query);
+      pickEl.innerHTML = !items ? `<p class="es-tool-note">Drill list not loaded.</p>`
+        : !items.length ? `<p class="es-tool-note">No drills match.</p>`
+        : items.map((it) => `<div class="es-tool-row tr-ed-row"><div><b>${esc(it.name)}</b>${it.type ? `<i class="tr-type">${esc(it.type)}</i>` : ""}</div>`
+          + `<button type="button" data-act="add" data-code="${it.code}" aria-label="Add ${esc(it.name)}"${full ? " disabled" : ""}>Add</button></div>`).join("");
+      const rows = C.draftRows(draft, catalogue, variants);
+      chosenEl.innerHTML = rows.length ? rows.map((r) => `<li class="es-tool-row tr-ed-row${r.missing ? " is-missing" : ""}"><i class="tr-ed-no">${r.i + 1}</i>`
+        + `<div><b>${esc(r.name)}</b>${r.missing ? `<i class="tr-type">${r.code}</i>` : r.type ? `<i class="tr-type">${esc(r.type)}</i>` : ""}</div>`
+        + `<span class="tr-ed-acts"><button type="button" data-act="up" data-i="${r.i}" aria-label="Move ${esc(r.name)} up" title="Move up"${r.i === 0 ? " disabled" : ""}>↑</button>`
+        + `<button type="button" data-act="down" data-i="${r.i}" aria-label="Move ${esc(r.name)} down" title="Move down"${r.i === rows.length - 1 ? " disabled" : ""}>↓</button>`
+        + `<button type="button" data-act="remove" data-i="${r.i}" aria-label="Remove ${esc(r.name)}" title="Remove">✕</button></span></li>`).join("")
+        : `<li class="es-tool-note tr-ed-empty">No drills yet. Add them from the list.</li>`;
+      const min = C.draftMinutes(draft);
+      shade.querySelector("[data-count]").textContent = `${draft.codes.length} of ${C.CUSTOM_MAX_DRILLS} drills${min ? ` · ~${min} min` : ""}`;
+      const check = C.draftCheck(draft, !!items);
+      shade.querySelector("[data-hint]").textContent = check.ok ? (full ? `${C.CUSTOM_MAX_DRILLS} drills max.` : "") : check.text;
+      shade.querySelector("[data-warn]").hidden = !(run && draft.id && run.id === draft.id && C.codesChanged(customStore(), draft));
+      shade.querySelector("[data-error]").textContent = error;
+      saveBtn.disabled = !check.ok;
+      shade.querySelector("[data-del]").innerHTML = !old ? ""
+        : confirming ? `<span class="tr-ed-ask">Delete this routine?</span><button type="button" data-act="del-yes">Yes</button><button type="button" data-act="del-no">No</button>`
+        : `<button type="button" class="tr-ed-delete" data-act="delete">Delete</button>`;
+    }
+    const focusOne = (...sels) => {
+      for (const sel of sels) {
+        const el = sel && shade.querySelector(sel);
+        if (el && !el.disabled) { el.focus({ preventScroll: true }); return; }
+      }
+      searchEl.focus({ preventScroll: true });
+    };
+
+    function save() {
+      const cs = customStore(); // fresh: another window may have changed it
+      const changed = C.codesChanged(cs, draft);
+      const res = C.saveCustom(cs, { ...draft, name: nameEl.value }, Date.now());
+      if (res.error) { error = res.error; render(); return; }
+      if (!trySet(C.CUSTOM_KEY, C.writeCustom(res.store.routines))) { error = "Could not save. Storage is full or blocked."; render(); return; }
+      const saved = res.store.routines.find((r) => r.id === res.id);
+      const next = C.runAfterSave(run, res.id, saved.name, changed);
+      if (next !== run) setRun(next); // changed drills: the paused run ends, no summary
+      close(`[data-act="edit"][data-routine="${res.id}"]`);
+    }
+    function remove() {
+      const res = C.deleteCustom(customStore(), draft.id);
+      if (res.error) { error = res.error; confirming = false; render(); return; }
+      if (!trySet(C.CUSTOM_KEY, C.writeCustom(res.store.routines))) { error = "Could not delete. Storage is full or blocked."; confirming = false; render(); return; }
+      const next = C.runAfterDelete(run, draft.id);
+      if (next !== run) setRun(next); // its paused run ends, no summary
+      close('.tr-strip [data-act="new"]');
+    }
+    // fallback: the same control in the redrawn strip (the trigger is gone after a redraw).
+    function close(fallback) {
+      if (!editor) return;
+      removeEventListener("keydown", onKey, true);
+      removeEventListener("keyup", stopKey, true);
+      removeEventListener("keypress", stopKey, true);
+      document.removeEventListener("focusin", onFocusIn, true);
+      shade.remove();
+      editor = null;
+      sync(); // the storage event does not fire in this page: redraw now
+      const sel = trigger && trigger.dataset ? (trigger.dataset.act === "new" ? '.tr-strip [data-act="new"]' : `.tr-strip [data-act="edit"][data-routine="${trigger.dataset.routine}"]`) : null;
+      const back = (trigger && trigger.isConnected && !trigger.disabled ? trigger : null)
+        || [fallback, sel].map((s) => s && document.querySelector(s)).find((el) => el && !el.disabled);
+      // nothing to go back to: focus was inside the removed modal, so it is on the body now
+      if (back) back.focus({ preventScroll: true });
+    }
+    const cancel = () => close(null);
+
+    const stopKey = (e) => e.stopPropagation();
+    function onKey(e) {
+      e.stopPropagation();
+      if (e.isComposing || e.keyCode === 229) return; // IME: Esc / Enter belong to the input tool
+      if (e.key === "Escape") { e.preventDefault(); cancel(); return; }
+      if (e.key === "Tab") {
+        const targets = [...panel.querySelectorAll('button:not(:disabled), input, [tabindex="0"]')].filter((el) => el.getClientRects().length);
+        if (!targets.length) return;
+        const first = targets[0], last = targets[targets.length - 1];
+        if (!panel.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+        else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        return;
+      }
+      if (!panel.contains(document.activeElement)) { nameEl.focus({ preventScroll: true }); return; }
+      if (e.key === "Enter") {
+        if (e.target instanceof HTMLInputElement) e.preventDefault(); // never submits from a text field
+        // a focused button gets its usual Enter click (default action)
+      }
+    }
+    function onFocusIn(e) {
+      if (editor && !panel.contains(e.target)) nameEl.focus({ preventScroll: true });
+    }
+    for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click", "dblclick", "contextmenu"]) shade.addEventListener(type, (e) => e.stopPropagation());
+    shade.addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-act]");
+      if (!b || b.disabled) return;
+      const act = b.dataset.act, i = Number(b.dataset.i);
+      if (act !== "save") error = "";
+      if (act === "cancel") cancel();
+      else if (act === "save") save();
+      else if (act === "add") { draft = C.draftAdd(draft, b.dataset.code); render(); focusOne(`[data-act="add"][data-code="${b.dataset.code}"]`); }
+      else if (act === "up") { draft = C.draftMove(draft, i, -1); render(); focusOne(`[data-act="up"][data-i="${i - 1}"]`, `[data-act="down"][data-i="${i - 1}"]`); }
+      else if (act === "down") { draft = C.draftMove(draft, i, 1); render(); focusOne(`[data-act="down"][data-i="${i + 1}"]`, `[data-act="up"][data-i="${i + 1}"]`); }
+      else if (act === "remove") { draft = C.draftRemove(draft, i); render(); focusOne(`[data-act="remove"][data-i="${Math.min(i, draft.codes.length - 1)}"]`); }
+      else if (act === "delete") { confirming = true; render(); focusOne('[data-act="del-no"]'); }
+      else if (act === "del-no") { confirming = false; render(); focusOne('[data-act="delete"]'); }
+      else if (act === "del-yes") remove();
+    });
+    nameEl.addEventListener("input", () => { draft = { ...draft, name: nameEl.value }; error = ""; render(); });
+    searchEl.addEventListener("input", () => { query = searchEl.value; render(); });
+
+    editor = { shade, close: cancel };
+    addEventListener("keydown", onKey, true);
+    addEventListener("keyup", stopKey, true);
+    addEventListener("keypress", stopKey, true);
+    document.addEventListener("focusin", onFocusIn, true);
+    render();
+    document.body.appendChild(shade);
+    nameEl.focus({ preventScroll: true });
+    nameEl.select();
   }
 
   // ---------- result bar ----------
