@@ -317,21 +317,24 @@ html[data-aim-local]:not(#es) body .hall-root .st-view .st-main > .st-side { con
    --st-rest is the measured height of everything but the preview; it grows with the number of stat rows. */
 html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack { --st-rest: 236px; width: min(100cqw, (100cqh - var(--st-rest)) * 16 / 9, 1232px); }
 html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack.is-cross { --st-rest: 196px; }
-/* Medium heights (preview 620-980px wide): the stats can take 3 columns, so 4-6 of them make 2 rows. */
+/* Medium heights (preview about 650-980px wide): 6+ stats (.is-dense) take 3 columns there, so 2 or more rows. */
 @container st-side (max-height: 779px) {
-  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele > :nth-child(4)) { --st-rest: 274px; }
-  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele > :nth-child(7)) { --st-rest: 330px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele.is-dense) { --st-rest: 274px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele.is-dense > :nth-child(7)) { --st-rest: 330px; }
 }
-/* Short columns (1280x720 and similar): no hint line above the preview (the help box below says the same),
-   tighter stats, 2 stat columns, and a preview at least 240px wide (the column scrolls if that is still too tall). */
+/* Short columns (1280x720 and similar): no hint line above the scene preview (the help box below says the same),
+   the crosshair note on its own line under the title, tighter stats, 2 stat columns, and a preview at least
+   240px wide (the column scrolls if that is still too tall). */
 @container st-side (max-height: 600px) {
   html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack { --st-rest: 160px; width: min(100cqw, max(240px, (100cqh - var(--st-rest)) * 16 / 9), 1232px); }
   html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele) { --st-rest: 204px; }
   html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele > :nth-child(3)) { --st-rest: 250px; }
   html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele > :nth-child(5)) { --st-rest: 296px; }
   html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele > :nth-child(7)) { --st-rest: 342px; }
-  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack.is-cross { --st-rest: 204px; }
-  html[data-aim-local]:not(#es) body .hall-root .st-view .st-bar p { display: none; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack.is-cross { --st-rest: 236px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:not(.is-cross) .st-bar p { display: none; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack.is-cross .st-bar { flex-wrap: wrap; row-gap: 2px; padding-bottom: 6px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack.is-cross .st-bar p { flex: 1 0 100%; margin: 0; text-align: left; }
   html[data-aim-local]:not(#es) body .hall-root .st-view .st-tele { margin-top: 8px; padding-top: 8px; row-gap: 8px; }
   html[data-aim-local]:not(#es) body .hall-root .st-view .st-tele dd { margin-top: 3px; font-size: 18px; }
 }

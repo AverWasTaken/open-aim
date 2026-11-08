@@ -20,6 +20,7 @@
 //     .st-stack width <= 1.4x .st-list width
 //   - the preview stack is not cut off at the bottom of .st-side: it either fits, or .st-side
 //     scrolls (overflow-y auto/scroll and scrollHeight > clientHeight) so the rest can be reached.
+//     At window heights >= 1000 it must fit (scrolling there fails).
 //     The line per tab shows "rest" (stack height minus the preview frame: what the CSS
 //     --st-rest reserve must cover), the stat count/columns, and "fits" / "scrolls N px"
 //   - at CSS width >= 3000 the page is centred: .st-main left gap ~= right gap (within 40 px),
@@ -190,6 +191,7 @@ function check(ctx, m) {
       const sc = m.sideScroll;
       const scrolls = ["auto", "scroll"].includes(sc.overflowY) && sc.sh > sc.ch + 1;
       if (!scrolls) f(`preview cut off: content bottom ${m.stackBottom} > side bottom ${m.side.bottom} and .st-side does not scroll`);
+      else if (m.innerHeight >= 1000) f(`preview column scrolls ${sc.sh - sc.ch}px at ${m.innerHeight}px tall (it should fit there)`);
     }
     if (m.stackLeft < m.side.x - 1) f(`preview sticks out ${m.side.x - m.stackLeft}px past the left edge of .st-side (clipped)`);
   }

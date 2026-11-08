@@ -22,7 +22,7 @@ node scripts/ux/settings-layout-check.mjs <cdpPort> [--sizes 1280x720,1920x1080,
   - horizontal scroll inside `.st-view`, `.st-main`, `.st-list` or `.st-side`, or part of the preview (its corner marks) sticking out past the left edge of `.st-side`;
   - the live preview showing on the Control or Audio tab;
   - at 1920 wide and up: the settings column outside 480-880px, or the preview wider than 1.4x the settings column;
-  - the preview stack running past the bottom of its column while the column does not scroll (running past is fine when `.st-side` scrolls, so the stats can still be reached);
+  - the preview stack running past the bottom of its column while the column does not scroll (running past is fine when `.st-side` scrolls, so the stats can still be reached, but not at window heights of 1000px and up);
   - at 3000 wide and up: the page not centred (`.st-main` left and right gaps, and on preview tabs the settings column's left gap and the preview's right gap, more than 40px apart);
   - a search on the Audio tab not bringing the preview back, or clearing it not hiding it again.
 - Each tab line also shows `rest` (stack height minus the preview frame, what the `--st-rest` reserve in the CSS has to cover), the stat count and columns, and `fits` or `scrolls N px`. Use these to tune `--st-rest`.
