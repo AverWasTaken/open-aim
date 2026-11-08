@@ -195,6 +195,7 @@ const TRAINING_ANALYTICS_JS = ["training-analytics-core.js", "training-analytics
 const STUDIO_DIR = path.join(__dirname, "studio");
 const STUDIO_PATH = "/studio/";
 const STUDIO_LAUNCH_JS = fs.readFileSync(path.join(__dirname, "studio-launch.js"), "utf-8");
+const TRAINING_LAUNCH_JS = fs.readFileSync(path.join(__dirname, "training-launch.js"), "utf-8");
 
 // Shooting error graph (shooting-error.js). The game's frame loop is served with one extra
 // call that hands every shot (its total spread and the spray part) to the graph.
@@ -225,6 +226,7 @@ const UI_SCRIPTS = [
   ["ROUND HUD", ROUND_HUD_JS],
   ["LOBBY BAR", LOBBY_BAR_JS],
   ["STUDIO LAUNCH", STUDIO_LAUNCH_JS],
+  ["TRAINING LAUNCH", TRAINING_LAUNCH_JS],
   ["SHOT GRAPH", SHOT_GRAPH_JS],
   ["MAPS LOCATION", MAPS_LOCATION_JS],
   ["CROSSHAIR PROFILES", CROSSHAIR_PROFILES_JS],
