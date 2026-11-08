@@ -1047,7 +1047,7 @@ test('B3 info rotation: a mid bot latches once on an A/B bot\'s sighting of the 
   assert.equal(run('gold', { phase: 'barrier' }).actors[1].behavior.roundBot.rotN, -1, 'not in the barrier phase');
   assert.equal(run('gold', { extra: (T) => { T.state.liveTick = 500; } }).actors[1].behavior.roundBot.rotN, -1, 'not from a sighting on the last barrier tick');
   assert.equal(run('gold', { phase: 'planted', extra: (T) => { T.state.plantTick = 400; T.state.spike.planted = A_SPIKE; } }).actors[1].behavior.roundBot.rotN, -1, 'not after the plant');
-  // Both sites the same tick: the lowest-id trigger's site (bot 1 = A site default, bot 3 = B default).
+  // Both sites the same tick: the lowest-id trigger's site (bot 1 = A site default, bot 3 = B site box).
   let T = run('gold', { seer: [3, 1] });
   assert.ok(I.stagingFor(N, T.r).A.includes(T.actors[1].behavior.roundBot.rotN), 'A wins (lower id)');
   T = run('gold', { seer: [3, 5] });
@@ -1099,7 +1099,7 @@ test('B3 flat, both movement modes: gold -> the mid bot leaves 6 s after an A/B 
   const g = useNav().g;
   for (const extra of [{}, { movement: 'game' }]) {
     for (const rank of ['gold', 'iron']) {
-      const doc = ascentDoc({ barrierSec: 2, set: SETS[0] }); // A site default, A site front, Market (mid), B default, B back site
+      const doc = ascentDoc({ barrierSec: 2, set: SETS[0] }); // A site default, A site front, Market (mid), B site box, B back corner
       const midSid = Object.keys(doc.rules.round.setupBySpawner).find((id) => doc.rules.round.setupBySpawner[id].name === 'Market');
       const s = ascentSim(doc, 9, { ...extra, enemyRank: rank });
       const move = (pos) => { const st = s.saveState(); st.player.position = pos; s.restoreState(st); };

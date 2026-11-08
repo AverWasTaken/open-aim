@@ -8,6 +8,7 @@ import { parseRoundNav, writeRoundNav, reverseEdges } from "../app/mods/aim-roun
 import { terrainSources, loadTerrain } from "../tools/round_terrain.mjs";
 import { TYPES, nodeIndex, nodesNear, nearestNode, flood, dijkstra, viaPath, barrierMask, edgeCutBy } from "../tools/round_navlib.mjs";
 import { inputsHash, inPoly, polyEdgeDist, attackEntryTimes, navContext, barrierSamples } from "../tools/round_navdata.mjs";
+import { LOOK } from "./round-look.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ROUNDS = path.join(root, "app", "mods", "aim-rounds");
@@ -20,12 +21,13 @@ const ROUNDS = path.join(root, "app", "mods", "aim-rounds");
 //   the attacker barriers (R4 setup rules); Ascent predates the rules
 //   minTris: lower bounds for the real collision's pawn / projectile triangle counts
 //   ropes: rope links in the seal check (maps with a <map>.ropes.json, Split)
-//   look: { site, points: {name: [x, z]} (the attacker's way into the site, snapped to the nav), minSeen }:
-//   at least minSeen of the site's setups are seen from those points (real sight rays): the user's
+//   look: { site, points: {name: [x, z]} (scripts/round-look.mjs: the attacker's way into the site, snapped
+//   to the nav), minSeen }: at least minSeen of the site's pre-round setups (push spots don't count) are
+//   seen from those points (real sight rays): the user's
 //   "the star was the ONLY enemy I saw" on Ascent B (old spots sat in the sunken site, facing the lane)
 const EXPECT = {
   ascent: { count: 21746, edgeCount: 161371, notWalk: [], routes: { A: ["A Main", "Mid Cubby"], B: ["B Main", "Mid Market"] }, setupTiming: false, minTris: [1e6, 1e6],
-    look: { site: "B", points: { "B Main": [-55, 20], "door out": [-61.5, 11.7], "door in": [-65.5, 12], approach: [-70, 14] }, minSeen: 10 } },
+    look: { site: "B", points: LOOK.ascent.B, minSeen: 9 } },
   rook: { count: 21693, edgeCount: 162053, notWalk: [], routes: { A: ["A Main", "A Link"], B: ["B Main", "B Link"] }, setupTiming: true, minTris: [1e6, 1e6] },
   bonsai: { count: 17913, edgeCount: 131407, notWalk: [], routes: { A: ["A Main", "A Ramps"], B: ["B Garage", "Mid Mail"] }, setupTiming: true, minTris: [1e6, 1e6], ropes: 7 },
 };
@@ -444,7 +446,7 @@ for (const MAP of MAPS) {
       assert.ok(k >= 0, `look point ${name} on the nav`);
       return [nav.x[k], nav.y[k] + 1.6, nav.z[k]];
     });
-    const list = data.setups.defense[E.look.site];
+    const list = data.setups.defense[E.look.site].filter((p) => p.push !== true);
     const seen = list.filter((p) => eyes.some((e) => T.sight(e, [p.x, p.y + 1.0, p.z]) || T.sight(e, [p.x, p.y + 1.6, p.z])));
     const msg = `${MAP} ${E.look.site}: ${seen.length}/${list.length} setups seen on the way in; hidden: ${list.filter((p) => !seen.includes(p)).map((p) => p.name).join(", ") || "none"}`;
     assert.ok(seen.length >= E.look.minSeen, msg);

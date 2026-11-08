@@ -23,9 +23,9 @@ const MAP = arg('--map', 'ascent'), SEEDS = +arg('--seeds', 50), FROM = +arg('--
 const BARRIER = +arg('--barrier', 20), AFTER = +arg('--after', 20), OUT = arg('--json', null);
 const LOOK_SITE = arg('--look', null), SET = arg('--set', null)?.split(',').map((n) => n.trim()).filter(Boolean) ?? null;
 const DATA_DIR = arg('--data', path.join(MODS, 'aim-rounds'));
-// The attacker's ways into a site (x, z; snapped to the nearest nav node). Ascent B: B Main, the B Main
-// door (outside / inside), the B approach behind it, the site-front lane entry and the lane.
-const LOOK = { ascent: { B: { 'B Main': [-55, 20], 'door out': [-61.5, 11.7], 'door in': [-65.5, 12], approach: [-70, 14], 'lane entry': [-64, 22], lane: [-65.5, 27] } } };
+// The attacker's ways into a site (scripts/round-look.mjs; snapped to the nearest nav node), plus the lane.
+const { LOOK: LOOK0, LOOK_LANE } = await import(pathToFileURL(path.join(root, 'scripts', 'round-look.mjs')).href);
+const LOOK = { [MAP]: { [LOOK_SITE]: { ...(LOOK0[MAP]?.[LOOK_SITE] ?? {}), ...(LOOK_LANE[MAP]?.[LOOK_SITE] ?? {}) } } };
 const TPS = 128;
 const IDLE = { forward: 0, strafe: 0, mouseDx: 0, mouseDy: 0, jump: false, crouch: false, walk: false, fire: false };
 

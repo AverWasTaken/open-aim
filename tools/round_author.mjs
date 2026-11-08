@@ -163,7 +163,7 @@ const MAPS = {
       // faceHint: degrees (sim yaw, atan2(dx, dz)) toward the entrance it holds, when the automatic
       // facing (the visible node attackers reach first) looks the wrong way.
       B: [[-76.1, -0.96, 33.4, 'B site box'], [-81.5, 1.0, 20.9, 'B boat back'], [-70.0, 1.0, 20.8, 'B boat front'],
-        [-84.9, 1.0, 18.4, 'B back corner'], [-69.83, -0.83, 27.67, 'B front corner', { faceHint: 125 }], [-76.6, 1.0, 17.4, 'B boat side'],
+        [-84.9, 1.0, 18.4, 'B back corner', { clear: false }], [-67.33, 1.0, 27.67, 'B front corner', { faceHint: 140 }], [-76.6, 1.0, 17.4, 'B boat side', { clear: false }],
         [-75.6, 1.0, 10.0, 'B link', { clear: false }], [-69.35, 1.0, 5.1, 'B market door', { clear: false }],
         [-87.4, 1.0, 11.6, 'B CT door', { clear: false }], [-95.7, 1.0, 11.4, 'B CT deep', { clear: false }],
         [-65.5, 1.0, 11.7, 'B main door', { clear: false }],

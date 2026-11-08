@@ -313,14 +313,19 @@ node tools/round_author.mjs && node tools/round_nav.mjs --reuse && node tools/ro
 node scripts/round-defense-spread.mjs --seeds 50 --look B   # where the 5 bots stand, what an attacker sees
 ```
 
+`scripts/round-setup-check.mjs [--group B] [--spots rows.json]` (hp; ~20 s) prints per spot (rows in the
+SETUPS format, or the group's current spots) the nav node and floor, walk, spawnT, the facing the
+header will get, and which of the attacker's look points (`scripts/round-look.mjs`) see it: run it on
+new marks before writing them into SETUPS.
+
 `scripts/round-defense-spread.mjs` (hp only; ~1 s per seed) runs the real sim + nav + collision: per
 seed the kept setups, each bot's mode / position at the drop and 20 s later, bots off their spot,
 stuck or within 3 m; `--look B` adds how many B bots are visible from the attacker's way in (B Main,
-the B Main door, the approach; Ascent points in its `LOOK` table) 10 s after the drop; `--set "a,b"`
+the B Main door, the approach, the site-front lane; `scripts/round-look.mjs`) 10 s after the drop; `--set "a,b"`
 forces setups, `--data <dir>` reads another copy of the map data (old vs new). With the old Ascent B
 spots 12 of 50 rounds showed no B bot before the site-front lane ("B default" was visible from none
-of those points); with the new ones 0 of 50. scripts/test-round-nav.mjs keeps it: at least 10 of
-Ascent's 13 B spots are visible from those points (real sight rays).
+of those points); with the new ones 0 of 50. scripts/test-round-nav.mjs keeps it: at least 9 of
+Ascent's 11 pre-round B spots are visible from B Main / the door / the approach (real sight rays).
 
 ### Other maps (Corrode = `rook`)
 

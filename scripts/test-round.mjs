@@ -739,12 +739,12 @@ const defDoc = (attackData = null) => {
   return d;
 };
 // sha256 (first 16 hex) of JSON.stringify(roundPrepare(doc, seed)), seeds 1..20: the attack doc of
-// round-ascent-attack-vandal-20 (re-frozen on ceo/round-fixes: Ascent's B setups were replaced, so the
-// doc's setup spawners changed; the draws didn't), and the defense doc (buildDoc) with
+// round-ascent-attack-vandal-20 (re-frozen on ceo/round-fixes: Ascent's B setup group was replaced, 5 -> 13
+// spawners, so the B shuffle draws more and the later draws shift; round runs record no replay), and the defense doc (buildDoc) with
 // rules.round.attack and rules.round.attackData deleted (computed on 1d040e8, before R3).
 const FROZEN_PREPARE = {
-  attack: ['c45ccedb7c4af8f6', '1082df266d537116', '5ced0d07c1f71a04', '76f9790f6e55704a', '625b4d7e53f40c10', 'eb0db391c2bf9d72', '5e02c1688a19f98e', 'a00db8f731f5ff06', 'fb260fcc4da0a887', 'da923526fab2af12',
-    '5ea2804e9008f68c', '8941d50de5d48282', 'ca9834b06eb4fe1e', '27a361cb228cc4cc', '066da7430d1d4d0d', 'f8c9475f8c219e65', 'cabb1c3fadefef8c', '827219f257ab5a42', '1957efdf417f9b88', 'd1fc8526a668753a'],
+  attack: ['84207f459c941813', '5bce515bede52d69', '4022b2b4126b045d', '02893873c760a35e', '4dd3d8f47b91882e', '3c25e3e57378caca', '8f197b6a63d52624', '04fc15c4bea1e36d', '80dcf155018e4e6f', '4c6497e7aa5ab106',
+    '680b526758519c17', 'f5338ef4a951d308', '6ee62ed7a97fa742', 'b5c819f94a4d0b1e', '959880076b35fb0c', '5937f59abc10fe3d', '1db08714ee8db23f', '5a94e130e7dcf0d5', '65513195e0f8271c', '9053596e9b36ab64'],
   defense: ['238952ef37dc2568', '44410f22d07cab0c', 'c4ec0a789ce91868', 'f4e2722f52eb70fe', 'f4e2722f52eb70fe', '7c3bbebd448b44af', 'c4ec0a789ce91868', '44410f22d07cab0c', '44410f22d07cab0c', '7c3bbebd448b44af',
     'f4e2722f52eb70fe', '7c3bbebd448b44af', '44410f22d07cab0c', '238952ef37dc2568', '7c3bbebd448b44af', '7c3bbebd448b44af', 'f4e2722f52eb70fe', '238952ef37dc2568', 'f4e2722f52eb70fe', '44410f22d07cab0c'],
 };

@@ -85,7 +85,7 @@
 // ---------------------------------------------------------------- B2: movement
 // Nav mode (st.nav = 1) is chosen in init when the nav parses, the bot's spawn point has a node
 // and its setup (header setups[name].node, else the nearest node) can be reached from that node on
-// walk+drop edges. A setup node that can't be reached (Ascent "B site front", walk:false) is
+// walk+drop edges. A setup node that can't be reached (walk:false, not a push spot; none on the shipped maps) is
 // replaced by the nearest reachable node within 2.5 m xz and |dy| <= 0.5; the bot holds there with
 // the setup's facing. Otherwise the bot falls back to the v0 static bot (setup spot, faces the
 // player). Nav mode never teleports.
@@ -1135,7 +1135,7 @@ function attackTick(N, actor, ctx, st, cfg, rs, barrier, mask) {
     }
     return { F: stageF, stopT: st.stopT, kind: GK.astage, fk: 6e8 + st.goal * 2 };
   };
-  // No clear spots on the site (never on Ascent: A 7, B 4): null -> the bot's staging slot.
+  // No clear spots on the site (never on Ascent: A 7, B 4 site-area spots): null -> the bot's staging slot.
   const clearGoal = () => (st.ci >= 0 ? { F: fieldFor(N, st.ci, null, 1), stopT: 0, kind: GK.clear, fk: 9e8 + st.ci } : null);
   const plantGoal = () => {
     if (st.pi < 0) { let bt = Infinity; A.plant.forEach((pl, j) => { const t = fieldFor(N, pl.node, null, 1).dist[st.cur]; if (t < bt) { bt = t; st.pi = j; } }); }
