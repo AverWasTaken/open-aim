@@ -553,3 +553,147 @@ test('round visual: detonation blast draws over walls (no depth test, render ord
   assert.equal(blast.visible, false, 'gone after 1.4 s');
   v.dispose();
 });
+
+// ---------------------------------------------------------------- R5: round stats line
+// A hud() whose window listeners are reachable (the ux-result-extra event) and whose document has
+// a result card (.al-result-overlay) with the given text, or none.
+function statsHud(pre = {}) {
+  const on = {};
+  const h = hud({ addEventListener: (t, f) => { (on[t] ??= []).push(f); }, ...pre });
+  let card = null;
+  h.ctx.document.querySelector = (sel) => (sel === '.al-result-overlay' ? card : null);
+  h.card = (text) => { card = text === null ? null : { textContent: text }; };
+  h.fire = (type, detail) => { for (const f of on[type] ?? []) f({ type, detail }); };
+  return h;
+}
+const stats = (h) => h.el().querySelector('.arh-stats');
+const live = { ...base, phase: 'live', spike: { carrier: 'player', dropped: null, planted: null }, kills: 0, plantClock: null, defuseLeft: null };
+
+test('R5 HUD: HS% = head hits / hits on enemies from window.__aimShot (chained: the previous hook runs first), pellets count one by one, barrier shots and repeats do not count', () => {
+  const h = statsHud();
+  const seen = [];
+  h.ctx.__aimShot = function (e) { seen.push({ e, hitsBefore: h.ctx.__aimRoundStats.hits }); return 'feel'; };
+  const feel = h.ctx.__aimShot;
+  let tick = 1;
+  h.show({ ...live, phase: 'barrier', tick: tick++ }, 0.1);
+  assert.notEqual(h.ctx.__aimShot, feel, 'wrapped at the first round frame');
+  h.ctx.__aimShot({ hitActorId: 2, hitPart: 'head' });
+  assert.equal(h.ctx.__aimRoundStats.hits, 0, 'barrier: not counted');
+  h.show({ ...live, tick: tick++ }, 0.2);
+  const head = { hitActorId: 2, hitPart: 'head' };
+  assert.equal(h.ctx.__aimShot(head), 'feel', "the previous hook's return value passes through");
+  h.ctx.__aimShot({ hitActorId: 3, hitPart: 'body' });
+  h.ctx.__aimShot({ hitActorId: null, hitPart: null }); // miss
+  h.ctx.__aimShot({ hitActorId: 0, hitPart: 'legs' }); // actor id 0 is a hit
+  h.ctx.__aimShot({ hitActorId: 1, hitPart: 'head', pellets: [{ hitActorId: 1, hitPart: 'head' }, { hitActorId: 1, hitPart: 'body' }, { hitActorId: null, hitPart: null }] });
+  assert.equal(seen.length, 6, 'feel saw every shot');
+  assert.equal(seen[1].hitsBefore, 0, 'feel ran before the count');
+  assert.equal(h.ctx.__aimRoundStats.hits, 5);
+  assert.equal(h.ctx.__aimRoundStats.heads, 2);
+  // Someone replaces the hook after us: the next frame chains onto the new one; an event that goes
+  // through both wrappers counts once.
+  const outer = h.ctx.__aimShot;
+  h.ctx.__aimShot = function (e) { return outer(e); };
+  h.show({ ...live, tick: tick++ }, 0.3);
+  h.ctx.__aimShot({ hitActorId: 4, hitPart: 'head' });
+  assert.equal(h.ctx.__aimRoundStats.hits, 6);
+  assert.equal(h.ctx.__aimRoundStats.heads, 3);
+  h.ctx.__aimShot(head);
+  assert.equal(h.ctx.__aimRoundStats.hits, 6, 'the same event object counts once');
+  // A bullet through one enemy into another (also: [{actorId, part}]): each enemy hit counts.
+  h.ctx.__aimShot({ hitActorId: 1, hitPart: 'body', also: [{ actorId: 2, part: 'head' }, { actorId: null, part: null }] });
+  assert.equal(h.ctx.__aimRoundStats.hits, 8);
+  assert.equal(h.ctx.__aimRoundStats.heads, 4);
+  // The round-ending shot arrives with the view already "ended": it counts.
+  const won = { ...live, phase: 'ended', reason: 'eliminated', winner: 'attack', win: true, kills: 5 };
+  h.show({ ...won, tick: tick++ }, 0.4);
+  h.ctx.__aimShot({ hitActorId: 5, hitPart: 'head' });
+  h.show({ ...won, tick: tick++ }, 0.5);
+  assert.equal(stats(h).textContent, 'Kills 5 · HS 56%');
+  // Not in a round: nothing counts.
+  h.ctx.__aimRoundOn = false;
+  h.ctx.__aimShot({ hitActorId: 5, hitPart: 'head' });
+  assert.equal(h.ctx.__aimRoundStats.hits, 9);
+  // The next round starts clean (off -> on resets the counts and the line).
+  h.ctx.__aimRoundOn = true;
+  assert.equal(h.ctx.__aimRoundStats.hits, 0);
+  assert.equal(h.ctx.__aimRoundStats.line, '');
+});
+
+test('R5 HUD: the stats line under the end banner, per case (attack / defense), parts with no number left out', () => {
+  const cases = [
+    // [view, hits, heads, line]
+    [{ side: 'attack', reason: 'detonated', win: true, kills: 3, plantClock: 57.2 }, 3, 1, 'Kills 3 · HS 33% · Planted at 0:58'],
+    [{ side: 'attack', reason: 'timeout', win: false, kills: 1, plantClock: null }, 2, 2, 'Kills 1 · HS 100% · No plant'],
+    [{ side: 'attack', reason: 'defused', win: false, kills: 2, plantClock: 40, defuseLeft: 30 }, 4, 1, 'Kills 2 · HS 25% · Enemy defused'],
+    [{ side: 'attack', reason: 'died', win: false, kills: 0, plantClock: null }, 0, 0, 'Kills 0'],
+    [{ side: 'attack', reason: 'eliminated', win: true, kills: 5, plantClock: 12.01 }, 5, 5, 'Kills 5 · HS 100% · Planted at 0:13'],
+    [{ side: 'defense', reason: 'detonated', win: false, kills: 3, plantClock: 50.3 }, 3, 1, 'Kills 3 · HS 33% · Enemy planted at 0:51'],
+    [{ side: 'defense', reason: 'defused', win: true, kills: 1, plantClock: 50.3, defuseLeft: 11.2 }, 1, 0, 'Kills 1 · HS 0% · Defused with 0:12 left'],
+    [{ side: 'defense', reason: 'eliminated', win: true, kills: 5, plantClock: null }, 6, 2, 'Kills 5 · HS 33%'],
+    [{ side: 'defense', reason: 'timeout', win: true, kills: 0, plantClock: null }, 0, 0, 'Kills 0'],
+    [{ side: 'attack', reason: 'detonated', win: true, kills: undefined, plantClock: undefined }, 0, 0, ''],
+  ];
+  for (const [v, hits, heads, want] of cases) {
+    const h = statsHud();
+    let tick = 1;
+    h.show({ ...live, side: v.side, tick: tick++ }, 0.1);
+    for (let i = 0; i < hits; i++) h.ctx.__aimShot({ hitActorId: 1, hitPart: i < heads ? 'head' : 'body' });
+    h.show({ ...live, ...v, phase: 'ended', winner: v.win === (v.side === 'attack') ? 'attack' : 'defense', tick: tick++ }, 0.2);
+    const el = stats(h);
+    assert.equal(el.textContent, want, JSON.stringify(v));
+    assert.equal(el.hidden, !want, `hidden when empty: ${JSON.stringify(v)}`);
+    assert.equal(h.ctx.__aimRoundStats.line, want);
+    assert.ok(!want.includes('—'), 'no em dash');
+  }
+});
+
+test("R5 HUD: the stats line fills ux's result card container (event or __aimUxResult.extra()) on a round result only, once; a new round clears it", () => {
+  const h = statsHud();
+  let tick = 1;
+  h.show({ ...live, tick: tick++ }, 0.1);
+  h.ctx.__aimShot({ hitActorId: 1, hitPart: 'head' });
+  const end = { ...live, phase: 'ended', reason: 'detonated', winner: 'attack', win: true, kills: 2, plantClock: 70 };
+  h.show({ ...end, tick: tick++ }, 0.2);
+  h.show({ ...end, tick: tick++, done: true }, 4.3); // the run is over: the HUD hides, the line stays
+  assert.equal(h.el().hidden, true);
+  const line = 'Kills 2 · HS 100% · Planted at 1:10';
+  assert.equal(h.ctx.__aimRoundStats.line, line);
+  const rows = (box) => box.children.filter((c) => c.classList.contains('arh-result-stats'));
+  // Not a round result card (a drill's): left alone.
+  h.card('TARGET DRILL Score 12');
+  const box = h.ctx.document.createElement('div');
+  h.fire('ux-result-extra', { el: box });
+  assert.equal(box.children.length, 0, 'drill card: no row');
+  // No card at all: nothing.
+  h.card(null);
+  h.fire('ux-result-extra', { el: box });
+  assert.equal(box.children.length, 0);
+  // The round's card: one row with the line; a second event doesn't add another.
+  h.card('Round won Spike detonated');
+  h.fire('ux-result-extra', { el: box });
+  assert.equal(rows(box).length, 1);
+  assert.equal(rows(box)[0].textContent, line);
+  h.fire('ux-result-extra', { el: box });
+  assert.equal(box.children.length, 1, 'still one row');
+  h.card('ROUND LOST');
+  const box2 = h.ctx.document.createElement('div');
+  h.fire('ux-result-extra', { el: box2 });
+  assert.equal(rows(box2)[0].textContent, line, 'lost card too (case-insensitive)');
+  // window.__aimUxResult.extra(): the container already up when the run ends.
+  const g = statsHud();
+  const box3 = g.ctx.document.createElement('div');
+  g.ctx.__aimUxResult = { extra: () => box3 };
+  g.card('Round lost Your team was eliminated');
+  const lost = { ...live, side: 'defense', phase: 'ended', reason: 'detonated', winner: 'attack', win: false, kills: 0, plantClock: 33.5 };
+  g.show({ ...live, side: 'defense', tick: 1 }, 0.1);
+  g.show({ ...lost, tick: 2 }, 0.2);
+  g.show({ ...lost, tick: 3, done: true }, 4.3);
+  assert.equal(rows(box3)[0]?.textContent, 'Kills 0 · Enemy planted at 0:34');
+  // A new round view (not ended) clears the saved line: a late event fills nothing.
+  h.show({ ...live, phase: 'barrier', tick: 1 }, 10);
+  assert.equal(h.ctx.__aimRoundStats.line, '');
+  const box4 = h.ctx.document.createElement('div');
+  h.fire('ux-result-extra', { el: box4 });
+  assert.equal(box4.children.length, 0);
+});

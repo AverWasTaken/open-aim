@@ -271,7 +271,9 @@ test('detonation 45 s after the plant wins the round; done after the end hold', 
   assert.deepEqual(ev, [{ kind: 'roundEnd', winner: 'attack', reason: 'detonated', win: true }]);
   assert.equal(view(r).win, true);
   assert.equal(r.st.done, false);
-  r.run(sec(3));
+  r.run(sec(4) - 1);
+  assert.equal(r.st.done, false, 'the end hold is 4 s');
+  r.step();
   assert.equal(r.st.done, true);
   assert.ok(core.roundNoFire(r.st) && core.roundBotsHold(r.st));
 });
@@ -718,7 +720,11 @@ test('shell files are wired into main.js and the build', () => {
   const pkg = JSON.parse(read('app', 'package.json'));
   for (const f of ['round-panel.js', 'round-hud.js', 'round-scene.js']) assert.ok(pkg.build.files.includes(f), f);
   assert.ok(pkg.build.extraResources.some((e) => e.from === 'mods'), 'mods (aim-rounds) ship as extra resources');
-  assert.match(read('app', 'lobby-bar.js'), /Round \(beta\)/);
+  const bar = read('app', 'lobby-bar.js');
+  assert.ok(bar.includes('roundLabel.textContent = "Round";'), 'lobby button label: Round');
+  assert.ok(bar.includes('round.title = "One VALORANT-style round vs 5 bots. Pick map and side.";'), 'lobby button tooltip');
+  for (const f of ['lobby-bar.js', 'round-panel.js']) assert.ok(!/\(beta\)/i.test(read('app', f)), `${f}: no "(beta)"`);
+  assert.ok(read('app', 'round-panel.js').includes('<h2>Round</h2>'), 'panel title: Round');
 });
 
 // ---------------------------------------------------------------- R3 S2: attack plan, bot carrier / drop / pickup / plant (defense side)
@@ -1142,4 +1148,72 @@ test('R4 every map with round data builds a round scene that roundPrepare and th
       if (validate) validate(env.doc);
     }
   } finally { if (tmp) fs.rmSync(tmp, { force: true }); }
+});
+
+// ---------------------------------------------------------------- R5: round stats (kills, plant clock, defuse time left)
+test('R5 stats: the end hold is 4 s by default', () => {
+  assert.equal(core.ROUND_DEFAULTS.endHoldSec, 4);
+});
+
+test('R5 stats: kills = the kills io reports while the round runs (not after the end); plantClock = the round clock at the plant', () => {
+  const r = makeRound({ barrierSec: 1 });
+  assert.equal(view(r).kills, 0);
+  assert.equal(view(r).plantClock, null);
+  assert.equal(view(r).defuseLeft, null);
+  r.run(sec(1));
+  assert.equal(r.st.liveTick, sec(1));
+  r.step({ kills: 2 });
+  assert.equal(view(r).kills, 2);
+  assert.equal(view(r).enemiesAlive, 3);
+  r.step({ kills: -3 }); // nonsense io: ignored
+  assert.equal(view(r).kills, 2);
+  r.run(sec(10));
+  r.toSite('A');
+  r.run(sec(4), { hold: { plant: true } });
+  assert.equal(r.st.phase, 'planted');
+  const v = view(r);
+  // Barriers dropped at 1 s, 10 s waited + the 4 s plant + 2 kill steps: 14 s 2 ticks into the 100 s round.
+  assert.equal(r.st.plantTick - r.st.liveTick, sec(14) + 2);
+  assert.equal(v.plantClock, (sec(100) - sec(14) - 2) * TS);
+  assert.equal(v.defuseLeft, null, 'no defuse');
+  // A clone (the sim's save / restore) keeps the count.
+  assert.equal(core.roundView(r.cfg, core.roundClone(r.st), TS).kills, 2);
+  r.run(sec(45));
+  assert.equal(r.st.reason, 'detonated');
+  r.step({ kills: 1 });
+  assert.equal(view(r).kills, 2, 'no kills counted after the end');
+  assert.equal(view(r).defuseLeft, null, 'detonated: no defuse time');
+  // Timeout without a plant: no plant clock.
+  const t = makeRound({ barrierSec: 1 });
+  t.run(sec(1)); t.run(sec(100));
+  assert.equal(t.st.reason, 'timeout');
+  assert.equal(view(t).plantClock, null);
+  assert.equal(view(t).kills, 0);
+});
+
+test('R5 stats: defuseLeft = the spike time left when a defuse ends the round (defending player and attacking side bot defuse)', () => {
+  const cfg = { ...JSON.parse(roundScene(MODS, 'round-ascent-attack-vandal-10').doc).rules.round, side: 'defense', barrierSec: 1 };
+  const st = core.roundCreate(cfg, TS);
+  const s = cfg.sites[0];
+  const p = { x: s.center.x, y: s.center.y, z: s.center.z, speed: 0, grounded: true, health: 100 };
+  let tick = 0;
+  const step = (hold = {}, kills = 0) => core.roundStep(cfg, st, { tick: ++tick, tickSec: TS, player: p, kills, hold });
+  for (let i = 0; i < sec(1); i++) step();
+  for (let i = 0; i < sec(20); i++) step({}, i === 5 ? 1 : 0);
+  st.phase = 'planted'; st.plantTick = tick; st.spike.planted = { x: p.x, y: p.y, z: p.z, site: s.id };
+  assert.equal(core.roundView(cfg, st, TS).plantClock, (sec(100) - sec(20)) * TS);
+  for (let i = 0; i < sec(5); i++) step();
+  for (let i = 0; i < sec(7); i++) step({ use: true });
+  assert.equal(st.reason, 'defused');
+  const v = core.roundView(cfg, st, TS);
+  assert.equal(v.defuseLeft, (sec(45) - sec(12)) * TS);
+  assert.equal(v.kills, 1);
+  // Attack side, a bot defuses the player's spike: defuseLeft is set as well (the HUD says "Enemy defused").
+  const r = makeRound({ barrierSec: 1 });
+  r.run(sec(1)); r.toSite('A'); r.run(sec(4), { hold: { plant: true } });
+  const sp = r.st.spike.planted;
+  const bot = { id: 1, alive: true, x: sp.x + 0.2, y: sp.y, z: sp.z, defusing: 1 };
+  for (let i = 0; i < sec(7) && r.st.phase !== 'ended'; i++) core.roundStep(r.cfg, r.st, { tick: r.st.tick + 1, tickSec: TS, player: { ...r.player }, kills: 0, hold: {}, bots: [bot] });
+  assert.equal(r.st.reason, 'defused');
+  assert.equal(view(r).defuseLeft, (sec(45) - sec(7)) * TS);
 });

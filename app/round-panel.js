@@ -1,4 +1,4 @@
-// Round mode panel: the lobby's "Round (beta)" button (lobby-bar.js) opens it. Pick map, side,
+// Round mode panel: the lobby's "Round" button (lobby-bar.js) opens it. Pick map, side,
 // enemy rank, weapon and barrier time, then Start loads the generated round scene
 // (round-<map>-<side>-<weapon>-<barrierSec>, served by main.js from app/round-scene.js) through
 // window.__aimLaunchScene (tools/round_patch.py). The rank is the same setting the drills use
@@ -113,7 +113,7 @@
     const shade = document.createElement("div");
     shade.className = "es-tool-shade aim-pick-shade";
     shade.innerHTML = `<section class="es-tool aim-pick aim-round" role="dialog" aria-modal="true" aria-label="Round">
-      <header class="es-tool-head"><div><h2>Round (beta)</h2><p class="aim-round-blurb">${esc(sideOf(cur.side).blurb)}</p></div>
+      <header class="es-tool-head"><div><h2>Round</h2><p class="aim-round-blurb">${esc(sideOf(cur.side).blurb)}</p></div>
       <button type="button" class="es-tool-x" aria-label="Close">✕</button></header>
       <div class="es-tool-body">
         <div class="aim-round-row"><h3>Map</h3><div class="aim-round-opts" data-k="map"></div></div>
