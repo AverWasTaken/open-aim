@@ -75,6 +75,8 @@ function buildDoc(data, opts) {
     setupBySpawner,
     ...(enemyTeam === "defense" ? { botStart: "spawn" } : {}),
     ...(data.retake ? { retake: data.retake } : {}),
+    // Defense side: the attacker bots' route / plant data (roundPrepare's cfg.attack plan, round-bots).
+    ...(side === "defense" && data.attack ? { attackData: data.attack } : {}),
   };
   return {
     schemaVersion: 2,
