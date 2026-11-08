@@ -89,7 +89,7 @@
     async function refresh() {
       const items = await api().list();
       if (!items.length) {
-        listEl.innerHTML = `<p class="es-tool-note">No backups yet.</p>`;
+        listEl.innerHTML = `<p class="es-tool-note">No backups yet. One is made each time the app starts.</p>`;
         return;
       }
       listEl.innerHTML = items.map((b) => `<div class="es-tool-row">
@@ -241,7 +241,6 @@
     setter.call(input, String(value));
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     input.blur();
     return true;
   }

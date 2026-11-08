@@ -1,0 +1,11 @@
+[
+ {"id":"ascent","name":"Ascent","preview":"/aim-maps/ascent.preview.png","size":[604,640],"world":{"a":0,"b":-4.666667,"c":239.5,"d":4.666667,"e":0,"f":529.533334},"mm":{"scale":666.666667,"u0":0.067508,"v0":0.019595},"pixels":"bc9a2160e18dd4fd"},
+ {"id":"bonsai","name":"Split","preview":"/aim-maps/bonsai.preview.png","size":[640,598],"world":{"a":0,"b":-5.220339,"c":194.450934,"d":5.220339,"e":0,"f":536.383138},"mm":{"scale":669.274229,"u0":0.011882,"v0":0.040748},"pixels":"26829a01a8cd8ffb"},
+ {"id":"triad","name":"Haven","preview":"/aim-maps/triad.preview.png","size":[576,640],"world":{"a":0,"b":-4.987854,"c":196.301327,"d":4.987854,"e":0,"f":717.339897},"mm":{"scale":665.047233,"u0":0.062103,"v0":0.01482},"pixels":"c8d72cb548042475"},
+ {"id":"plummet","name":"Summit","preview":"/aim-maps/plummet.preview.png","size":[634,640],"world":{"a":4.8125,"b":0,"c":16.582592,"d":0,"e":4.8125,"f":627.766884},"mm":{"scale":641.666667,"u0":0.021558,"v0":0.000553},"pixels":"4592986b451a2ed1"},
+ {"id":"jam","name":"Lotus","preview":"/aim-maps/jam.preview.png","size":[640,567],"world":{"a":5.14405,"b":0,"c":292.887209,"d":0,"e":5.14405,"f":576.231491},"mm":{"scale":714.451403,"u0":0.044842,"v0":0.111215},"pixels":"bcb48ac5fc1816d4"},
+ {"id":"infinity","name":"Abyss","preview":"/aim-maps/infinity.preview.png","size":[640,615],"world":{"a":0,"b":-5.165618,"c":320.125492,"d":5.165618,"e":0,"f":305.661761},"mm":{"scale":637.730673,"u0":-0.001976,"v0":0.020704},"pixels":"a08c26f65651454d"},
+ {"id":"rook","name":"Corrode","preview":"/aim-maps/rook.preview.png","size":[564,640],"world":{"a":0,"b":-4.512821,"c":282.40844,"d":4.512821,"e":0,"f":332.410491},"mm":{"scale":644.688645,"u0":0.061946,"v0":0.010544},"pixels":"e02c411bc7e8d429"},
+ {"id":"duality","name":"Bind","preview":"/aim-maps/duality.preview.png","size":[549,640],"world":{"a":3.904913,"b":0,"c":298.620598,"d":0,"e":3.904913,"f":640.105225},"mm":{"scale":661.849633,"u0":0.12575,"v0":0.00042},"pixels":"91d4db69811b9290"},
+ {"id":"juliett","name":"Sunset","preview":"/aim-maps/juliett.preview.png","size":[610,640],"world":{"a":4.943108,"b":0,"c":301.171553,"d":0,"e":4.943108,"f":330.17746},"mm":{"scale":633.731845,"u0":0.024765,"v0":-0.00538},"pixels":"9cac8732a65b1c59"}
+]

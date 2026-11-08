@@ -9,7 +9,7 @@ const CODE = /^round-([a-z0-9]+)-(attack|defense)-([a-z]+)-(\d{1,2})$/;
 const WEAPONS = ["vandal", "phantom", "sheriff", "operator", "spectre", "guardian", "marshal", "outlaw", "odin", "bulldog", "ghost", "classic"];
 const AUTO = new Set(["vandal", "phantom", "spectre", "odin", "bulldog", "stinger", "ares"]);
 const BARRIERS = [10, 20, 30];
-const SIDES = ["attack"]; // defense comes with the attacker bots (milestone 3)
+const SIDES = ["attack", "defense"];
 
 function parseCode(code) {
   const m = CODE.exec(String(code || ""));
@@ -25,29 +25,34 @@ function hash16(text) {
   return ((a >>> 0).toString(16).padStart(8, "0") + (b >>> 0).toString(16).padStart(8, "0"));
 }
 
-// The enemy bots: one fixed spawner per setup spot (the sim keeps 5 of them per round, see
-// roundPrepare), one actor template with the drills' shooter settings (the Enemy rank setting
-// replaces them, like in every drill), no respawn.
+// The enemy bots: one fixed spawner per setup spot (the sim keeps 5 of them per round and moves
+// the kept ones onto distinct defender spawn points, see roundPrepare), one actor template with the
+// drills' shooter settings (the Enemy rank setting replaces them, like in every drill), the roundBot
+// behaviour (app/mods/aim-rounds/round-bots.mjs: walks from the spawn to the setup spot in
+// setupBySpawner; it also turns the bot, so faceTarget is off), no respawn.
 function buildDoc(data, opts) {
   const side = opts.side;
   const enemyTeam = side === "attack" ? "defense" : "attack";
   const spawners = [];
   const groups = {};
+  const setupBySpawner = {};
   if (enemyTeam === "defense") {
     for (const [group, spots] of Object.entries(data.setups.defense)) {
       groups[group] = [];
       spots.forEach((p, i) => {
         const id = `round-${group}-${i + 1}`;
         groups[group].push(id);
+        setupBySpawner[id] = { name: p.name, group, x: p.x, y: p.y, z: p.z };
         spawners.push({
           id, name: `${group} ${p.name}`, kind: "fixed", actorTemplateId: "round-enemy",
           position: { x: p.x, y: p.y, z: p.z }, size: { x: 0, y: 0, z: 0 },
-          maxAlive: 1, spawnDelay: [0.1, 0.2], faceTarget: true, groundSnap: true,
+          maxAlive: 1, spawnDelay: [0.1, 0.2], faceTarget: false, groundSnap: true,
         });
       });
     }
   } else {
-    // Defense side (milestone 3): attacker bots stand at their spawn until they get movement.
+    // Defense side: one attacker bot per attacker spawn; the roundBot behaviour runs the attack plan
+    // (cfg.attack from roundPrepare, the map's attackData): wait, stage, go, plant.
     groups.spawn = [];
     data.spawns.attack.forEach((p, i) => {
       const id = `round-spawn-${i + 1}`;
@@ -55,7 +60,7 @@ function buildDoc(data, opts) {
       spawners.push({
         id, name: `attacker ${i + 1}`, kind: "fixed", actorTemplateId: "round-enemy",
         position: { x: p.x, y: p.y, z: p.z }, size: { x: 0, y: 0, z: 0 },
-        maxAlive: 1, spawnDelay: [0.1, 0.2], faceTarget: true, groundSnap: true,
+        maxAlive: 1, spawnDelay: [0.1, 0.2], faceTarget: false, groundSnap: true,
       });
     });
   }
@@ -68,6 +73,11 @@ function buildDoc(data, opts) {
     barriers: data.barriers.map((b) => ({ id: b.id, team: b.team, a: b.a, b: b.b, y: b.y })),
     sites: data.sites,
     setups: { groups, splits: enemyTeam === "defense" ? data.setups.splits : [[5]], count: 5 },
+    setupBySpawner,
+    ...(enemyTeam === "defense" ? { botStart: "spawn" } : {}),
+    ...(data.retake ? { retake: data.retake } : {}),
+    // Defense side: the attacker bots' route / plant data (roundPrepare's cfg.attack plan, round-bots).
+    ...(side === "defense" && data.attack ? { attackData: data.attack } : {}),
   };
   return {
     schemaVersion: 2,
@@ -81,7 +91,9 @@ function buildDoc(data, opts) {
       body: { shape: "humanoid", headSize: 1, bodyWidth: 0.44, bodyHeight: 0, look: "bot", weapon: "vandal" },
       color: "#ff4655",
       behaviors: [
+        // shooter first: roundBot reads what the shooter wrote this tick (lastSeenTick).
         { kind: "shooter", difficulty: "hard", reaction: [0.35, 0.5], cadence: "weapon", aimErrorDeg: 3, maxRangeM: 60, engage: "stop", resumeDelay: [0.4, 0.8] },
+        { kind: "roundBot" },
         { kind: "respawn", delay: [0.4, 0.9], mode: "never" },
       ],
       hitSlow: true,
@@ -114,10 +126,22 @@ function roundScene(modsDir, code) {
   const text = JSON.stringify(doc);
   const hash = hash16(text);
   const time = "2026-11-06 12:00:00";
+  const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
+  // Shown on the game's brief card before the round (round-hud.js hides the card's generic parts
+  // and keeps the line breaks). Plain text: the card escapes it. Restart is a user keybind, shown
+  // live by the game's control hint under the card, so it isn't listed here.
+  // The goal and key lines follow the side (attack: plant with 4; defense: defuse with F, the
+  // game's default "use" key; round_patch.py feeds the held "use" action to round-core).
+  const attack = opts.side === "attack";
+  const description = [
+    `${data.name} · ${cap(opts.side)} · ${cap(opts.weapon)} · ${opts.barrierSec} s barrier.`,
+    attack ? "Plant the spike. Defenders hold the sites." : "Stop the plant, or defuse it.",
+    attack ? "Enter: start · Hold 4: plant · Esc: menu" : "Enter: start · Hold F: defuse · Esc: menu",
+  ].join("\n");
   return {
     authorNickname: "open-aim", authorUid: "local", blockCount: 0, createTime: time,
-    description: `One round on ${data.name}: plant the spike (hold 4 in a site) and survive.`,
-    docBytes: Buffer.byteLength(text), name: `Round: ${data.name} (${opts.side})`, playCount: 0,
+    description,
+    docBytes: Buffer.byteLength(text), name: `Round: ${data.name} (${cap(opts.side)})`, playCount: 0,
     sceneHash: hash, sceneKey: `set-${hash}`, schemaVersion: 2, shareCode: code, updateTime: time,
     doc: text,
   };

@@ -380,34 +380,94 @@
    ],
    "B": [
     {
-     "name": "B default",
-     "x": -82.7,
+     "name": "B site box",
+     "x": -76.1,
      "y": -1,
-     "z": 25.3
+     "z": 33.4
     },
     {
-     "name": "B back site",
-     "x": -86.6,
-     "y": -1,
-     "z": 30.4
-    },
-    {
-     "name": "B boathouse side",
-     "x": -76.7,
-     "y": -1,
-     "z": 34.1
-    },
-    {
-     "name": "B site front",
-     "x": -69.1,
+     "name": "B boat back",
+     "x": -81.5,
      "y": 1,
-     "z": 23.7
+     "z": 20.9
     },
     {
-     "name": "B workshop",
-     "x": -76.3,
+     "name": "B boat front",
+     "x": -70,
      "y": 1,
      "z": 20.8
+    },
+    {
+     "name": "B back corner",
+     "x": -84.9,
+     "y": 1,
+     "z": 18.4,
+     "clear": false
+    },
+    {
+     "name": "B front corner",
+     "x": -67.33,
+     "y": 1,
+     "z": 27.67,
+     "faceHint": 140
+    },
+    {
+     "name": "B boat side",
+     "x": -76.6,
+     "y": 1,
+     "z": 17.4,
+     "clear": false
+    },
+    {
+     "name": "B link",
+     "x": -75.6,
+     "y": 1,
+     "z": 10,
+     "clear": false
+    },
+    {
+     "name": "B market door",
+     "x": -69.35,
+     "y": 1,
+     "z": 5.1,
+     "clear": false
+    },
+    {
+     "name": "B CT door",
+     "x": -87.4,
+     "y": 1,
+     "z": 11.6,
+     "clear": false
+    },
+    {
+     "name": "B CT deep",
+     "x": -95.7,
+     "y": 1,
+     "z": 11.4,
+     "clear": false
+    },
+    {
+     "name": "B main door",
+     "x": -65.5,
+     "y": 1,
+     "z": 11.7,
+     "clear": false
+    },
+    {
+     "name": "B main pocket",
+     "x": -57.75,
+     "y": 1,
+     "z": 6.35,
+     "push": true,
+     "clear": false
+    },
+    {
+     "name": "B main alcove",
+     "x": -54.67,
+     "y": 1,
+     "z": 15.31,
+     "push": true,
+     "clear": false
     }
    ]
   },
@@ -473,6 +533,160 @@
     "z": 10.17
    }
   ]
+ },
+ "attack": {
+  "routes": {
+   "A": [
+    {
+     "name": "A Main",
+     "entry": {
+      "name": "A Main door",
+      "x": -55.33,
+      "y": 4,
+      "z": -59.33
+     },
+     "staging": [
+      {
+       "name": "A Main 1",
+       "x": -47.33,
+       "y": 4,
+       "z": -53.33
+      },
+      {
+       "name": "A Main 2",
+       "x": -45.83,
+       "y": 4,
+       "z": -53.33
+      },
+      {
+       "name": "A Main 3",
+       "x": -47.33,
+       "y": 4,
+       "z": -51.83
+      }
+     ]
+    },
+    {
+     "name": "Mid Cubby",
+     "entry": {
+      "name": "A Tree",
+      "x": -56.83,
+      "y": 4,
+      "z": -40.83
+     },
+     "staging": [
+      {
+       "name": "Mid Cubby 1",
+       "x": -51.33,
+       "y": 4,
+       "z": -33.83
+      },
+      {
+       "name": "Mid Cubby 2",
+       "x": -51.33,
+       "y": 4,
+       "z": -35.33
+      },
+      {
+       "name": "Mid Cubby 3",
+       "x": -49.83,
+       "y": 4,
+       "z": -33.83
+      }
+     ]
+    }
+   ],
+   "B": [
+    {
+     "name": "B Main",
+     "entry": {
+      "name": "B Main door",
+      "x": -63.83,
+      "y": 1,
+      "z": 13.17
+     },
+     "staging": [
+      {
+       "name": "B Main 1",
+       "x": -58.33,
+       "y": 1,
+       "z": 19.67
+      },
+      {
+       "name": "B Main 2",
+       "x": -58.33,
+       "y": 1,
+       "z": 21.17
+      },
+      {
+       "name": "B Main 3",
+       "x": -59.83,
+       "y": 1,
+       "z": 19.67
+      }
+     ]
+    },
+    {
+     "name": "Mid Market",
+     "entry": {
+      "name": "Market",
+      "x": -72.83,
+      "y": 3,
+      "z": -3.83
+     },
+     "staging": [
+      {
+       "name": "Mid Bottom 1",
+       "x": -59.33,
+       "y": 2,
+       "z": -11.33
+      },
+      {
+       "name": "Mid Bottom 2",
+       "x": -60.83,
+       "y": 2,
+       "z": -11.33
+      },
+      {
+       "name": "Mid Bottom 3",
+       "x": -59.33,
+       "y": 2,
+       "z": -9.83
+      }
+     ]
+    }
+   ]
+  },
+  "plant": {
+   "A": [
+    {
+     "name": "A default",
+     "x": -71.83,
+     "y": 5,
+     "z": -60.83
+    },
+    {
+     "name": "A generator",
+     "x": -68.33,
+     "y": 5,
+     "z": -66.33
+    }
+   ],
+   "B": [
+    {
+     "name": "B default",
+     "x": -78.83,
+     "y": -1,
+     "z": 30.17
+    },
+    {
+     "name": "B boathouse",
+     "x": -77.33,
+     "y": -1,
+     "z": 36.17
+    }
+   ]
+  }
  },
  "authoring": {
   "tool": "tools/round_author.mjs",

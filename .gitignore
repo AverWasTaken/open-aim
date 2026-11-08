@@ -5,6 +5,9 @@
 node_modules/
 /app/dist/
 
+# Smoke suite output when open-aim-hq is not there (npm run smoke)
+/app/smoke-out/
+
 # Python
 __pycache__/
 *.pyc
