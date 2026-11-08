@@ -371,12 +371,14 @@ test('habits: game tiers (Bn in OkAdunfX.js) and their words', () => {
   assert.deepEqual(core.TIERS.movingShot, { dir: -1, good: 25, great: 12, elite: 5 });
   assert.deepEqual(core.TIERS.followUp, { dir: 1, good: 40, great: 60, elite: 75 });
   assert.equal(core.OVERFLICK_HINT, 45);
-  // Limits are inclusive like Lx().
+  // Limits are inclusive like Lx(), on the whole % shown.
   assert.equal(core.habitTier('overflick', 18), 'elite');
-  assert.equal(core.habitTier('overflick', 18.1), 'great');
+  assert.equal(core.habitTier('overflick', 18.4), 'elite');
+  assert.equal(core.habitTier('overflick', 18.5), 'great');
   assert.equal(core.habitTier('overflick', 30), 'great');
   assert.equal(core.habitTier('overflick', 45), 'good');
-  assert.equal(core.habitTier('overflick', 45.1), 'weak');
+  assert.equal(core.habitTier('overflick', 45.3), 'good');
+  assert.equal(core.habitTier('overflick', 45.5), 'weak');
   assert.equal(core.habitTier('moving', 5), 'elite');
   assert.equal(core.habitTier('moving', 12), 'great');
   assert.equal(core.habitTier('moving', 25), 'good');
@@ -415,8 +417,8 @@ test('habits: practise hint priority and text', () => {
   h = core.practiseHint(stats, cands);
   assert.equal(h.kind, 'dropped');
   assert.equal(h.skill, 'basic');
-  // Exactly 45% (Good tier) or too few flicks: back to "least played", same as weakSpot.
-  for (const recent of [{ overflick: 45, habitN: { approach: 30 } }, { overflick: 70, habitN: { approach: 19 } }]) {
+  // 45% shown (Good tier, also 45.4 rounded) or too few flicks: back to "least played", same as weakSpot.
+  for (const recent of [{ overflick: 45, habitN: { approach: 30 } }, { overflick: 45.4, habitN: { approach: 30 } }, { overflick: 70, habitN: { approach: 19 } }]) {
     const s2 = [st('basic', {}), st('aim', recent), st('ball', { runs: 0 })];
     const x = core.practiseHint(s2, cands);
     assert.equal(x.kind, 'least');

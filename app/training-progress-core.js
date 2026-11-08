@@ -468,18 +468,20 @@
     return out;
   }
 
-  // Game tier of a habit value ("elite" | "great" | "good" | "weak"), same rule as Lx(); null when
-  // the habit has no tier or there is no value.
+  // Game tier of a habit value ("elite" | "great" | "good" | "weak"), same rule as Lx() but on the
+  // whole % the card shows (45.3 shows "45%", which is Good); null when the habit has no tier or
+  // there is no value.
   function habitTier(id, v) {
     const h = HABITS.find((x) => x.id === id);
     const t = h && h.tier ? TIERS[h.tier] : null;
     if (!t || !num(v)) return null;
-    const ok = (lim) => (t.dir === 1 ? v >= lim : v <= lim);
+    const w = Math.round(v);
+    const ok = (lim) => (t.dir === 1 ? w >= lim : w <= lim);
     return ok(t.elite) ? "elite" : ok(t.great) ? "great" : ok(t.good) ? "good" : "weak";
   }
 
   // "What to practise" with aim habits: (a) a weakSpot accuracy drop wins; (b) else an overflick
-  // hint for the candidate whose recent pooled overflick is above OVERFLICK_HINT with at least
+  // hint for the candidate whose recent pooled overflick (whole %) is above OVERFLICK_HINT with at least
   // CARD_MIN_N measured flicks (highest value / limit wins, ties TIE_ORDER); (c) else weakSpot's
   // "least played". Same shape as weakSpot, plus habit/value/deg for (b).
   function practiseHint(stats, candidates) {
@@ -491,7 +493,7 @@
       if (!set.has(id)) continue;
       const s = stats.find((x) => x.id === id);
       const v = s && s.recent ? s.recent.overflick : null;
-      if (!num(v) || !(s.recent.habitN && s.recent.habitN.approach >= CARD_MIN_N) || v <= OVERFLICK_HINT) continue;
+      if (!num(v) || !(s.recent.habitN && s.recent.habitN.approach >= CARD_MIN_N) || Math.round(v) <= OVERFLICK_HINT) continue;
       const score = v / OVERFLICK_HINT;
       if (!best || score > best.score) best = { s, v, score };
     }
