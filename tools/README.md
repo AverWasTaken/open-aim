@@ -42,6 +42,7 @@ Run them from the repository root with Python 3.
 | `graphics_botfx_patch.py` | Bot hit flash and death animation (render side only): a short white hit pulse on humanoid bots (stronger and longer on a headshot) and a short "drop" when a humanoid dies (sinks, squashes and glows white-hot, gone after 220 ms). Spheres (grid dots) are left exactly as before. Edits the actor renderer `Uf` in the mods `CnrSARj_.js` (both copies), so the game and the replay player both get it. No sim change. See [Graphics](#graphics). |
 | `map_sky_patch.py` | Daytime sky per map: map scenes take their sky (background) colour from one per-map table instead of each scene's own `skyColor` (white or night navy on most maps before). Edits the mods `BiMsX6Xn.js` (both copies); render only. Details in the script's docstring and below. |
 | `map_salt_patch.py` | Corrode salt crystals: the untextured magenta glTF material `MI_RockSalt` (roof ridges on rook) is recoloured pale salt in the map material conversion. Edits the mods `BiMsX6Xn.js` (both copies); render only. Details below. |
+| `leak_fix_patch.py` | Frees old drills: going back to the lobby no longer keeps each visited drill's WebGL context, canvas and session alive, and R / Play again on a map drill no longer leaks the old map copy's GPU buffers. Edits the mods `BiMsX6Xn.js` and `OkAdunfX.js` (both copies); render only. Details below. |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
@@ -156,6 +157,7 @@ and the view model keep their colours. Studio arenas, the official non-map drill
 26. `round_minimap_patch.py` (after `round_patch.py`, independent of 15: it anchors on round_patch's `round-core.mjs` import line and refuses to run without it; only touches `OkAdunfX.js`; refuses to run twice: it looks for `/aim-rounds/round-minimap.mjs`). It keeps each copy's own line ends. Normal drills are unchanged: `scripts/test-round-minimap.mjs` rebuilds the un-patched minimap code from the script's own pairs and compares the canvas calls.
 27. `map_sky_patch.py` (BiMsX6Xn only; independent of the others, run after `graphics_look_patch.py`; refuses to run twice: it looks for `/* maps-sky */`; keeps each copy's own line ends). See below.
 28. `map_salt_patch.py` (BiMsX6Xn only; independent of the others, run after `map_sky_patch.py`; refuses to run twice: it looks for `MI_RockSalt`; keeps each copy's own line ends). See below.
+29. `leak_fix_patch.py` (BiMsX6Xn + OkAdunfX only; independent of the others, run after `map_salt_patch.py`; refuses to run twice: it looks for `/* qa-leak */` in `BiMsX6Xn.js` and `"aimBr"` in `OkAdunfX.js`; keeps each copy's own line ends). See below.
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
@@ -170,6 +172,39 @@ either order. `app/main.js` also patches `OkAdunfX.js` while serving it (`SHOT_L
 
 To start the bot patch over: `git checkout` the three mods files, delete both mods
 `C_VPDXvn.js` copies, then run `python -I tools/bot_patch.py`.
+
+## Freeing old drills (leak_fix_patch.py)
+
+Leaks found by the smoke soak (`--only=soak`). Root cause write-up: open-aim-hq
+`scratch/qa/leak/FINDINGS.md`. Render side only: no sim, replay, RNG or replay meta change.
+
+- Back to the lobby kept every visited drill alive (WebGL context, canvas, scene, HUD), about
+  2-3 MB per visit. three.js r185 never removes a renderer's `"dispose"` listeners from objects
+  the renderer doesn't own (the module-wide DFG_LUT texture, shared geometries, cached
+  materials), and each listener holds that renderer's GL context. All 12
+  `addEventListener("dispose", ...)` sites in the three internals now call `aimDL(key, obj, fn)`:
+  it adds the listener as before and records `[WeakRef(obj), WeakRef(fn)]` under the renderer's GL context
+  (`n` in WebGLGeometries/Morphtargets/Objects/Textures/UniformsGroups, `n.getContext()` in the
+  cube maps and shadow map where `n` is the renderer, `k` in `CE`). `CE.dispose()` ends with
+  `aimDLrel(k)`, which removes the ones still in place. The list is pruned of dead entries each
+  time it doubles (min 256). `globalThis.__aimDLStats` = `{liveKeys, entries, removedLast,
+  lateAdds}`: renderers with listeners not yet released, recorded listeners, listeners removed by
+  the last release, and listeners added by an already disposed renderer (should stay 0).
+- Map lighting (`aimLt`, `window.__aimMapLighting`) kept the GL context of each texture it tracks
+  for anisotropic filtering; it now keeps a `WeakRef` and drops entries whose context is gone.
+- The play page's `webglcontextlost` listener holds the whole drill session; it is now
+  `{once: true}`.
+- The play page's frame scheduler (`_h`) wakes itself through a `MessageChannel`. An open port with
+  `onmessage` set is never collected, so each session left one behind (one listener per visit).
+  The session dispose now closes the scheduler the page made itself.
+- R / Play again rebuilds the scene and loads a fresh copy of the map (175 `InstancedMesh`es). The
+  old copy was dropped without `dispose()`, so its instance buffers and VAOs stayed in the GL
+  context (+175 buffers, +350 VAOs per retry). `Br()` now disposes the old copy's InstancedMesh
+  objects after removing it (geometry and materials are shared with the map cache and stay).
+
+```bash
+python tools/leak_fix_patch.py
+```
 
 ## Graphics
 
