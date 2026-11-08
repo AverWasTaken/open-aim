@@ -1,12 +1,12 @@
 // Lobby top bar: the left sidebar is hidden by theme-esports.css, and its Quick
-// start and items (Favorites, Training Creator, Workshop manual, ...) are shown as
+// start and items (Favorites, Studio, Workshop manual, ...) are shown as
 // buttons in the top bar instead. Each button clicks the hidden sidebar item, so
 // the game's own handlers (and its links) keep working unchanged.
 (() => {
   if (window.__aimLobbyBar) return;
   window.__aimLobbyBar = true;
 
-  const SHORT = { favorites: "Favorites", "open-studio": "Creator", "open-studio-guide": "Manual" };
+  const SHORT = { favorites: "Favorites", "open-studio": "Studio", "open-studio-guide": "Manual" };
   const GAUGE = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 18a9 9 0 1 1 16 0"/><path d="M12 14l4-5"/></svg>';
 
   // Spike-ish diamond with a fuse, for Round mode.
@@ -20,7 +20,10 @@
   function meterOn() { return window.__aimFrameMeter?.enabled() ?? false; }
   function setMeter(on) { window.__aimFrameMeter?.setEnabled(on); }
   addEventListener('aim-frame-meter-change', () => {
-    for (const button of document.querySelectorAll('.es-bar-fps')) button.classList.toggle('is-on', meterOn());
+    for (const button of document.querySelectorAll('.es-bar-fps')) {
+      button.classList.toggle('is-on', meterOn());
+      button.setAttribute('aria-pressed', String(meterOn()));
+    }
   });
 
   const PLAY = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M7 4.5v15l13-7.5z"/></svg>';
@@ -47,21 +50,71 @@
     return bar;
   }
 
-  function syncDiscordContact() {
-    if (!document.querySelector(".hall-bottombar") || document.querySelector(".es-discord-panel")) return;
-    const link = document.createElement("a");
-    link.className = "es-discord-panel";
-    link.href = "https://discord.com/users/1248403329554321480";
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.title = "Report an issue or send feedback to @xwvu on Discord";
-    link.setAttribute("aria-label", "Report an issue or send feedback to @xwvu on Discord");
-    link.innerHTML = '<span class="es-discord-panel-head"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M5 6.5A16 16 0 0 1 9 5l.5 1a12 12 0 0 1 5 0L15 5a16 16 0 0 1 4 1.5c1.4 2.3 2 5.5 1.7 8.5A15 15 0 0 1 16 18l-.8-1.3c.8-.3 1.4-.7 2-1.1-3.4 1.6-7 1.6-10.4 0 .6.4 1.2.8 2 1.1L8 18a15 15 0 0 1-4.7-3C3 12 3.6 8.8 5 6.5Z"/><path d="M8.5 11.5h.01M15.5 11.5h.01" stroke-width="2.8" stroke-linecap="round"/></svg><span>DISCORD SUPPORT</span></span><strong>Report an issue<br>or share feedback</strong><span class="es-discord-panel-action">MESSAGE @xwvu <span aria-hidden="true">↗</span></span>';
-    document.body.appendChild(link);
+  // Scroll only the lobby's drill list (.hall-board-body), never the fixed lobby frame
+  // around it (scrollIntoView would also scroll overflow:hidden parents).
+  // align "start": element at the top of the list; "nearest": only if not fully visible.
+  function scrollInBoard(el, align) {
+    const board = el.closest(".hall-board-body");
+    if (!board) { el.scrollIntoView({ block: align === "start" ? "start" : "nearest" }); return; }
+    const e = el.getBoundingClientRect(), b = board.getBoundingClientRect();
+    const top = b.top + (parseFloat(getComputedStyle(board).scrollPaddingTop) || 0);
+    if (align === "start" || e.top < top) board.scrollTop += e.top - top;
+    else if (e.bottom > b.bottom) board.scrollTop += Math.min(e.bottom - b.bottom, e.top - top);
+  }
+
+  // Keyboard: a "Skip to drills" link (first stop in the top nav, shown only on focus),
+  // and no tab stops on the hidden file input or the small Sens arrows (the Sens box's
+  // own arrow keys still change the value).
+  function focusFirstDrill() {
+    const card = document.querySelector(".hall-board-body .al-wk-card, .al-wk-card");
+    if (!card) return;
+    const target = card.querySelector('button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])') || card;
+    if (target === card && !card.hasAttribute("tabindex")) card.tabIndex = -1;
+    target.focus({ preventScroll: true });
+    // Shelf rows scroll sideways: bring the row back to its start so the first card shows.
+    const row = card.closest(".al-wk-pages");
+    if (row) row.scrollLeft = 0;
+    scrollInBoard(card, "nearest");
+  }
+
+  function syncKeyboard() {
+    const nav = document.querySelector(".hall-root .hall-topnav");
+    if (nav) {
+      let skip = nav.querySelector(":scope > .es-skip");
+      if (!skip) {
+        skip = document.createElement("a");
+        skip.className = "es-skip";
+        skip.href = "#";
+        skip.textContent = "Skip to drills";
+        skip.addEventListener("click", (e) => {
+          e.preventDefault();
+          focusFirstDrill();
+        });
+      }
+      if (nav.firstElementChild !== skip) nav.prepend(skip);
+      // Only on views that list drill cards.
+      const hide = !document.querySelector(".al-wk-card");
+      if (skip.hidden !== hide) skip.hidden = hide;
+    }
+    for (const el of document.querySelectorAll(".hall-scene-import-file, .hall-sens-stepper button")) {
+      if (el.getAttribute("tabindex") !== "-1") el.setAttribute("tabindex", "-1");
+    }
+  }
+
+  // Search: when results (or the "no match" line) first show up, scroll them into view.
+  // Only on that first appearance, not on every keystroke; focus stays in the search box.
+  let searchShown = false;
+  function syncSearchScroll() {
+    const el = document.querySelector('[data-role="workshop-search"], [data-role="workshop-search-empty"]');
+    if (!el) { searchShown = false; return; }
+    if (searchShown) return;
+    searchShown = true;
+    scrollInBoard(el, "start");
   }
 
   function sync() {
-    syncDiscordContact();
+    syncKeyboard();
+    syncSearchScroll();
     const right = document.querySelector(".hall-topnav > .hall-topnav-right");
     if (!right) return;
     const prev = right.previousElementSibling;
@@ -88,7 +141,7 @@
       span.textContent = SHORT[key] || label;
       btn.appendChild(span);
       btn.addEventListener("click", () => {
-        // Creator opens the Studio (studio/), which replaces the site's editor.
+        // Studio opens studio/, which replaces the site's editor.
         if (key === "open-studio") return location.assign("/studio/");
         const live = railItems().find((it, j) => keyOf(it, j) === key);
         if (live) live.click();
@@ -99,11 +152,13 @@
     const fps = document.createElement("button");
     fps.type = "button";
     fps.className = "es-bar-btn es-bar-fps" + (meterOn() ? " is-on" : "");
+    fps.setAttribute("aria-pressed", String(meterOn()));
     fps.title = "FPS meter: live frame rate, frame time and 1% low (also shown during rounds)";
     fps.innerHTML = GAUGE;
     const fpsLabel = document.createElement("span");
     fpsLabel.textContent = "FPS";
     fps.appendChild(fpsLabel);
+    fps.insertAdjacentHTML("beforeend", '<i class="es-bar-dot" aria-hidden="true"></i>');
     fps.addEventListener("click", () => setMeter(!meterOn()));
     bar.appendChild(fps);
 
@@ -128,7 +183,7 @@
     const round = document.createElement("button");
     round.type = "button";
     round.className = "es-bar-btn";
-    round.title = "Round (beta): one VALORANT-style round vs 5 bots on Ascent — barriers, plant the spike";
+    round.title = "Round (beta): one VALORANT-style round vs 5 bots on Ascent. Wait out the barriers, then plant the spike.";
     round.innerHTML = ROUND_ICON;
     const roundLabel = document.createElement("span");
     roundLabel.textContent = "Round (beta)";
@@ -160,6 +215,10 @@
       btn.appendChild(span);
       btn.addEventListener("click", () => document.querySelector(".hall-rail-quick")?.click());
       bar.appendChild(btn);
+    }
+
+    for (const b of bar.querySelectorAll("button")) {
+      b.setAttribute("aria-label", b.querySelector("span")?.textContent.trim() || b.title);
     }
   }
 
