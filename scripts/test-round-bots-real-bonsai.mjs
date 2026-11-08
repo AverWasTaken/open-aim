@@ -171,7 +171,7 @@ async function setups20(modes, sets = [0, 1, 2]) {
   const want = new Set(sets.flatMap((k) => SETS[k]));
   assert.equal(seen.size, want.size, 'every setup of these sets walked to');
 }
-test('real Split, 20 s barrier, default movement (all 3 sets) and "game" movement (sets 1, 2): all 13 setups reached (nav mode every tick, no wait, arrived before 20 s and by 1.25 x field + 1 s), on the real floor, inside the defender side, never across a barrier', { skip }, async () => { await setups20([MODES[0]]); await setups20([MODES[1]], [1, 2]); });
+test('real Split, 20 s barrier, default movement (all 3 sets: the 13 setups) and "game" movement (sets 1, 2: 10 setups): every setup reached (nav mode every tick, no wait, arrived before 20 s and by 1.25 x field + 1 s), on the real floor, inside the defender side, never across a barrier', { skip }, async () => { await setups20([MODES[0]]); await setups20([MODES[1]], [1, 2]); });
 
 // Known issue (bot / sim, reported for R5): in "game" movement the Mail bot of set 0 (seed 41) is
 // pushed to x = -72.000 exactly at the foot of the ramp at (-72, 5, -11.3) (a flat floor meets a 31
