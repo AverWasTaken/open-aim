@@ -177,6 +177,9 @@ const FEEL_AUDIO_JS = fs.readFileSync(path.join(__dirname, "feel-audio.js"), "ut
 const ADVANCED_TRACERS_JS = fs.readFileSync(path.join(__dirname, "advanced-tracers.js"), "utf-8");
 const LOCAL_CUSTOMIZATION_JS = fs.readFileSync(path.join(__dirname, "local-customization.js"), "utf-8");
 const PLAYER_TOOLS_JS = fs.readFileSync(path.join(__dirname, "player-tools.js"), "utf-8");
+// Find my sens (feel-sens-finder-core.js logic + feel-sens-finder.js page side): a block in Sens tools.
+const SENS_FINDER_JS = ["feel-sens-finder-core.js", "feel-sens-finder.js"]
+  .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
 const RANK_PICKER_JS = fs.readFileSync(path.join(__dirname, "rank-picker.js"), "utf-8");
 // Round mode (round-scene.js builds the scenes): lobby panel and in-game HUD.
 const ROUND_PANEL_JS = fs.readFileSync(path.join(__dirname, "round-panel.js"), "utf-8");
@@ -232,6 +235,7 @@ const UI_SCRIPTS = [
   ["ADVANCED TRACERS", ADVANCED_TRACERS_JS],
   ["LOCAL CUSTOMIZATION", LOCAL_CUSTOMIZATION_JS],
   ["PLAYER TOOLS", PLAYER_TOOLS_JS],
+  ["SENS FINDER", SENS_FINDER_JS],
   ["INTERFACE MODE", INTERFACE_MODE_JS],
   ["FRAME METER", FRAME_METER_JS],
   ["VIDEO SETTINGS", VIDEO_SETTINGS_JS],
