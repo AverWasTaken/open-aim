@@ -183,10 +183,10 @@
     const round = document.createElement("button");
     round.type = "button";
     round.className = "es-bar-btn";
-    round.title = "Round (beta): one VALORANT-style round vs 5 bots on Ascent. Wait out the barriers, then plant the spike.";
+    round.title = "One VALORANT-style round vs 5 bots. Pick map and side.";
     round.innerHTML = ROUND_ICON;
     const roundLabel = document.createElement("span");
-    roundLabel.textContent = "Round (beta)";
+    roundLabel.textContent = "Round";
     round.appendChild(roundLabel);
     round.addEventListener("click", () => window.__aimRoundPanel?.open());
     bar.appendChild(round);
