@@ -26,7 +26,8 @@
     "test:words": "node --test ../scripts/test-ux-words.mjs",
     "test:hud": "node --test ../scripts/test-ux-hud.mjs",
     "test:cards": "node --test ../scripts/test-ux-cards.mjs",
-    "test:theme": "node --test ../scripts/test-ux-result-theme.mjs"
+    "test:theme": "node --test ../scripts/test-ux-result-theme.mjs",
+    "test:welcome": "node --test ../scripts/test-ux-welcome.mjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
@@ -50,6 +51,7 @@
       "ux-keys.js",
       "ux-hud.js",
       "ux-result.js",
+      "ux-welcome.js",
       "round-scene.js",
       "drill-variants.js",
       "interface-mode.js",

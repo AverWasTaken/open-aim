@@ -158,6 +158,8 @@ const UX_KEYS_JS = fs.readFileSync(path.join(__dirname, "ux-keys.js"), "utf-8");
 const UX_HUD_JS = fs.readFileSync(path.join(__dirname, "ux-hud.js"), "utf-8");
 // Empty container on the result card for other teams' rows (training's routine bar).
 const UX_RESULT_JS = fs.readFileSync(path.join(__dirname, "ux-result.js"), "utf-8");
+// First-run "getting started" banner under the VALORANT Training hero.
+const UX_WELCOME_JS = fs.readFileSync(path.join(__dirname, "ux-welcome.js"), "utf-8");
 const SMOOTH_SCROLL_JS = fs.readFileSync(path.join(__dirname, "smooth-scroll.js"), "utf-8");
 const VIDEO_SETTINGS_JS = fs.readFileSync(path.join(__dirname, "video-settings.js"), "utf-8");
 // Map lighting setting (Enhanced / Original), read by the patched BiMsX6Xn.js. Optional:
@@ -196,6 +198,7 @@ const UI_SCRIPTS = [
   ["UX KEYS", UX_KEYS_JS],
   ["UX HUD", UX_HUD_JS],
   ["UX RESULT", UX_RESULT_JS],
+  ["UX WELCOME", UX_WELCOME_JS],
   ["SMOOTH SCROLL", SMOOTH_SCROLL_JS],
   ["SNIPER SCOPES", SNIPER_SCOPES_JS],
   ["FAN AUDIO", FAN_AUDIO_JS],
