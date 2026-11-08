@@ -47,7 +47,8 @@
   const sensOf = (n) => round3(clamp(n));
   const isSens = (n) => typeof n === "number" && Number.isFinite(n) && n >= MIN && n <= MAX;
   const same = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 0.0005;
-  const fmt = (n) => (Number.isFinite(n) ? String(round3(n)) : "-");
+  // Up to 4 decimals: test sens have 3, the player's own sens is shown as it is.
+  const fmt = (n) => (Number.isFinite(n) ? String(Math.round(n * 10000) / 10000) : "-");
   const drillById = (id) => DRILLS.find((d) => d.id === id) || null;
 
   // B X Y Y X B. rand() < 0.5 puts the low sens first.
@@ -70,7 +71,8 @@
       if (by[s.level] !== undefined && by[s.level] !== s.sens) return false;
       by[s.level] = s.sens;
     }
-    return by.base !== undefined && by.low !== undefined && by.high !== undefined && by.low < by.base && by.base < by.high;
+    return by.base !== undefined && by.low !== undefined && by.high !== undefined && by.low < by.base && by.base < by.high
+      && !same(by.low, by.base) && !same(by.base, by.high); // the 0.0005 match must tell them apart
   }
 
   const mean = (a) => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : NaN);

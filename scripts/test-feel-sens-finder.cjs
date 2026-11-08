@@ -730,3 +730,38 @@ test('startup: closed in the middle of Stop finishes the stop', () => {
   assert.equal(e2.run, null);
   assert.equal(e2.active, false);
 });
+
+test('a base within rounding distance of a test sens is refused (0.0024 -> 0.002 / 0.003)', () => {
+  assert.equal(C.planOk(C.makePlan(0.0024, () => 0)), false);
+  const e = fakeEnv({ sens: 0.0024 });
+  const r = C.createRunner(e.env);
+  assert.match(r.start('click').reason, /edge of the range/);
+  assert.ok(C.planOk(C.makePlan(0.0028, () => 0))); // 0.0022->0.002, 0.0035->0.004: far enough
+  assert.equal(C.fmt(0.4567), '0.4567');
+  assert.equal(C.fmt(0.32), '0.32');
+});
+
+test('startup: stale finished session with the test sens still set: history saved and sens restored', () => {
+  const e = fakeEnv();
+  const r = C.createRunner(e.env);
+  r.start('click');
+  e.tick(100);
+  for (let i = 0; i < 6; i++) {
+    if (i) { r.next(); e.tick(100); }
+    e.openDrill(r);
+    if (i === 5) e.field = false;
+    e.result(r, [1000, 1070, 990, 1000, 1060, 1010][i]);
+    e.tick(300);
+  }
+  const raw = JSON.parse(e.run);
+  raw.appliedSens = 0.32; // pretend the last restore never landed
+  const e2 = fakeEnv({ sens: 0.32, run: JSON.stringify(raw) });
+  e2.t += C.MAX_AGE_MS + 1;
+  const r2 = C.createRunner(e2.env);
+  r2.init();
+  e2.tick(300);
+  assert.equal(e2.sens, 0.4);
+  assert.equal(C.parseHistory(e2.history).length, 1);
+  assert.equal(e2.run, null);
+  assert.equal(r2.session, null);
+});
