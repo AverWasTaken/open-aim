@@ -179,6 +179,9 @@ test('main.js serves practice scenes and injects the panel; package.json ships b
   for (const f of ['practice-scene.js', 'practice-panel.js']) assert.ok(pkg.build.files.includes(f), f);
   const panel = read('app', 'practice-panel.js');
   for (const id of ALL_MAPS) assert.ok(panel.includes(`["${id}",`), `panel lists ${id}`);
+  // A launch without a map id races the map download and drops back to the lobby (cold map).
+  assert.match(panel, /__aimLaunchScene\(\{ shareCode: code, .*, mapId: cur\.map \}\)/);
+  assert.doesNotMatch(panel, /mapId: null/);
   assert.match(read('app', 'lobby-bar.js'), /__aimPracticePanel\?\.open\(\)/);
 });
 

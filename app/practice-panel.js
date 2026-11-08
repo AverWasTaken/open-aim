@@ -286,7 +286,10 @@ html.aim-practice-on .al-hud-top .al-hud-chip:only-child { display: none !import
       launching = { at: Date.now(), sawTraining: false };
       sync();
       let ok = false;
-      try { ok = window.__aimLaunchScene({ shareCode: code, name: `Practice: ${mapName} ${area.name}`, subtitle: botsText, mapId: null }) !== false; } catch {}
+      // Pass the map id: the loader then waits for the map's collision before it prepares the drill.
+      // With mapId null the preparation races the map download; when the map lands the game rebuilds
+      // the scene, the preparation aborts and the loading screen silently goes back to the lobby.
+      try { ok = window.__aimLaunchScene({ shareCode: code, name: `Practice: ${mapName} ${area.name}`, subtitle: botsText, mapId: cur.map }) !== false; } catch {}
       if (!ok) { launching = null; sync(); }
     };
     startBtn.addEventListener("click", (e) => { e.stopPropagation(); start(); });
