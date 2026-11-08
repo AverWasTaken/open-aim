@@ -84,7 +84,7 @@
 .feel-sf-card-btns { display: flex; flex: none; gap: 8px; }
 .feel-sf-card button { height: 30px; padding: 0 14px; color: var(--es-text); cursor: pointer; background: var(--es-raised-2); border: none; border-left: 3px solid transparent; font: 700 13px var(--es-head); font-stretch: 75%; letter-spacing: 0.04em; text-transform: uppercase; }
 .feel-sf-card button:hover { background: var(--es-line); border-left-color: var(--es-red); }
-.feel-sf-card button.feel-sf-primary { background: var(--es-red); border-left: none; clip-path: var(--es-slant-sm); padding: 0 18px; font-style: italic; }
+.feel-sf-card button.feel-sf-primary { background: var(--es-red); border-left: none; clip-path: var(--es-slant-sm); padding: 0 18px; font-style: italic; font-weight: 800; }
 .feel-sf-card button.feel-sf-primary:hover { background: var(--es-red-2); }
 .feel-sf-card button:focus-visible, .feel-sf-sec button:focus-visible, .feel-sf-result button:focus-visible { outline: 2px solid var(--es-red); outline-offset: 2px; }
 html[data-aim-local]:not(#es) body .feel-sf-card button { border-radius: 0 !important; text-transform: uppercase !important; }
@@ -154,6 +154,7 @@ html[data-aim-local]:not(#es) body .feel-sf-card button.feel-sf-primary { clip-p
     if (card && card.isConnected) return card;
     ensureCss();
     card = document.createElement("div");
+    cardSig = "";
     card.className = "feel-sf-card";
     card.setAttribute("role", "status");
     card.hidden = true;
@@ -162,10 +163,16 @@ html[data-aim-local]:not(#es) body .feel-sf-card button.feel-sf-primary { clip-p
       card.addEventListener(type, (e) => { e.stopPropagation(); if (e.target.closest("button")) e.preventDefault(); });
     }
     for (const type of ["pointerup", "mouseup", "dblclick"]) card.addEventListener(type, (e) => e.stopPropagation());
+    let lastClick = 0;
     card.addEventListener("click", (e) => {
       e.stopPropagation();
       const b = e.target.closest("button[data-sf]");
       if (!b) return;
+      // The card redraws (and Stop can move under the pointer) right after a click: a double
+      // click must not hit the next button.
+      const now = Date.now();
+      if (e.detail > 1 || now - lastClick < 600) return;
+      lastClick = now;
       const act = b.dataset.sf;
       if (act === "next") runner.next();
       else if (act === "resume") runner.resume();
@@ -211,7 +218,7 @@ html[data-aim-local]:not(#es) body .feel-sf-card button.feel-sf-primary { clip-p
     const sig = JSON.stringify(c);
     if (sig !== cardSig) {
       cardSig = sig;
-      el.innerHTML = `<div class="feel-sf-card-text"><b>Find my sens · ${esc(v.drill || "")}</b><span>${esc(c.text)}</span>${c.sub}</div><div class="feel-sf-card-btns">${c.btns}</div>`;
+      el.innerHTML = `<div class="feel-sf-card-text"><b>Find my sens${v.drill ? ` · ${esc(v.drill)}` : ""}</b><span>${esc(c.text)}</span>${c.sub}</div><div class="feel-sf-card-btns">${c.btns}</div>`;
       el.querySelectorAll("button").forEach((b) => b.setAttribute("tabindex", "-1"));
     }
     el.hidden = false;
@@ -319,7 +326,8 @@ html[data-aim-local]:not(#es) body .feel-sf-card button.feel-sf-primary { clip-p
         <p class="feel-sf-foot">Your sens is back to ${fmt(keep)} until you choose.</p>
       </div></section>`;
     const done = () => { closeResultPanel(); runner.closeResult(); };
-    shade.addEventListener("mousedown", (e) => { if (e.target === shade) done(); });
+    const openedAt = Date.now(); // the second press of a double click on See result lands here
+    shade.addEventListener("mousedown", (e) => { if (e.target === shade && Date.now() - openedAt > 600) done(); });
     shade.querySelector(".es-tool-x").addEventListener("click", done);
     for (const type of ["keydown", "keyup", "keypress"]) {
       shade.addEventListener(type, (e) => {

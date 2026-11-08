@@ -654,3 +654,79 @@ test('routine started meanwhile: Next run pauses instead of launching', () => {
   assert.equal(e.launched.length, 1);
   assert.equal(r.view().phase, 'paused');
 });
+
+test("the player's own sens is kept exact (not rounded), test sens are rounded", () => {
+  const e = fakeEnv({ sens: 0.4567 });
+  const r = C.createRunner(e.env);
+  r.start('click');
+  assert.equal(r.session.origSens, 0.4567);
+  assert.deepEqual(r.session.plan.map((s) => s.sens), [0.4567, 0.365, 0.571, 0.571, 0.365, 0.4567]);
+  e.tick(100);
+  e.openDrill(r);
+  e.result(r, 1000);
+  e.tick(300);
+  r.next();
+  e.tick(100);
+  e.openDrill(r);
+  e.result(r, 1000);
+  e.tick(300);
+  assert.equal(e.sens, 0.4567);
+});
+
+test('a result before the drill came up (still launching) is ignored', () => {
+  const e = fakeEnv();
+  const r = C.createRunner(e.env);
+  r.start('click');
+  e.tick(100);
+  assert.equal(r.view().phase, 'launching');
+  e.result(r, 1000);
+  assert.equal(r.session.step, 0);
+  assert.equal(r.view().phase, 'launching');
+});
+
+test('startup: a finished session older than 2 h still goes to history', () => {
+  const e = fakeEnv();
+  const r = C.createRunner(e.env);
+  r.start('click');
+  e.tick(100);
+  for (let i = 0; i < 6; i++) {
+    if (i) { r.next(); e.tick(100); }
+    e.openDrill(r);
+    e.result(r, [1000, 1070, 990, 1000, 1060, 1010][i]);
+    e.tick(300);
+  }
+  assert.equal(r.view().phase, 'done');
+  const e2 = fakeEnv({ run: e.run });
+  e2.t += C.MAX_AGE_MS + 1;
+  const r2 = C.createRunner(e2.env);
+  r2.init();
+  assert.equal(r2.session, null);
+  assert.equal(e2.run, null);
+  const h = C.parseHistory(e2.history);
+  assert.equal(h.length, 1);
+  assert.equal(h[0].verdict, 'clear');
+});
+
+test('startup: closed in the middle of Stop finishes the stop', () => {
+  const e = fakeEnv();
+  const r = C.createRunner(e.env);
+  r.start('click');
+  e.tick(100);
+  e.openDrill(r);
+  e.result(r, 1000);
+  e.tick(300);
+  r.next();
+  e.tick(100);
+  e.openDrill(r);
+  e.field = false; // restore can't finish
+  r.stop();
+  assert.equal(saved(e).phase, 'stopping');
+  const e2 = fakeEnv({ sens: 0.32, run: e.run });
+  const r2 = C.createRunner(e2.env);
+  r2.init();
+  e2.tick(300);
+  assert.equal(e2.sens, 0.4);
+  assert.equal(r2.session, null);
+  assert.equal(e2.run, null);
+  assert.equal(e2.active, false);
+});

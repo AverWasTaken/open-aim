@@ -52,7 +52,7 @@
 
   // B X Y Y X B. rand() < 0.5 puts the low sens first.
   function makePlan(base, rand) {
-    const b = sensOf(base);
+    const b = isSens(base) ? base : sensOf(base); // the player's own sens stays exact
     const low = sensOf(base * LOW);
     const high = sensOf(base * HIGH);
     const lowFirst = (rand ? rand() : Math.random()) < 0.5;
@@ -250,7 +250,7 @@
       const base = env.readSens();
       if (!isSens(base)) return { ok: false, reason: "Couldn't read your sensitivity. Open the lobby and try again." };
       if (!planOk(makePlan(base, () => 0))) return { ok: false, reason: `Your sens is too close to the edge of the range (${MIN} to ${MAX}) to test around it.` };
-      return { ok: true, base: sensOf(base) };
+      return { ok: true, base };
     }
 
     // From the Start click (the drill launch needs the click for fullscreen).
@@ -353,7 +353,7 @@
     }
     // window 'aim-local-result' {record}
     function onResult(detail) {
-      if (!s || (s.phase !== "playing" && s.phase !== "launching")) return; // one result per launch
+      if (!s || s.phase !== "playing") return; // one result per launch, after its drill came up
       const rec = detail && detail.record;
       if (!rec || rec.shareCode !== s.code) return;
       watch = cancel(watch);
@@ -388,15 +388,20 @@
       restore(() => end(""));
     }
 
+    // The suggestion for a finished session, saved to history.
+    function record(fin) {
+      const rec = recommend(fin.plan, fin.results);
+      rec.drill = drillById(fin.drill);
+      rec.origSens = fin.origSens;
+      env.saveHistory(JSON.stringify(addHistory(parseHistory(env.loadHistory()), fin, rec, env.now())));
+      return rec;
+    }
     // See result (after the 6th run): suggestion, saved to history, session cleared.
     function finish() {
       if (!s || s.phase !== "done") return null;
       const fin = s;
       const go = () => {
-        const rec = recommend(fin.plan, fin.results);
-        rec.drill = drillById(fin.drill);
-        rec.origSens = fin.origSens;
-        env.saveHistory(JSON.stringify(addHistory(parseHistory(env.loadHistory()), fin, rec, env.now())));
+        const rec = record(fin);
         if (env.drillOpen()) { try { env.leave(); } catch {} }
         stopTimers();
         s = null;
@@ -416,7 +421,10 @@
       const cur = env.readSens();
       const stale = env.now() - s.startedAt > MAX_AGE_MS;
       if (s.appliedSens !== null && !same(cur, s.appliedSens)) s.appliedSens = null; // changed elsewhere: leave it
-      if (stale) {
+      // Too old, or closed in the middle of Stop: finish the stop (a finished session nobody
+      // looked at still goes to history).
+      if (stale || s.phase === "stopping") {
+        if (s.phase === "done") record(s);
         if (s.appliedSens !== null) { s.phase = "stopping"; note = ""; persist(); restore(() => end("")); }
         else end("");
         return;
