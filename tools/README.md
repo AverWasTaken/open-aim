@@ -65,7 +65,7 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
     (`0.42s`, no delta), and Target drills get their own result header and back label. The
     English for the new strings is in `app/english-fixes.js` ("ux result screen"). Tests:
     `npm run test:result` (`--mods <dir>` patches another copy). It keeps each copy's own line ends.
-15. `ux_hud_patch.py` (ux; after `ux_result_patch.py` (14), touches no string any other patch uses;
+16. `ux_hud_patch.py` (ux; after `ux_result_patch.py` (15), touches no string any other patch uses;
     renumber at integration if 15 is taken; refuses to run twice: it looks for `__aimEmitHits` in
     `OkAdunfX.js`). Read-only HUD events for `app/ux-hud.js` (hit marker, kills line). The live tick
     calls `__aimEmitHits(Ze,Ae)` after the replay recorder `Ou(je,Ze)` and `Cn.push(...Ze)`: one window
