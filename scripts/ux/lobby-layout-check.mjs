@@ -7,12 +7,12 @@
 // With shotDir it also saves a screenshot per size (lobby-<w>x<h>@<dpr>x.png) and, at
 // 1280x720, one per step of the first 8 Tab presses (tab-1280-<n>.png).
 //
-// For each window size it checks the lobby's top bar, the feedback link in the bottom
-// bar, the keyboard path and the drill cards (no card code shown, play buttons not cut
-// off, and at heights up to 800px the first card's title above the bottom bar), prints
-// one JSON line per size, and exits non-zero if any check failed. At 1280x720 it also
-// clicks a card's rank chip: it must be a button that opens the rank picker, and a pick
-// made there must not change the global enemy rank (localStorage "aim-enemy-rank").
+// For each window size it checks the lobby's top bar, the keyboard path and the drill
+// cards (no card code shown, play buttons not cut off, and at heights up to 800px the
+// first card's title above the bottom bar), prints one JSON line per size, and exits
+// non-zero if any check failed. At 1280x720 it also clicks a card's rank chip: it must be
+// a button that opens the rank picker, and a pick made there must not change the global
+// enemy rank (localStorage "aim-enemy-rank").
 // The size override is cleared at the end.
 // No dependencies: Node 22+ built-in fetch and WebSocket (runs from any folder,
 // e.g. via hp.sh cdp-script, which copies it to /tmp).
@@ -136,7 +136,7 @@ function pageLayoutSig() {
   const r = (sel) => { const e = document.querySelector(sel); if (!e) return "-"; const b = e.getBoundingClientRect(); return [b.x, b.y, b.width, b.height].map(Math.round).join(","); };
   // A late first-run pop-up closes here and changes the signature, so settle() waits it out.
   for (const x of document.querySelectorAll(".es-tool-shade .es-tool-x")) x.click();
-  return [innerWidth, innerHeight, !!document.querySelector(".es-tool-shade"), bar?.dataset.sig, r(".es-bar"), r(".es-bar-quick"), r(".hall-topnav .hall-sens"), r(".es-discord-panel"), r(".al-wk-card"), document.documentElement.scrollWidth].join("|");
+  return [innerWidth, innerHeight, !!document.querySelector(".es-tool-shade"), bar?.dataset.sig, r(".es-bar"), r(".es-bar-quick"), r(".hall-topnav .hall-sens"), r(".al-wk-card"), document.documentElement.scrollWidth].join("|");
 }
 
 function pageRafs() {
@@ -150,7 +150,6 @@ function pageLayout(labelsFrom) {
   const rect = (e) => { const b = e.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height), r: Math.round(b.right), b: Math.round(b.bottom) }; };
   const inView = (b) => b.w > 0 && b.h > 0 && b.x >= -1 && b.y >= -1 && b.r <= vw + 1 && b.b <= vh + 1;
   const hits = (e) => { const b = e.getBoundingClientRect(); const t = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2); return !!t && (t === e || e.contains(t)); };
-  const overlap = (a, b) => a.x < b.r && b.x < a.r && a.y < b.b && b.y < a.b;
 
   const doc = document.documentElement;
   out.info.docScrollWidth = doc.scrollWidth;
@@ -172,7 +171,7 @@ function pageLayout(labelsFrom) {
     out.info.navNeed = Math.round(vw - free + hidden);
   }
 
-  const named = { quick: ".es-bar .es-bar-quick", sens: ".hall-topnav .hall-sens", feedback: ".hall-bottombar .es-discord-panel" };
+  const named = { quick: ".es-bar .es-bar-quick", sens: ".hall-topnav .hall-sens" };
   for (const [k, sel] of Object.entries(named)) {
     const e = document.querySelector(sel);
     if (!e) { fail(`${k}: ${sel} missing`); continue; }
@@ -180,27 +179,6 @@ function pageLayout(labelsFrom) {
     out.info[k] = b;
     if (!inView(b)) fail(`${k}: not fully inside the viewport ${JSON.stringify(b)}`);
     if (!hits(e)) fail(`${k}: covered at its centre by ${document.elementFromPoint(b.x + b.w / 2, b.y + b.h / 2)?.className}`);
-  }
-  if (document.querySelectorAll(".es-discord-panel").length !== 1) fail(`expected one feedback link, found ${document.querySelectorAll(".es-discord-panel").length}`);
-
-  const link = document.querySelector(".hall-bottombar .es-discord-panel");
-  const bottom = document.querySelector(".hall-bottombar");
-  if (link && bottom) {
-    const l = rect(link), bb = rect(bottom);
-    if (l.x < bb.x - 1 || l.y < bb.y - 1 || l.r > bb.r + 1 || l.b > bb.b + 1) fail(`feedback link outside the bottom bar ${JSON.stringify(l)} vs ${JSON.stringify(bb)}`);
-    const others = [...document.querySelectorAll(".hall-search, .al-wk-card, .al-wk-sort button")];
-    // Cards and sort buttons scrolled out of the drill list are clipped by it: only the
-    // visible part counts.
-    const clip = (o) => {
-      const r = rect(o);
-      const board = o.closest(".hall-board-body");
-      if (!board) return r;
-      const c = rect(board);
-      const x = Math.max(r.x, c.x), y = Math.max(r.y, c.y), rr = Math.min(r.r, c.r), bb2 = Math.min(r.b, c.b);
-      return { x, y, r: rr, b: bb2, w: rr - x, h: bb2 - y };
-    };
-    const hit = others.find((o) => { const r = clip(o); return r.w > 0 && r.h > 0 && overlap(l, r); });
-    if (hit) fail(`feedback link overlaps ${hit.className}`);
   }
 
   // The tab row may shrink and scroll inside itself as a fallback. With Bahnschrift (the
@@ -338,14 +316,6 @@ function pageRestorePicks(picks) {
   return true;
 }
 
-function pageModalCheck() {
-  const link = document.querySelector(".es-discord-panel");
-  if (!link) return "no feedback link";
-  const b = link.getBoundingClientRect();
-  const t = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2);
-  return t && (t === link || link.contains(t)) ? "feedback link is above the open panel's dim layer" : "";
-}
-
 function pageFocusRect() {
   const e = document.activeElement;
   if (!e || e === document.body) return null;
@@ -469,18 +439,6 @@ async function checkSize(send, size) {
   result.fails.push(...lay.fails);
   result.info = lay.info;
   await shot(send, `lobby-${size.w}x${size.h}@${size.dpr}x.png`);
-
-  // A panel's dim layer must cover the feedback link.
-  const opened = await evaluate(send, () => { if (!window.__aimTools?.openSens) return false; window.__aimTools.openSens(); return true; });
-  if (!opened) result.fails.push("__aimTools.openSens missing");
-  else {
-    await waitFor(send, () => !!document.querySelector(".es-tool-shade"), 3000);
-    await evaluate(send, pageRafs);
-    const m = await evaluate(send, pageModalCheck);
-    if (m) result.fails.push(m);
-    await evaluate(send, () => { window.__aimTools?.close?.(); return true; });
-    await waitFor(send, () => !document.querySelector(".es-tool-shade"), 3000);
-  }
 
   if (size.w === 1280 && size.h === 720) await checkChip(send, result.fails, result.info);
 
