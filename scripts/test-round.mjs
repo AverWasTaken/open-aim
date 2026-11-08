@@ -704,11 +704,12 @@ const SPAWNERS = ['round-spawn-1', 'round-spawn-2', 'round-spawn-3', 'round-spaw
 const defDoc = (attackData = null) => {
   const d = buildDoc(data, { side: 'defense', weapon: 'vandal', barrierSec: 20 });
   if (attackData) d.rules.round.attackData = attackData;
+  else delete d.rules.round.attackData; // buildDoc adds the map's attack data on the defense side (R3 S3)
   return d;
 };
 // sha256 (first 16 hex) of JSON.stringify(roundPrepare(doc, seed)), seeds 1..20, computed on 1d040e8
-// (before R3): the attack doc of round-ascent-attack-vandal-20, and the defense doc (buildDoc, no
-// attackData) with rules.round.attack deleted.
+// (before R3): the attack doc of round-ascent-attack-vandal-20, and the defense doc (buildDoc) with
+// rules.round.attack and rules.round.attackData deleted.
 const FROZEN_PREPARE = {
   attack: ['0a7382415e8b8a27', '326759ed4bd2eb0a', '5a2c67e679348198', 'c030352a142aea93', '4a06ddaff7f86fc0', '5fefcbe7368622cc', '8b24c23f07728e9b', 'ddcd183327472202', '7bba2c922402d7b8', '516b69d97a093379',
     'efa2ea8a29bc972b', '6c2a5ea308e9b3ea', 'afd8212ffdda8975', 'd158e63b3d4d4271', 'c82104713f0e0502', '634b7ccfbe80a8f3', 'eeb122c2822d1afd', 'd2dbfd1bba6e01fe', '7c4792e5510d9027', '931406121cac768e'],
@@ -754,6 +755,7 @@ test('R3 roundPrepare: attack side, defense spawns and spawners byte-identical t
     const d = core.roundPrepare(defDoc(), s);
     assert.ok(d.rules.round.attack, 'defense side has a plan');
     delete d.rules.round.attack;
+    delete d.rules.round.attackData;
     assert.equal(h(d), FROZEN_PREPARE.defense[s - 1], `defense seed ${s}`);
     const w = core.roundPrepare(defDoc(data.attack), s);
     assert.deepEqual(w.playerSpawn, d.playerSpawn, 'attackData does not move the player spawn');

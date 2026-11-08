@@ -12,6 +12,8 @@
 // --map (or env ROUND_MAP) picks the map: app/mods/aim-rounds/<map>.json + .nav.bin and its real
 // collision (default ascent). ASCENT / NAV_AB below hold that map's data, whatever the map.
 // (npm run sweep:round-bots in app/). scripts/test-round-bots-real.mjs imports retakeRun from here.
+// --defense: the R3 attacker bots instead (defenseMain below; scripts/test-round-bots-attack.mjs
+// imports defenseDoc / attackRun from here).
 import fs from 'node:fs';
 import path from 'node:path';
 import { register, createRequire } from 'node:module';
@@ -171,6 +173,154 @@ export function retakeRun({ sim, W, doc, seed, extra = {}, plantAfter = 0.5, spi
   return m;
 }
 
+// ---------------------------------------------------------------- R3: attacker bots (defense side)
+// The defense round scene (buildDoc side 'defense': 5 attacker bots at the attacker spawns, the
+// map's attack data), prepared with planSeed (roundPrepare -> cfg.attack; a prepared doc passes the
+// sim's own roundPrepare unchanged). plan = fields to force on cfg.attack (site, lurker, ...).
+export function defenseDoc({ barrierSec = 20, planSeed = 1, plan = null } = {}) {
+  const doc = core.roundPrepare(buildDoc(ASCENT, { side: 'defense', weapon: 'vandal', barrierSec }), planSeed);
+  if (plan) Object.assign(doc.rules.round.attack, plan);
+  return doc;
+}
+// A plan seed whose drawn site is `site` (lurker true / false: with / without a lurker), from `from` up.
+export function planSeedFor(site, { lurker = null, from = 1 } = {}) {
+  for (let s = from; s < from + 500; s++) {
+    const a = defenseDoc({ planSeed: s }).rules.round.attack;
+    if (a.site === site && (lurker === null || (lurker ? a.lurker !== null : a.lurker === null))) return s;
+  }
+  throw new Error(`no plan seed for ${site}`);
+}
+const ATK_BARS = ASCENT.barriers.filter((b) => b.team === 'attack');
+const crossesAtk = (a, b) => ATK_BARS.some((w) => navlib.segCross(a.x, a.z, b.x, b.z, w.a.x, w.a.z, w.b.x, w.b.z));
+const KILL_R = 5;
+const STANDING = new Set([I.MODE.wait, I.MODE.stage, I.MODE.cover, I.MODE.post, I.MODE.plant]);
+
+// One defense round with metrics (the player hides idle on the other site: the defender spawn is in
+// sight of the B routes, which reach B from the CT side). kill: null | 'route' (the
+// carrier walking to its plant spot with >= 1 s of field left, and every bot within KILL_R of it)
+// | 'midplant' (the carrier once botPlant >= half the plant time). Stops postSec after the plant,
+// at the round end or after maxSec. onTick(s, st, m, info) may edit the run (save -> edit -> restore).
+// hide = false: the player stands idle where roundPrepare put it (the defender spawn) or at `at`.
+export function attackRun({ sim, W, doc, seed = 1, extra = {}, kill = null, maxSec = 130, postSec = 15, onTick = null, hide = true, at = null }) {
+  const N = useNav(), g = N.g, cfg = doc.rules.round, plan = cfg.attack, ts = 1 / TPS, H = navlib.nodeIndex(g);
+  const A = I.atkData(N, cfg);
+  const mask = I.maskFor(N, I.barriersOf(cfg));
+  const seal = navlib.flood(g, ASCENT.spawns.attack.map((p) => navlib.nearestNode(g, H, p.x, p.z, 1, p.y, 1.5)), { types: navlib.TYPES.all, mask });
+  const hideNode = g.header.siteGoals?.[plan.site === 'A' ? 'B' : 'A']?.node;
+  const runDoc = at ? { ...doc, playerSpawn: { position: { ...at }, yaw: 0 } } : hide && Number.isInteger(hideNode) ? { ...doc, playerSpawn: { position: { x: g.x[hideNode], y: g.y[hideNode], z: g.z[hideNode] }, yaw: 0 } } : doc;
+  const s = sim.c(runDoc, { sensitivity: 1, zoomSensitivity: 1, seed, terrain: W, ...extra });
+  const m = {
+    offFloor: 0, offFloorAt: null,
+    seed, site: plan.site, plan: { ...plan, routeBySpawner: { ...plan.routeBySpawner } }, kill, live: -1, go: -1, goAfterLive: null, stagedAtGo: 0, members: 0,
+    plant: -1, plantAfterLive: null, planted: null, plantNodeDist: null, planter: null, plantSite: null, outcome: null,
+    crossings: 0, outside: 0, nav: true, bots: 0, waitSeen: false, routeOk: true, minStill: Infinity, minStillBarrier: Infinity, minStillStage: Infinity,
+    stuck: 0, retries: 0, seen: 0, shots: 0, carriers: [], drops: [], pickups: [], killed: null, fetcher: null, fetchWalk: null, dropMs: null,
+    botPlantBeforeKill: 0, post: null, lurkerStaged: null, maxPlanters: 0, plantingNotCarrier: 0, firstMs: 0,
+  };
+  const prev = new Map(), walk = new Map(), stuckIds = new Set();
+  let lastCarrier = null, lastDropped = null, timing = false, killedAt = -1, postAt = -1, fetchWalk0 = 0;
+  for (let i = 0; i < maxSec * TPS; i++) {
+    const t0 = performance.now();
+    const ev = s.step(IDLE);
+    const dt = performance.now() - t0;
+    if (timing) { m.dropMs = dt; timing = false; }
+    if (i < 64) m.firstMs = Math.max(m.firstMs, dt); // spawn + init (all plan-site fields)
+    const st = s.saveState(), r = st.aimRound;
+    const tick = r.tick, barrier = r.phase === 'barrier';
+    if (m.live < 0 && r.phase !== 'barrier') m.live = tick;
+    for (const e of ev) if (e.kind === 'enemyShot') m.shots++;
+    const bots = st.actors.filter((a) => a.behavior?.roundBot);
+    m.bots = Math.max(m.bots, bots.length);
+    let planters = 0;
+    for (const a of bots) {
+      const b = a.behavior.roundBot, p = a.position, q = prev.get(a.id);
+      if (b.nav !== 1) m.nav = false;
+      if (barrier && q && crossesAtk(q, p)) m.crossings++;
+      if (barrier && a.alive) { const k = navlib.nearestNode(g, H, p.x, p.z, 0.75, p.y, b.air === 1 ? 6 : 1); if (k < 0 || seal[k] === -2) m.outside++; }
+      if (barrier && b.mode === I.MODE.wait) m.waitSeen = true;
+      // On the nav's floors: a node of its own floor within 0.75 m xz (not while airborne).
+      if (a.alive && b.air !== 1 && !navlib.nodesNear(g, H, p.x, p.z, 0.75, p.y, 0.5).length) { m.offFloor++; m.offFloorAt ??= { id: a.id, tick, p: [p.x, p.y, p.z].map((v) => +v.toFixed(2)), cur: b.cur, gk: b.gk }; }
+      if (b.mode === I.MODE.stuck && !stuckIds.has(a.id)) { stuckIds.add(a.id); (m.stuckAt ??= []).push({ id: a.id, t: +((tick - (m.live >= 0 ? m.live : tick)) * ts).toFixed(2), p: [p.x, p.y, p.z].map((v) => +v.toFixed(2)), cur: b.cur, curY: +g.y[b.cur].toFixed(2), gk: b.gk, tgt: b.tgt }); }
+      if (a.alive && a.behavior.shooter?.lastSeenTick === tick) m.seen++;
+      if (a.alive && b.planting === 1) { planters++; if (r.phase === 'live' && r.spike.carrier !== a.id) m.plantingNotCarrier++; }
+      if (A && b.atk === 1 && A.routes[b.ri]?.name !== (plan.routeBySpawner[a.spawnerId] ?? A.routes[0].name)) m.routeOk = false;
+      if (q) walk.set(a.id, (walk.get(a.id) ?? 0) + Math.hypot(p.x - q.x, p.z - q.z));
+      if (m.lurkerStaged === null && plan.lurker && a.spawnerId === plan.lurker && b.atStage === 1 && !barrier && b.go !== 1) m.lurkerStaged = +((tick - m.live) * ts).toFixed(2);
+      prev.set(a.id, { ...p });
+    }
+    m.maxPlanters = Math.max(m.maxPlanters, planters);
+    // Standing bots never within 0.8 m (barrier wait, staging, clear / post spots, planting).
+    const still = bots.filter((a) => a.alive && STANDING.has(a.behavior.roundBot.mode));
+    for (const a of still) for (const b of still) if (a.id < b.id) {
+      const d = Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z);
+      if (d < m.minStill) m.minStillAt = { t: +((tick - (m.live >= 0 ? m.live : tick)) * ts).toFixed(2), phase: r.phase, a: [a.id, a.behavior.roundBot.mode, a.behavior.roundBot.gk, a.behavior.roundBot.cur], b: [b.id, b.behavior.roundBot.mode, b.behavior.roundBot.gk, b.behavior.roundBot.cur] };
+      m.minStill = Math.min(m.minStill, d);
+      if (barrier) m.minStillBarrier = Math.min(m.minStillBarrier, d);
+      if (a.behavior.roundBot.mode === I.MODE.stage && b.behavior.roundBot.mode === I.MODE.stage) m.minStillStage = Math.min(m.minStillStage, d);
+    }
+    if (m.go < 0 && bots.some((a) => a.alive && a.behavior.roundBot.go === 1)) {
+      m.go = tick; m.goAfterLive = +((tick - m.live) * ts).toFixed(2);
+      const mem = bots.filter((a) => a.alive && a.spawnerId !== plan.lurker);
+      m.members = mem.length; m.stagedAtGo = mem.filter((a) => a.behavior.roundBot.atStage === 1).length;
+    }
+    // Carrier / drop / fetch / pickup.
+    const c = r.spike.carrier;
+    if (c !== lastCarrier) { if (c !== null) { m.carriers.push(c); if (lastDropped) m.pickups.push({ id: c, tick }); } lastCarrier = c; }
+    if (r.spike.dropped && !lastDropped) { m.drops.push({ tick, at: { ...r.spike.dropped } }); timing = true; }
+    if (r.spike.dropped && lastDropped && m.fetcher === null) {
+      const f = bots.find((a) => a.alive && a.behavior.roundBot.fetch >= 0);
+      if (f) { m.fetcher = f.behavior.roundBot.fetch; fetchWalk0 = walk.get(m.fetcher) ?? 0; }
+    }
+    if (!r.spike.dropped && lastDropped && m.fetcher !== null && m.fetchWalk === null) m.fetchWalk = +((walk.get(m.fetcher) ?? 0) - fetchWalk0).toFixed(2);
+    lastDropped = r.spike.dropped ? { ...r.spike.dropped } : null;
+    // Plant.
+    if (m.plant < 0 && r.spike.planted) {
+      m.plant = tick; m.plantAfterLive = +((tick - m.live) * ts).toFixed(2); m.planted = { ...r.spike.planted }; m.plantSite = r.spike.planted.site;
+      if (A) m.plantNodeDist = Math.min(...A.plant.map((pl) => Math.hypot(g.x[pl.node] - m.planted.x, g.z[pl.node] - m.planted.z)));
+      const pl = bots.find((a) => a.alive && Math.hypot(a.position.x - m.planted.x, a.position.z - m.planted.z) < 0.05 && Math.abs(a.position.y - m.planted.y) < 0.05);
+      m.planter = pl ? pl.id : null;
+      postAt = tick + Math.round(postSec * TPS);
+    }
+    if (m.plant >= 0 && tick === postAt) {
+      const alive = bots.filter((a) => a.alive);
+      const held = alive.filter((a) => { const b = a.behavior.roundBot; return b.mode === I.MODE.post && b.pn >= 0 && Math.hypot(a.position.x - g.x[b.pn], a.position.z - g.z[b.pn]) < 0.3; });
+      const pns = alive.map((a) => a.behavior.roundBot.pn).filter((k) => k >= 0);
+      const pi = A ? A.plant.findIndex((pl) => Math.hypot(g.x[pl.node] - m.planted.x, g.z[pl.node] - m.planted.z) === m.plantNodeDist) : -1;
+      m.post = { alive: alive.length, assigned: pns.length, distinct: new Set(pns).size, held: held.length, spots: pi >= 0 ? (A.post[pi] ?? []).length : 0 };
+    }
+    if (r.phase === 'ended' && !m.outcome) m.outcome = r.reason;
+    if (m.outcome || (postAt >= 0 && tick >= postAt)) break;
+    // Kills (save -> edit -> restore).
+    if (kill && killedAt < 0 && c !== null) {
+      const ca = bots.find((a) => a.id === c && a.alive), b = ca?.behavior.roundBot;
+      let doIt = false, also = [];
+      if (ca && kill === 'route' && b.gk === I.GK.plant && b.mode === I.MODE.walk && b.pi >= 0 && I.fieldFor(N, A.plant[b.pi].node, null, 1).dist[b.cur] >= 1) {
+        // A multi-kill: the carrier and every bot within KILL_R (5 m) of it, when a bot is left farther
+        // out (the team walks in a column; the fetch must be a real walk: >= 3 m to the 1.5 m pickup).
+        const near = (o) => Math.hypot(o.position.x - ca.position.x, o.position.z - ca.position.z) < KILL_R;
+        also = bots.filter((o) => o.alive && o.id !== c && near(o)).map((o) => o.id);
+        doIt = bots.some((o) => o.alive && o.id !== c && !near(o));
+      }
+      if (ca && kill === 'midplant' && r.botPlant >= Math.round((cfg.plantSec ?? 4) * TPS) / 2) { doIt = true; m.botPlantBeforeKill = r.botPlant; }
+      if (doIt) {
+        const a = st.actors.find((x) => x.id === c);
+        a.alive = false; a.health = 0;
+        for (const id of also) { const o = st.actors.find((x) => x.id === id); o.alive = false; o.health = 0; }
+        m.killed = { id: c, tick, at: { ...a.position }, also };
+        killedAt = tick;
+        s.restoreState(st);
+        continue;
+      }
+    }
+    if (onTick) onTick(s, st, m, { tick, phase: r.phase });
+  }
+  const fin = s.saveState();
+  m.stuck = stuckIds.size;
+  m.retries = fin.actors.reduce((n, a) => n + (a.behavior.roundBot?.retries ?? 0), 0);
+  m.s = s;
+  return m;
+}
+
 // ---------------------------------------------------------------- sweep (CLI)
 function rng(seed) {
   let a = (seed >>> 0) ^ 0x9e3779b9;
@@ -244,4 +394,56 @@ async function main() {
   try { fs.writeFileSync(out, JSON.stringify({ summary, rows }, null, 1)); console.log(`wrote ${out}`); } catch (e) { console.log(`could not write ${out}: ${e.message}`); }
 }
 
-if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) await main();
+// Defense mode (R3 attackers): seeds x kill none / route / midplant; barrier, plan seed, movement and
+// rank vary with the seed; the player stays hidden at its spawn.
+//   node scripts/round-bots-sweep.mjs --defense [--seeds 20] [--out /tmp/round-bots-defense.json] [--max-min 9]
+async function defenseMain() {
+  const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
+  const seeds = +arg('--seeds', 20), out = arg('--out', path.join('/tmp', 'round-bots-defense.json')), maxMin = +arg('--max-min', 9);
+  register(pathToFileURL(path.join(root, 'scripts', 'sim-loader.mjs')).href);
+  globalThis.window ??= globalThis; globalThis.self ??= globalThis;
+  globalThis.localStorage ??= { getItem: () => null, setItem() {}, removeItem() {} };
+  const sim = await import(pathToFileURL(path.join(MODS, 'next', 'js', 'CnrSARj_.js')).href);
+  const { loadTerrain } = await import(pathToFileURL(path.join(root, 'tools', 'round_terrain.mjs')).href);
+  const W = await loadTerrain(MAP, { root });
+  const t0 = Date.now(), rows = [];
+  outer: for (let k = 0; k < seeds; k++) for (const kill of [null, 'route', 'midplant']) {
+    if (Date.now() - t0 > maxMin * 60e3) { console.log(`time budget (${maxMin} min) reached, stopping`); break outer; }
+    const seed = 3000 + k * 10 + (kill === 'route' ? 1 : kill === 'midplant' ? 2 : 0), R = rng(seed);
+    const barrierSec = [10, 20, 30][Math.floor(R() * 3)], planSeed = 1 + Math.floor(R() * 1e6), rank = RANKS[Math.floor(R() * RANKS.length)], game = R() < 0.5;
+    const doc = defenseDoc({ barrierSec, planSeed });
+    const w0 = Date.now();
+    const m = attackRun({ sim, W, doc, seed, kill, extra: { ...(rank ? { enemyRank: rank } : {}), ...(game ? { movement: 'game' } : {}) }, maxSec: barrierSec + 100 + 5 });
+    const pk = m.pickups[0] ?? null;
+    const row = {
+      seed, planSeed, site: m.site, barrierSec, kill, killed: m.killed ? 1 + m.killed.also.length : 0, rank: rank ?? 'default', movement: game ? 'game' : 'default', lurker: m.plan.lurker ? 1 : 0,
+      gather: m.plan.gatherSec, goAfterLive: m.goAfterLive, stagedAtGo: `${m.stagedAtGo}/${m.members}`, lurkerStaged: m.lurkerStaged,
+      planted: m.plant >= 0 ? 1 : 0, plantAfterLive: m.plantAfterLive, plantSiteOk: m.plant >= 0 ? (m.plantSite === m.site ? 1 : 0) : null, plantNodeDist: m.plantNodeDist === null ? null : +m.plantNodeDist.toFixed(3),
+      drops: m.drops.length, fetcher: m.fetcher, newCarrier: pk ? pk.id : null, fetchOk: m.drops.length ? (pk && pk.id === m.fetcher ? 1 : 0) : null, fetchWalk: m.fetchWalk,
+      botPlantBeforeKill: m.botPlantBeforeKill, outcome: m.outcome, crossings: m.crossings, outside: m.outside, offFloor: m.offFloor, offFloorAt: m.offFloorAt, stuck: m.stuck, retries: m.retries, seen: m.seen, shots: m.shots,
+      minStill: Number.isFinite(m.minStill) ? +m.minStill.toFixed(2) : null, post: m.post, maxPlanters: m.maxPlanters, plantingNotCarrier: m.plantingNotCarrier, routeOk: m.routeOk ? 1 : 0, nav: m.nav ? 1 : 0, waitSeen: m.waitSeen ? 1 : 0,
+      dropMs: m.dropMs === null ? null : +m.dropMs.toFixed(1), firstMs: +m.firstMs.toFixed(1), wall: +((Date.now() - w0) / 1000).toFixed(1),
+    };
+    rows.push(row);
+    console.log(JSON.stringify(row));
+  }
+  const q = (a, f) => { const v = a.map(f).filter((x) => x !== null && x !== undefined).sort((x, y) => x - y); return v.length ? { min: v[0], med: v[Math.floor(v.length / 2)], max: v[v.length - 1], n: v.length } : null; };
+  const by = (f) => rows.filter(f);
+  const kinds = { none: by((r) => r.kill === null), route: by((r) => r.kill === 'route' && r.killed > 0), routeSkipped: by((r) => r.kill === 'route' && r.killed === 0), midplant: by((r) => r.kill === 'midplant' && r.killed > 0) };
+  const posts = rows.filter((r) => r.post);
+  const summary = {
+    runs: rows.length, minutes: +((Date.now() - t0) / 60e3).toFixed(1),
+    perKind: Object.fromEntries(Object.entries(kinds).map(([k, a]) => [k, { runs: a.length, planted: a.filter((r) => r.planted).length, plantedWithin40: a.filter((r) => r.planted && r.plantAfterLive <= 40).length, plantAfterLive: q(a, (r) => r.plantAfterLive), fetchOk: a.filter((r) => r.fetchOk === 1).length, drops: a.filter((r) => r.drops > 0).length, fetchWalk: q(a, (r) => r.fetchWalk) }])),
+    plantSiteOk: rows.filter((r) => r.plantSiteOk === 1).length, plantNodeDistMax: Math.max(0, ...rows.map((r) => r.plantNodeDist ?? 0)),
+    crossings: rows.reduce((s, r) => s + r.crossings, 0), outside: rows.reduce((s, r) => s + r.outside, 0), offFloorRuns: rows.filter((r) => r.offFloor > 0).length, stuckBots: rows.reduce((s, r) => s + r.stuck, 0), retries: rows.reduce((s, r) => s + r.retries, 0),
+    seenTicks: rows.reduce((s, r) => s + r.seen, 0), shots: rows.reduce((s, r) => s + r.shots, 0), minStill: q(rows, (r) => r.minStill), maxPlanters: Math.max(...rows.map((r) => r.maxPlanters)), plantingNotCarrier: rows.reduce((s, r) => s + r.plantingNotCarrier, 0),
+    post: { runs: posts.length, allHeld: posts.filter((r) => r.post.held === r.post.assigned && r.post.distinct === r.post.assigned && r.post.assigned === Math.min(r.post.alive, r.post.spots)).length, held: posts.reduce((s, r) => s + r.post.held, 0), assigned: posts.reduce((s, r) => s + r.post.assigned, 0) },
+    routeOk: rows.filter((r) => r.routeOk).length, nav: rows.filter((r) => r.nav).length, waitSeen: rows.filter((r) => r.waitSeen).length, outcomes: rows.reduce((o, r) => ({ ...o, [String(r.outcome)]: (o[String(r.outcome)] ?? 0) + 1 }), {}),
+    lurkerRuns: rows.filter((r) => r.lurker).length, lurkerStaged: rows.filter((r) => r.lurker && r.lurkerStaged !== null).length,
+    goAfterLive: q(rows, (r) => r.goAfterLive), dropMs: q(rows, (r) => r.dropMs), firstMs: q(rows, (r) => r.firstMs),
+  };
+  console.log('SUMMARY ' + JSON.stringify(summary));
+  try { fs.writeFileSync(out, JSON.stringify({ summary, rows }, null, 1)); console.log(`wrote ${out}`); } catch (e) { console.log(`could not write ${out}: ${e.message}`); }
+}
+
+if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) await (process.argv.includes('--defense') ? defenseMain() : main());
