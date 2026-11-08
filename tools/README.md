@@ -192,8 +192,29 @@ node tools/round_nav.mjs --map rook --reuse     # 6. header
 node tools/round_author.mjs --map rook --check --plot rook-round.svg --attack-plot rook-attack.png
 ```
 
+### Split (`bonsai`)
+
+Split's 9 `SM_Barrier` planes are all parked at the world origin, so its barriers are world `MARKS` (no
+picture), with three more per-map switches:
+
+- `MARK_TEAMS: true`: each mark is snapped like Ascent's, then the same strict flood rule as `BARRIERS:
+  'collision'` runs on it (one team per barrier, at least 5 cut walk edges, none bypassed with every
+  barrier up) and must give the mark's team; build and ray-free `--check` fail otherwise. The plane lengths
+  are matched to the chokes (widest to longest) as a warning only (`authoring.barriers.<id>.primMatch`).
+- `ROPES: true`: the 7 ropes of `bonsai.ropes.json` are two-way links (bottom node <-> top node) in the seal
+  check and barrier-team floods (re-seeded until nothing changes; the nav graph has no rope edges). A rope
+  within 8 m of a barrier of team T must not cross it and must lie on T's side (both ends in T's flood),
+  else the build fails; `authoring.ropes` holds the result.
+- `SITE_CENTER`: A's marker centre is on the 4 m site box, so the site centre (site goal) is moved onto
+  the floor.
+
+Same order as Corrode with `--map bonsai` (bake ~45 s: 17913 nodes, 131407 edges). The barrier marks sit
+at the narrowest corridors between the sides on the nav graph plot; `MAPS.bonsai.NOTES` lists where the
+data differs from the Ascent rules (A Ramps route, mid group, setups outside the A zone).
+
 Setup candidates (`round_navdata.mjs` `setupCandidates`): defender-walkable inside the defender barriers, open
-floor, in the zone or within 12 m, slowest defender spawn -> spot at most 10 s (shortest barrier) + the
+floor, in the zone or within 12 m, reaches its site goal over walk + drop edges (any site for a mid group;
+Split's Mid Vent room is left only by rope), slowest defender spawn -> spot at most 10 s (shortest barrier) + the
 attackers' fastest barrier -> zone time - 1 s, sees at least one defender barrier (where attackers come in)
 within 30 m and is seen from at most 2 (the bots' sight test); it also reports `hiddenAtk` (no attacker
 barrier sample sees it), and the picks must include at least one such spot per site (tested). Thresholds
