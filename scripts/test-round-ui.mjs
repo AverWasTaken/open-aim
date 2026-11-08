@@ -53,9 +53,9 @@ test('round panel: prefetches every map nav on load into globalThis.__aimRoundNa
   const urls = [];
   const ctx = context({ fetch: async (u) => { urls.push(u); return response(rnav()); } });
   vm.runInContext(src('round-panel.js'), ctx);
-  assert.deepEqual(urls, ['/aim-rounds/ascent.nav.bin', '/aim-rounds/rook.nav.bin']);
+  assert.deepEqual(urls, ['/aim-rounds/ascent.nav.bin', '/aim-rounds/rook.nav.bin', '/aim-rounds/bonsai.nav.bin']);
   await flush();
-  for (const m of ['ascent', 'rook']) {
+  for (const m of ['ascent', 'rook', 'bonsai']) {
     assert.ok(ctx.__aimRoundNav[m] instanceof ArrayBuffer, m);
     assert.equal(ctx.__aimRoundPanel.navState[m], 'ok', m);
   }
@@ -63,7 +63,7 @@ test('round panel: prefetches every map nav on load into globalThis.__aimRoundNa
     const c = context({ fetch: fetchFn });
     vm.runInContext(src('round-panel.js'), c);
     await flush();
-    for (const m of ['ascent', 'rook']) {
+    for (const m of ['ascent', 'rook', 'bonsai']) {
       assert.equal(c.__aimRoundPanel.navState[m], 'missing', `${name} ${m}`);
       assert.ok(!c.__aimRoundNav?.[m], `${name} ${m}`);
     }
@@ -86,12 +86,12 @@ test('round panel: Start launches inside the click when the nav is cached or kno
   ctx = context({ fetch: async () => { fetches++; return response(null, false); }, __aimLaunchScene: (o) => { launches.push(o); return true; } });
   vm.runInContext(src('round-panel.js'), ctx);
   await flush();
-  ctx.__aimRoundPanel.open(); // opening retries the missing files (both maps)
+  ctx.__aimRoundPanel.open(); // opening retries the missing files (every map)
   await flush();
-  assert.equal(fetches, 4);
+  assert.equal(fetches, 6);
   ctx.document.body.children.at(-1).querySelector('.aim-round-start').click();
   assert.equal(launches.length, 1);
-  assert.equal(fetches, 4);
+  assert.equal(fetches, 6);
   // Cold: the fetch is still running -> wait for it, then launch once (a second click does nothing).
   launches = [];
   const releases = [];
@@ -110,16 +110,16 @@ test('round panel: Start launches inside the click when the nav is cached or kno
   assert.ok(ctx.__aimRoundNav.ascent instanceof ArrayBuffer, 'cached before the launch');
 });
 
-test('round panel: Ascent and Corrode in the map row; picking Corrode starts round-rook-... ("Round · Corrode") and is remembered', async () => {
+test('round panel: Ascent, Corrode and Split in the map row; picking Corrode starts round-rook-... ("Round · Corrode") and is remembered', async () => {
   const launches = [];
   const ctx = context({ fetch: async () => response(rnav()), __aimLaunchScene: (o) => { launches.push(o); return true; } });
   vm.runInContext(src('round-panel.js'), ctx);
   await flush();
-  assert.equal(JSON.stringify(ctx.__aimRoundPanel.maps.map((m) => [m.id, m.name])), JSON.stringify([['ascent', 'Ascent'], ['rook', 'Corrode']]), 'vm-realm array');
+  assert.equal(JSON.stringify(ctx.__aimRoundPanel.maps.map((m) => [m.id, m.name])), JSON.stringify([['ascent', 'Ascent'], ['rook', 'Corrode'], ['bonsai', 'Split']]), 'vm-realm array');
   ctx.__aimRoundPanel.open();
   let shade = ctx.document.body.children.at(-1);
   const row = shade.querySelector('[data-k="map"]');
-  assert.deepEqual(row.children.map((b) => b.dataset.v), ['ascent', 'rook']);
+  assert.deepEqual(row.children.map((b) => b.dataset.v), ['ascent', 'rook', 'bonsai']);
   assert.ok(row.children[0].classList.contains('is-active'), 'Ascent picked by default');
   row.children[1].click();
   assert.ok(row.children[1].classList.contains('is-active') && !row.children[0].classList.contains('is-active'));
@@ -203,6 +203,35 @@ test('round panel: a map without defense (defense: false) shows Defense as "Comi
   assert.ok(side.children[0].classList.contains('is-active') && !side.children[1].classList.contains('is-active'));
   shade.querySelector('.aim-round-start').click();
   assert.equal(launches.at(-1).shareCode, 'round-rook-attack-vandal-20');
+});
+
+test('round panel: Split in the map row (third), Defense enabled there; picking it starts round-bonsai-defense-... / round-bonsai-attack-... ("Round · Split"), remembered', async () => {
+  const launches = [];
+  const ctx = context({ fetch: async () => response(rnav()), __aimLaunchScene: (o) => { launches.push(o); return true; } });
+  vm.runInContext(src('round-panel.js'), ctx);
+  await flush();
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.__aimRoundPanel.maps.find((m) => m.id === 'bonsai'))), { id: 'bonsai', name: 'Split', defense: true });
+  ctx.localStorage.setItem('aim-round-setup', JSON.stringify({ map: 'bonsai', side: 'defense' }));
+  ctx.__aimRoundPanel.open();
+  let shade = ctx.document.body.children.at(-1);
+  const side = shade.querySelector('[data-k="side"]'), map = shade.querySelector('[data-k="map"]');
+  assert.equal(map.children[2].dataset.v, 'bonsai');
+  assert.ok(map.children[2].classList.contains('is-active'), 'Split remembered');
+  assert.equal(side.children[1].disabled, false, 'Defense enabled on Split');
+  assert.match(side.children[1].innerHTML, /<small>Stop the plant<\/small>/);
+  assert.ok(side.children[1].classList.contains('is-active'), 'stored Defense on Split stays Defense');
+  shade.querySelector('.aim-round-start').click();
+  assert.equal(launches.at(-1).shareCode, 'round-bonsai-defense-vandal-20');
+  assert.equal(launches.at(-1).name, 'Round · Split');
+  ctx.__aimRoundPanel.open();
+  shade = ctx.document.body.children.at(-1);
+  shade.querySelector('[data-k="side"]').children[0].click();
+  shade.querySelector('.aim-round-start').click();
+  assert.equal(launches.at(-1).shareCode, 'round-bonsai-attack-vandal-20');
+  assert.equal(launches.at(-1).name, 'Round · Split');
+  const stored = JSON.parse(ctx.localStorage.getItem('aim-round-setup'));
+  assert.equal(stored.map, 'bonsai');
+  assert.equal(stored.side, 'attack');
 });
 
 test('round panel maps: every listed map ships aim-rounds/<id>.json (schema 1, map = id, name = the label, A-C sites) and <id>.nav.bin (RNAV); its round scene builds', () => {

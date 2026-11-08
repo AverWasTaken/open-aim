@@ -12,7 +12,7 @@
   const SETUP_KEY = "aim-round-setup";
   const RANK_KEY = "aim-enemy-rank";
   // defense: false = the attacker bots aren't ready on that map: Defense shows "Coming soon" there.
-  const MAPS = [{ id: "ascent", name: "Ascent", defense: true }, { id: "rook", name: "Corrode", defense: true }];
+  const MAPS = [{ id: "ascent", name: "Ascent", defense: true }, { id: "rook", name: "Corrode", defense: true }, { id: "bonsai", name: "Split", defense: true }];
   const SIDES = [
     { id: "attack", name: "Attack", sub: "Plant the spike", subtitle: "Attack · plant the spike", blurb: "One round against 5 bots. Barriers hold both teams in their spawn area at the start; then plant the spike in a site and keep it alive." },
     { id: "defense", name: "Defense", sub: "Stop the plant", subtitle: "Defense · stop the plant", blurb: "One round against 5 bots. Barriers hold both teams in their spawn area at the start; then stop the attackers from planting, or defuse the spike." },
