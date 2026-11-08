@@ -229,7 +229,7 @@ test('round core: roundView.sites = the cfg site ids (A, B on both maps; A, B, C
   const core = await import(pathToFileURL(path.join(root, 'app', 'mods', 'aim-rounds', 'round-core.mjs')).href);
   const { buildDoc } = createRequire(import.meta.url)(path.join(root, 'app', 'round-scene.js'));
   const TS = 1 / 128;
-  for (const map of ['ascent', 'rook']) {
+  for (const map of ['ascent', 'rook', 'bonsai']) {
     const data = JSON.parse(fs.readFileSync(path.join(root, 'app', 'mods', 'aim-rounds', `${map}.json`), 'utf-8'));
     const cfg = buildDoc(data, { side: 'attack', weapon: 'vandal', barrierSec: 20 }).rules.round;
     const st = core.roundCreate(cfg, TS);

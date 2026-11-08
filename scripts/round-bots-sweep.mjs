@@ -5,6 +5,9 @@
 // seeded plant-zone spot incl. crate tops), and the round plays out. Reports per run and in total:
 // retake arrival (defuse candidate at the spike), defuse start / finish (s after the plant, vs the
 // 45 s spike), stuck bots, barrier crossings (must be 0), fires while defusing (must be 0), outcome.
+// Also off-floor ticks (a bot not airborne with no nav node of its floor within 0.75 m, as in the
+// attacker runs; summary offFloorRuns, must be 0) and, in hidden runs, ticks on which a bot sees the
+// player (summary seenTicksHidden; the hide spot must be out of every defender's sight).
 // Split, rank and movement mode vary with the seed.
 //
 // Heavy (about 6 s per run on hp): run it on hp only, one CPU job at a time:
@@ -95,7 +98,7 @@ function goalTime(N, cfg, sp, b) {
 // player 'hidden' | 'dead' | 'visible' (stays where it is). onTick(s, st, m, info) may edit the run
 // (save -> edit -> restore). Stops one tick after the round ends or after maxSec.
 export function retakeRun({ sim, W, doc, seed, extra = {}, plantAfter = 0.5, spike = null, player = 'hidden', maxSec = 80, onTick = null }) {
-  const N = useNav();
+  const N = useNav(), g = N.g, H = navlib.nodeIndex(g);
   const s = sim.c(doc, { sensitivity: 1, zoomSensitivity: 1, seed, terrain: W, ...extra });
   const cfg = doc.rules.round, ts = 1 / TPS;
   const m = {
@@ -103,6 +106,7 @@ export function retakeRun({ sim, W, doc, seed, extra = {}, plantAfter = 0.5, spi
     crossings: 0, stuck: 0, retries: 0, fireWhileDefusing: 0, seenWhileDefusing: 0, defuseStart: -1, candArrive: -1,
     flagGap: 0, staged2: -1, firstPush: -1, maxExcess: -Infinity, arrivals: [], defusers: [], maxDefuse: 0, cands: new Set(),
     kind: null, minStill: Infinity, minStillTick: Infinity, maxDefusers: 0, overdue: 0, shotsBy: {},
+    offFloor: 0, offFloorAt: null, seen: 0, seenAt: null,
   };
   const prev = new Map(), flag = new Map(), track = new Map(), stuckIds = new Set();
   let timing = false;
@@ -120,6 +124,10 @@ export function retakeRun({ sim, W, doc, seed, extra = {}, plantAfter = 0.5, spi
       const b = a.behavior.roundBot, p = a.position, q = prev.get(a.id);
       if (r.phase === 'barrier' && q && crossesBar(q, p)) m.crossings++;
       if (b.mode === I.MODE.stuck && !stuckIds.has(a.id)) stuckIds.add(a.id);
+      // On the nav's floors (as in attackRun): a node of its own floor within 0.75 m xz, not airborne.
+      if (a.alive && b.air !== 1 && !navlib.nodesNear(g, H, p.x, p.z, 0.75, p.y, 0.5).length) { m.offFloor++; m.offFloorAt ??= { id: a.id, tick, p: [p.x, p.y, p.z].map((v) => +v.toFixed(2)), cur: b.cur, gk: b.gk }; }
+      // Hidden runs: ticks on which a bot sees the player (the hide spot must be out of sight).
+      if (player === 'hidden' && a.alive && a.behavior.shooter?.lastSeenTick === tick) { m.seen++; m.seenAt ??= { id: a.id, tick, phase: r.phase }; }
       prev.set(a.id, { ...p });
       flag.set(a.id, a.alive && a.roundDefusing === 1 ? 1 : 0);
       if (!a.alive || !sp || b.nav !== 1) continue;
@@ -364,6 +372,7 @@ async function main() {
       spike: [+m.spike.x.toFixed(2), +m.spike.y.toFixed(2), +m.spike.z.toFixed(2)], plantMs: m.plantMs === null ? null : +m.plantMs.toFixed(1),
       candArrive: m.candArrive < 0 ? null : +m.candArrive.toFixed(2), defuseStart: m.defuseStart < 0 ? null : +m.defuseStart.toFixed(2),
       outcome: m.outcome, end: +m.end.toFixed(2), stuck: m.stuck, retries: m.retries, crossings: m.crossings, fireWhileDefusing: m.fireWhileDefusing,
+      offFloor: m.offFloor, offFloorAt: m.offFloorAt, seen: m.seen, seenAt: m.seenAt,
       flagGap: m.flagGap, maxDefusers: m.maxDefusers, overdue: m.overdue, minStillTick: Number.isFinite(m.minStillTick) ? +m.minStillTick.toFixed(2) : null, push: m.firstPush < 0 || m.staged2 < 0 ? null : +((m.firstPush - m.staged2) / TPS).toFixed(2), maxExcess: +m.maxExcess.toFixed(2),
       minStill: Number.isFinite(m.minStill) ? +m.minStill.toFixed(2) : null, wall: +((Date.now() - w0) / 1000).toFixed(1),
     };
@@ -386,6 +395,7 @@ async function main() {
     outcomes: rows.reduce((o, r) => ({ ...o, [`${r.kind}:${r.outcome}`]: (o[`${r.kind}:${r.outcome}`] ?? 0) + 1 }), {}),
     candArrive: q(ok, (r) => r.candArrive), defuseStart: q(ok, (r) => r.defuseStart), defuseEnd: q(defused, (r) => r.end),
     stuckBots: rows.reduce((s, r) => s + r.stuck, 0), crossings: rows.reduce((s, r) => s + r.crossings, 0),
+    offFloorRuns: rows.filter((r) => r.offFloor > 0).length, seenTicksHidden: rows.filter((r) => r.player === 'hidden').reduce((s, r) => s + r.seen, 0),
     fireWhileDefusing: rows.reduce((s, r) => s + r.fireWhileDefusing, 0), flagGapRuns: rows.filter((r) => r.flagGap > 0).length,
     maxDefusers: Math.max(...rows.map((r) => r.maxDefusers)), overdue: rows.reduce((s, r) => s + r.overdue, 0), minStillTick: q(rows, (r) => r.minStillTick),
     plantMs: q(rows, (r) => r.plantMs), maxExcess: Math.max(...rows.map((r) => r.maxExcess)),
@@ -421,7 +431,7 @@ async function defenseMain() {
       planted: m.plant >= 0 ? 1 : 0, plantAfterLive: m.plantAfterLive, plantSiteOk: m.plant >= 0 ? (m.plantSite === m.site ? 1 : 0) : null, plantNodeDist: m.plantNodeDist === null ? null : +m.plantNodeDist.toFixed(3),
       drops: m.drops.length, fetcher: m.fetcher, newCarrier: pk ? pk.id : null, fetchOk: m.drops.length ? (pk && pk.id === m.fetcher ? 1 : 0) : null, fetchWalk: m.fetchWalk,
       botPlantBeforeKill: m.botPlantBeforeKill, outcome: m.outcome, crossings: m.crossings, outside: m.outside, offFloor: m.offFloor, offFloorAt: m.offFloorAt, stuck: m.stuck, retries: m.retries, seen: m.seen, shots: m.shots,
-      minStill: Number.isFinite(m.minStill) ? +m.minStill.toFixed(2) : null, post: m.post, maxPlanters: m.maxPlanters, plantingNotCarrier: m.plantingNotCarrier, routeOk: m.routeOk ? 1 : 0, nav: m.nav ? 1 : 0, waitSeen: m.waitSeen ? 1 : 0,
+      minStill: Number.isFinite(m.minStill) ? +m.minStill.toFixed(2) : null, minStillBarrier: Number.isFinite(m.minStillBarrier) ? +m.minStillBarrier.toFixed(2) : null, post: m.post, maxPlanters: m.maxPlanters, plantingNotCarrier: m.plantingNotCarrier, routeOk: m.routeOk ? 1 : 0, nav: m.nav ? 1 : 0, waitSeen: m.waitSeen ? 1 : 0,
       dropMs: m.dropMs === null ? null : +m.dropMs.toFixed(1), firstMs: +m.firstMs.toFixed(1), wall: +((Date.now() - w0) / 1000).toFixed(1),
     };
     rows.push(row);
@@ -436,7 +446,8 @@ async function defenseMain() {
     perKind: Object.fromEntries(Object.entries(kinds).map(([k, a]) => [k, { runs: a.length, planted: a.filter((r) => r.planted).length, plantedWithin40: a.filter((r) => r.planted && r.plantAfterLive <= 40).length, plantAfterLive: q(a, (r) => r.plantAfterLive), fetchOk: a.filter((r) => r.fetchOk === 1).length, drops: a.filter((r) => r.drops > 0).length, fetchWalk: q(a, (r) => r.fetchWalk) }])),
     plantSiteOk: rows.filter((r) => r.plantSiteOk === 1).length, plantNodeDistMax: Math.max(0, ...rows.map((r) => r.plantNodeDist ?? 0)),
     crossings: rows.reduce((s, r) => s + r.crossings, 0), outside: rows.reduce((s, r) => s + r.outside, 0), offFloorRuns: rows.filter((r) => r.offFloor > 0).length, stuckBots: rows.reduce((s, r) => s + r.stuck, 0), retries: rows.reduce((s, r) => s + r.retries, 0),
-    seenTicks: rows.reduce((s, r) => s + r.seen, 0), shots: rows.reduce((s, r) => s + r.shots, 0), minStill: q(rows, (r) => r.minStill), maxPlanters: Math.max(...rows.map((r) => r.maxPlanters)), plantingNotCarrier: rows.reduce((s, r) => s + r.plantingNotCarrier, 0),
+    seenTicks: rows.reduce((s, r) => s + r.seen, 0), shots: rows.reduce((s, r) => s + r.shots, 0), minStill: q(rows, (r) => r.minStill),
+    barrierOverlapRuns: rows.filter((r) => r.minStillBarrier !== null && r.minStillBarrier < 0.8).length, maxPlanters: Math.max(...rows.map((r) => r.maxPlanters)), plantingNotCarrier: rows.reduce((s, r) => s + r.plantingNotCarrier, 0),
     post: { runs: posts.length, allHeld: posts.filter((r) => r.post.held === r.post.assigned && r.post.distinct === r.post.assigned && r.post.assigned === Math.min(r.post.alive, r.post.spots)).length, held: posts.reduce((s, r) => s + r.post.held, 0), assigned: posts.reduce((s, r) => s + r.post.assigned, 0) },
     routeOk: rows.filter((r) => r.routeOk).length, nav: rows.filter((r) => r.nav).length, waitSeen: rows.filter((r) => r.waitSeen).length, outcomes: rows.reduce((o, r) => ({ ...o, [String(r.outcome)]: (o[String(r.outcome)] ?? 0) + 1 }), {}),
     lurkerRuns: rows.filter((r) => r.lurker).length, lurkerStaged: rows.filter((r) => r.lurker && r.lurkerStaged !== null).length,

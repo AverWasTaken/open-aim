@@ -88,8 +88,8 @@ test('round codes: only known maps/sides/weapons/barrier times', () => {
   assert.equal(roundScene(MODS, 'round-nomap-attack-vandal-20'), null);
   assert.equal(roundScene(MODS, 'round-nomap-defense-vandal-20'), null);
   assert.equal(roundScene(MODS, 'd43f842fb33e4d46'), null);
-  // Both sides build on both maps; the defense scene's bots stand on the attacker spawns.
-  for (const map of ['ascent', 'rook']) for (const side of ['attack', 'defense']) {
+  // Both sides build on every round map; the defense scene's bots stand on the attacker spawns.
+  for (const map of ['ascent', 'rook', 'bonsai']) for (const side of ['attack', 'defense']) {
     const env = roundScene(MODS, `round-${map}-${side}-vandal-20`), doc = JSON.parse(env.doc);
     assert.equal(doc.rules.round.side, side, `${map} ${side}`);
     if (side === 'defense') {
@@ -115,6 +115,7 @@ test('generated scene: brief card text (name, description with map, side, weapon
   for (const [code, name, line1] of [
     ['round-ascent-defense-vandal-20', 'Round: Ascent (Defense)', 'Ascent · Defense · Vandal · 20 s barrier.'],
     ['round-rook-defense-sheriff-30', 'Round: Corrode (Defense)', 'Corrode · Defense · Sheriff · 30 s barrier.'],
+    ['round-bonsai-defense-vandal-10', 'Round: Split (Defense)', 'Split · Defense · Vandal · 10 s barrier.'],
   ]) {
     const d = roundScene(MODS, code);
     assert.equal(d.name, name);
