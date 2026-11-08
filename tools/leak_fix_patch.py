@@ -112,8 +112,8 @@ PATCHES = {
              b'this.seen.add(e)),e.g&&e.g.deref()===g||(e.g=new WeakRef(g)),e.L=L}'),
             # B2 aimLt.refilter: an entry whose context is gone is dropped; others filtered as before
             (b'if(e.g!==g)continue;',
-             b'const eg=e.g&&e.g.deref();if(!eg){this.seen.delete(e);this.ref.delete(t);continue}'
-             b'if(eg!==g)continue;'),
+             b'const aimEg=e.g&&e.g.deref();if(!aimEg){this.seen.delete(e);this.ref.delete(t);continue}'
+             b'if(aimEg!==g)continue;'),
         ],
         # after patching: only aimDL itself adds a "dispose" listener (the 12 direct sites are gone)
         "expect": {b'addEventListener("dispose"': 1},

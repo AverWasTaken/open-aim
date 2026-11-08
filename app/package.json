@@ -51,7 +51,8 @@
     "test:map-sky": "node --test ../scripts/test-map-sky.mjs",
     "test:map-salt": "node --test ../scripts/test-map-salt.mjs",
     "test:smokelib": "node --test ../scripts/smoke/lib.test.mjs",
-    "smoke": "node ../scripts/smoke/run.mjs"
+    "smoke": "node ../scripts/smoke/run.mjs",
+    "test:graphics-perf": "node --test ../scripts/test-graphics-perf.mjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",

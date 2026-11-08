@@ -157,7 +157,13 @@ and the view model keep their colours. Studio arenas, the official non-map drill
 26. `round_minimap_patch.py` (after `round_patch.py`, independent of 15: it anchors on round_patch's `round-core.mjs` import line and refuses to run without it; only touches `OkAdunfX.js`; refuses to run twice: it looks for `/aim-rounds/round-minimap.mjs`). It keeps each copy's own line ends. Normal drills are unchanged: `scripts/test-round-minimap.mjs` rebuilds the un-patched minimap code from the script's own pairs and compares the canvas calls.
 27. `map_sky_patch.py` (BiMsX6Xn only; independent of the others, run after `graphics_look_patch.py`; refuses to run twice: it looks for `/* maps-sky */`; keeps each copy's own line ends). See below.
 28. `map_salt_patch.py` (BiMsX6Xn only; independent of the others, run after `map_sky_patch.py`; refuses to run twice: it looks for `MI_RockSalt`; keeps each copy's own line ends). See below.
-29. `leak_fix_patch.py` (BiMsX6Xn + OkAdunfX only; independent of the others, run after `map_salt_patch.py`; refuses to run twice: it looks for `/* qa-leak */` in `BiMsX6Xn.js` and `"aimBr"` in `OkAdunfX.js`; keeps each copy's own line ends). See below.
+29. `graphics_warm_patch.py` (OkAdunfX; refuses to run twice: it looks for `/* graphics-warm */`).
+30. `graphics_leak_patch.py` (BiMsX6Xn + CnrSARj_; a marker `/* graphics-leak */` per file: a file
+    that already has it is skipped, a half-patched one is an error, all patched = refuses to run).
+    Both graphics perf scripts are independent of the other graphics scripts (`graphics_fx_patch.py`,
+    `graphics_holes_patch.py`, `graphics_botfx_patch.py`) and give the same bytes in either order.
+    Both keep each copy's own line ends and take `--mods <dir>` to patch a scratch copy.
+31. `leak_fix_patch.py` (BiMsX6Xn + OkAdunfX only; independent of the others, run after `graphics_leak_patch.py` (30); refuses to run twice: it looks for `/* qa-leak */` in `BiMsX6Xn.js` and `"aimBr"` in `OkAdunfX.js`; keeps each copy's own line ends). See below.
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
@@ -259,6 +265,23 @@ RNG change: the effects read the page's events and snapshots, nothing is written
 
 To redo them: `git checkout` both mods `OkAdunfX.js` copies at the commit before the graphics
 patches, then run both scripts again.
+
+## Graphics perf (first-shot stall, texture leaks, retry time)
+
+- `graphics_warm_patch.py`: the muzzle-flash renderer's one-time shader warm-up (`B()` in
+  OkAdunfX) also draws its light/tone composite passes into the real output target (1x1 scissor,
+  zero output), so the first shot no longer compiles 1-2 programs. It re-arms when tone mapping,
+  output colour space or the target change (Enhanced/Original switch).
+- `graphics_leak_patch.py`: frees the map environment map's PMREM render target (BiMsX6Xn) and
+  each removed bot's skeleton bone texture (CnrSARj_), which leaked on every retry.
+- `app/mods/aim-ui/bot-visibility.mjs`: the occlusion build yields every ~8 ms (MessageChannel)
+  instead of `setTimeout(0)` every 500 triangles; the result is identical (tested).
+- `app/mods/aim-tracers/renderer.mjs`: custom tracers do one empty draw on the first active frame
+  so their program compiles before the first shot.
+- Tests: `npm run test:graphics-perf` (scripts/test-graphics-perf.mjs). Live check in a test copy
+  over CDP: hook `WebGL2RenderingContext.prototype.shaderSource` and count fragment shaders
+  compiled between the first shot's click and the next frames (should be 0), and read
+  `renderer.info.memory.textures` (`__aimMapLighting.renderer`) after each retry (should stay flat).
 
 ## Spot scores (rank-biased spots)
 
