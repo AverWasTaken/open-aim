@@ -62,9 +62,9 @@ framebuffers, renderbuffers, programs, shaders, vertex arrays) and the `AudioCon
 | `edge:saved` | writes garbage, then wrong-type values into saved settings (`al-sensitivity-v1`, `al-display-settings-v1`, `aim-bot-mode`, `aim-enemy-rank`, `aim-rank-picks`, `aim-round-setup`, `aim-unlimited-v1`, history-like keys) and reloads | the lobby does not come up, page errors, the camera yaw goes non-finite or does not turn, the sensitivity box shows a non-number. The exact localStorage snapshot is restored after (never `clear()`) |
 | `edge:sens` | types into the lobby sensitivity box (`Input.insertText` + Enter + blur): 0.001, 10, 0.0001, 11, 99999, -1, 0, abc, empty, 1e3, 0.5; then 10 and 0.001 in a drill after a reload | a stored value outside 0.001-10 or not a number; shown and stored differ; not kept over a reload; yaw for 100 counts off by over 10% from 0.07 deg x sens. Restored after |
 
-Run the groups through the wrapper: `npm run smoke -- --only=soak` (or the wrapper's space form
-`--only soak`) puts both soak steps into one app start, and their time limits (10.5 min each) go
-past the 12-minute cap. Only the exact `--only=soak` / `--only=edge` value is split into batches.
+Use the wrapper with exactly `--only=soak` / `--only=edge`: only that value is split into batches.
+Don't run `npm run smoke -- --only=soak` directly or use the space form `--only soak`: both soak
+steps then share one app start, and their time limits (10.5 min each) go past the 12-minute cap.
 
 Edge batches: 1 = `edge:blur,edge:rapid-retry,edge:hitch,edge:start-overlay,edge:back-spam`,
 2 = `edge:resize,edge:settings-mid,edge:saved,edge:sens` (sens last: it changes the
@@ -87,13 +87,14 @@ run history on purpose), `soak:switch` from cycle 1 on (the first cycle loads th
 | live WebGL objects | page probe (textures, buffers, framebuffers, renderbuffers, programs, vertex arrays): made, not deleted, still reachable (weak reference), in a live, not-lost context; GC'd samples only (the browser frees an object whose wrapper is collected) | 0.5/restart or more fails |
 | live WebGL contexts | page probe | any growth fails |
 | lost WebGL contexts still reachable | page probe (a context Chrome force-lost, e.g. once a page has too many, whose object is still held after GC: an old drill's canvas/renderer kept) | any growth fails |
-| WebGL context / canvas / WebGLBuffer / WebGLTexture objects on the heap | `Runtime.queryObjects` after GC (cross-check without the probe) | contexts, canvases: any growth fails; buffers, textures: 0.5/restart or more fails |
+| WebGL context / canvas / WebGLBuffer / WebGLTexture objects on the heap | `Runtime.queryObjects` after GC (cross-check without the probe; it takes seconds, so only every 10th pause sample, every result sample and each cycle end) | contexts, canvases: any growth fails; buffers, textures: 0.5/restart or more fails |
 | live workers | page probe (`Worker` made minus terminated) and CDP worker targets | any growth (median of the last 3 samples above the first 3) fails |
 | live AudioContexts | page probe (made minus closed) | any growth fails |
 | renderer PSS | `/proc/<pid>/smaps_rollup` of the copy's session processes, by `--type=` | over 2 MB/restart warns |
 
 `soak.csv` columns: `x` (restarts done), `path`, `t_s`, `gc`, the metrics above, renderer, GPU
-and browser RSS, `load1` (hp load), `restart_ms` (how long the restart before the sample took).
+and browser RSS, `load1` (hp load), `restart_ms` (how long the restart before the sample took). The `q_*` columns
+are blank on rows without a `queryObjects` cross-check. Thresholds: "over X" means X or more.
 
 ### Startup time
 
@@ -101,6 +102,17 @@ Every run records the startup timeline of its app start: launcher spawn, the she
 line in main.log, CDP attached, lobby ready, plus the hp load at that moment. It is in
 `results.json` (`startup`), the summary header and `run.log`. Relative numbers only (hp is
 shared and its load changes).
+
+Measured on hp, 2026-11-08 (Intel GPU copies, fresh profile, 13 starts):
+
+| hp load (1 min) | spawn -> `START:` | spawn -> CDP | spawn -> lobby ready |
+|---|---|---|---|
+| 0.9-1.6 | 0.1 s | 2.2 s | 2.2 s |
+| 2.2-4.8 | 0.1-0.2 s | 2.1 s | 2.6-2.7 s |
+| 6.0 | 0.2 s | 2.5 s | 3.6 s |
+
+Batch times (same day): soak 1 (`soak:retries`, 40 + 10 restarts) about 6.5 min, soak 2
+(`soak:switch`, 8 cycles) about 5-6 min, edge 1 about 2.5 min, edge 2 about 2 min.
 
 ## Run it on hp (the normal way)
 

@@ -18,8 +18,9 @@ const SHORT = drill("scenarios"); // ends by itself after 7 s
 
 // ---------------------------------------------------------------- page probe
 // Installed before the app's own scripts (new document), so every WebGL object, AudioContext
-// and Worker the page makes is counted (plan W2 R3/R5). Live = made - freed; objects made
-// before the probe existed are ignored (WeakSet).
+// and Worker the page makes is counted (plan W2 R3/R5). WebGL: objects held by weak reference,
+// counted while reachable, not deleted and in a live, not-lost context (contexts counted, lost
+// ones separately). AudioContexts: made - closed. Workers: made - terminated.
 export const PROBE_LIB = String.raw`(() => {
   if (window.__qaProbe) return;
   const P = window.__qaProbe = { v: 1, audio: { made: 0, closed: 0 }, workers: { made: 0, ended: 0 } };
@@ -156,7 +157,7 @@ async function queryCount(c, protoExpr) {
   const group = "qa-query";
   try {
     const p = await c.send("Runtime.evaluate", { expression: `(typeof ${protoExpr.split(".")[0]} === 'function') ? ${protoExpr} : null`, objectGroup: group }, 15000);
-    if (!p.result?.objectId) return null;
+    if (p.exceptionDetails || !p.result?.objectId) return null;
     const q = await c.send("Runtime.queryObjects", { prototypeObjectId: p.result.objectId, objectGroup: group }, 30000);
     const n = await c.send("Runtime.callFunctionOn", { objectId: q.objects.objectId, functionDeclaration: "function () { return this.length; }", returnByValue: true }, 15000);
     return n.result?.value ?? null;
@@ -169,7 +170,7 @@ async function queryCount(c, protoExpr) {
 
 // One metrics sample. gc: force two full GCs first; DOM node, listener, heap and WebGL counts
 // are only compared on such rows (they include garbage otherwise).
-async function sample(ctx, { x, path: p, gc = false, t0 = Date.now(), extra = {} }) {
+async function sample(ctx, { x, path: p, gc = false, query = gc, t0 = Date.now(), extra = {} }) {
   const c = ctx.cdp;
   const q = {};
   if (gc) {
@@ -180,12 +181,6 @@ async function sample(ctx, { x, path: p, gc = false, t0 = Date.now(), extra = {}
       await c.send("HeapProfiler.collectGarbage", {}, 30000).catch(() => {});
       await sleep(150);
     }
-    const ctx2 = await queryCount(c, "WebGL2RenderingContext.prototype");
-    const ctx1 = await queryCount(c, "WebGLRenderingContext.prototype");
-    q.q_gl_contexts = ctx2 == null && ctx1 == null ? null : (ctx2 || 0) + (ctx1 || 0);
-    q.q_canvases = await queryCount(c, "HTMLCanvasElement.prototype");
-    q.q_gl_buffers = await queryCount(c, "WebGLBuffer.prototype");
-    q.q_gl_textures = await queryCount(c, "WebGLTexture.prototype");
   }
   const m = {};
   const pm = await c.send("Performance.getMetrics", {}, 15000).catch(async () => {
@@ -196,6 +191,17 @@ async function sample(ctx, { x, path: p, gc = false, t0 = Date.now(), extra = {}
   const lis = await c.send("Runtime.evaluate", { expression: LISTENERS_EXPR, includeCommandLineAPI: true, returnByValue: true }, 15000).then((r) => r.result?.value || null, () => null);
   const probe = await c.evaluate("window.__qaProbe ? __qaProbe.snap() : null").catch(() => null);
   const targets = await c.send("Target.getTargets", {}, 10000).then((r) => r.targetInfos.filter((t) => /worker/.test(t.type)).length, () => null);
+  if (gc && query) {
+    // After the other readings: the result arrays are garbage until the next GC and would add to
+    // the heap number. queryObjects is slow (seconds with thousands of objects), so callers ask
+    // for it on fewer samples.
+    const ctx2 = await queryCount(c, "WebGL2RenderingContext.prototype");
+    const ctx1 = await queryCount(c, "WebGLRenderingContext.prototype");
+    q.q_gl_contexts = ctx2 == null && ctx1 == null ? null : (ctx2 || 0) + (ctx1 || 0);
+    q.q_canvases = await queryCount(c, "HTMLCanvasElement.prototype");
+    q.q_gl_buffers = await queryCount(c, "WebGLBuffer.prototype");
+    q.q_gl_textures = await queryCount(c, "WebGLTexture.prototype");
+  }
   const row = {
     x, path: p, t_s: +((Date.now() - t0) / 1000).toFixed(1), gc: gc ? 1 : 0,
     heap_mb: m.JSHeapUsedSize != null ? +(m.JSHeapUsedSize / 1048576).toFixed(3) : null,
@@ -333,7 +339,7 @@ const soakRetries = {
         continue;
       }
       await pauseLite(ctx);
-      const row = await sample(ctx, { x: k, path: "pause", gc: k % 2 === 0, t0, extra: { restart_ms: lastRestartMs, note: `kills ${r.kills} shots ${r.shots}` } });
+      const row = await sample(ctx, { x: k, path: "pause", gc: k % 2 === 0, query: k % 10 === 0, t0, extra: { restart_ms: lastRestartMs, note: `kills ${r.kills} shots ${r.shots}` } });
       rowsA.push(row);
       write(row);
       if (k % 10 === 0) {
@@ -442,13 +448,13 @@ const soakSwitch = {
       await launchAndStart(ctx, LIGHT, "scene", { loadTimeout: 180000 });
       await shootFor(ctx, { seconds: 2, enough: 99, minSeconds: 2 });
       await exitDrill(ctx);
-      const rt = await sample(ctx, { x: k + 1, path: "after-target", gc: true, t0 });
+      const rt = await sample(ctx, { x: k + 1, path: "after-target", gc: true, query: false, t0 });
       parts.push(rt);
       write(rt);
       await launchAndStart(ctx, MAP, "scene", { loadTimeout: 180000 });
       await shootFor(ctx, { seconds: 2, enough: 99, minSeconds: 2 });
       await exitDrill(ctx);
-      const rm = await sample(ctx, { x: k + 1, path: "after-map", gc: true, t0 });
+      const rm = await sample(ctx, { x: k + 1, path: "after-map", gc: true, query: false, t0 });
       parts.push(rm);
       write(rm);
       if (roundOk) await playRound(ctx);
@@ -473,13 +479,13 @@ const soakSwitch = {
         return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null;
       };
       const f = (x, d = 0) => (x == null ? "?" : (x >= 0 ? "+" : "") + x.toFixed(d));
-      const line = `per ${part} (mean of ${pairs.length}): heap ${f(avg("heap_mb"), 2)} MB, nodes ${f(avg("nodes"))}, listeners ${f(avg("js_listeners"))}, GL contexts ${f(avg("gl_contexts"), 1)}, textures ${f(avg("gl_texture"))}, buffers ${f(avg("gl_buffer"))}, programs ${f(avg("gl_program"))}`;
+      const line = `per ${part} (mean of ${pairs.length}): heap ${f(avg("heap_mb"), 2)} MB, nodes ${f(avg("nodes"))}, listeners ${f(avg("js_listeners"))}, lost-but-held WebGL contexts ${f(avg("gl_contexts_lost"), 1)}, live-context textures ${f(avg("gl_texture"))} buffers ${f(avg("gl_buffer"))}`;
       ctx.note(line);
       ctx.log(line);
     }
     const n = rows.length ? rows[rows.length - 1].x : 0;
     ctx.note(`${n} cycles in ${((Date.now() - t0) / 1000).toFixed(0)} s (last cycle ${(cycleMs / 1000).toFixed(0)} s)`);
-    for (const r of rows) ctx.note(`cycle ${r.x}: heap ${r.heap_mb} MB, nodes ${r.nodes}, listeners ${r.js_listeners}, renderer RSS ${r.renderer_rss_mb} MB`);
+    for (const r of rows) ctx.note(`cycle ${r.x}: heap ${r.heap_mb} MB, nodes ${r.nodes}, listeners ${r.js_listeners}, renderer RSS ${r.renderer_rss_mb} MB, WebGL contexts on the heap ${r.q_gl_contexts} (lost ${r.gl_contexts_lost}), canvases ${r.q_canvases}, WebGLBuffers ${r.q_gl_buffers}`);
     if (n < 4) ctx.warn(`only ${n} cycles fit the budget; slopes are rough`);
     // From cycle 1 on: the first cycle loads the map and caches (one-off growth).
     const fails = report(ctx, "soak switch", rows, 1);
@@ -666,7 +672,6 @@ const edgeHitch = {
   name: "edge:hitch",
   optional: true,
   strictHealth: true,
-  allowHealth: /^PAGE NOT RESPONDING/, // our own 2.5 s busy loop
   about: "2.5 s main-thread stall mid-drill: sim speed and HUD timer sane after, no runaway catch-up, frames recover",
   timeoutMs: 4 * 60000,
   async run(ctx) {
