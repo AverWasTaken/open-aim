@@ -41,12 +41,16 @@ const NAV_BYTES = fs.readFileSync(path.join(MODS, 'aim-rounds', 'ascent.nav.bin'
 const NAV_AB = NAV_BYTES.buffer.slice(NAV_BYTES.byteOffset, NAV_BYTES.byteOffset + NAV_BYTES.byteLength);
 const useNav = () => { globalThis.__aimRoundNav = { ascent: NAV_AB }; return I.navFor('ascent'); };
 const DEF_BARS = ASCENT.barriers.filter((b) => b.team === 'defense');
-const SUBST = [11378, 11575]; // "B site front" -> nearest reachable nodes
+// Kept sets of 5 that cover all 21 walkable setups (the B Main push spots: their own test below).
 const SETS = [
-  ['A site default', 'A site front', 'Market', 'B default', 'B back site'],
-  ['A generator', 'A site tree side', 'Market back', 'B boathouse side', 'B site front'],
-  ['A heaven', 'A heaven tree side', 'A rafters back', 'Pizza', 'B workshop'],
+  ['A site default', 'A site front', 'Market', 'B site box', 'B back corner'],
+  ['A generator', 'A site tree side', 'Market back', 'B boat back', 'B front corner'],
+  ['A heaven', 'A heaven tree side', 'A rafters back', 'Pizza', 'B boat side'],
+  ['B boat front', 'B link', 'B market door', 'B CT door', 'B CT deep'],
+  ['B main door', 'A site default', 'Market', 'B site box', 'B link'],
 ];
+const PUSH_SET = ['B main pocket', 'B main alcove', 'B main door', 'B link', 'B CT door'];
+const isPush = (name) => ASCENT.setups.defense.B.some((s) => s.name === name && s.push === true);
 const MODES = [['default', {}], ['game', { movement: 'game' }]];
 const crossesBar = (a, b) => DEF_BARS.some((w) => navlib.segCross(a.x, a.z, b.x, b.z, w.a.x, w.a.z, w.b.x, w.b.z));
 const segDist = (p, w) => {
@@ -128,7 +132,6 @@ function checkRun(res, label) {
     assert.ok(r.maxStep < 0.12, `${tag}: max xz step ${r.maxStep.toFixed(3)} (no teleport)`);
     assert.equal(r.b.replans, 0, `${tag}: re-plans`);
     assert.notEqual(r.b.mode, I.MODE.stuck, `${tag}: stuck`);
-    if (r.name === 'B site front') assert.ok(SUBST.includes(r.b.goal), `${tag}: substitute node`);
     assert.ok((r.maxLip ?? 0) <= 0.3 * TPS, `${tag}: ${r.maxLip} ticks in a row on a drop lip (never parks on a ledge)`);
   }
   const still = res.filter((r) => r.b.mode === I.MODE.hold || r.b.mode === I.MODE.wait);
@@ -140,7 +143,7 @@ const report = () => {
   try { fs.writeFileSync(path.join(os.tmpdir(), 'round-bots-arrivals.json'), JSON.stringify(arrivals, null, 1)); } catch {}
 };
 
-test('real Ascent, 20 s barrier, both movement modes: all 15 setups reached before the drop (<= 1.25 x field + 1 s), on the real floor, inside the defender side, never across a barrier; a save taken mid-air restores to the same run', { skip }, async () => {
+test('real Ascent, 20 s barrier, both movement modes: all 21 walkable setups reached before the drop (<= 1.25 x field + 1 s), on the real floor, inside the defender side, never across a barrier; a save taken mid-air restores to the same run', { skip }, async () => {
   let airChecked = false;
   for (const [mode, extra] of MODES) {
     for (let k = 0; k < SETS.length; k++) {
@@ -222,6 +225,28 @@ test('real Ascent: a setup just beyond def-mid -> the bot waits within 2 m of th
   }
 });
 
+test('real Ascent: the B Main push spots wait within 2 m of a B barrier, never cross it while it is up, stand >= 1.2 m from the others, and reach their spot after the drop (both movement modes)', { skip }, async () => {
+  const g = useNav().g;
+  for (const [mode, extra] of MODES) {
+    const doc = realDoc({ barrierSec: 20, set: PUSH_SET });
+    const sid = Object.fromEntries(Object.entries(doc.rules.round.setupBySpawner).map(([id, s]) => [s.name, id]));
+    let atDrop = null;
+    const { res } = await runReal(doc, { seed: 19, extra, ticks: TPS * 28, each: (q, st, i, phase) => { if (!atDrop && phase !== 'barrier') atDrop = st.actors.map((a) => ({ spawnerId: a.spawnerId, p: { ...a.position }, mode: a.behavior.roundBot.mode })); } });
+    checkRun(res, `push set ${mode}`);
+    for (const name of PUSH_SET.filter(isPush)) {
+      const r = res.find((x) => x.spawnerId === sid[name]), d = atDrop.find((x) => x.spawnerId === sid[name]);
+      assert.ok(r.b.wait >= 0, `${mode} ${name}: has a wait node`);
+      assert.equal(d.mode, I.MODE.wait, `${mode} ${name}: waiting when the barriers drop`);
+      const line = Math.min(...DEF_BARS.map((w) => segDist(d.p, w)));
+      assert.ok(line < 2, `${mode} ${name}: waits ${line.toFixed(2)} m from a defender barrier`);
+      assert.equal(r.b.mode, I.MODE.hold, `${mode} ${name}: reached its spot after the drop`);
+      assert.ok(Math.hypot(r.p.x - g.x[r.b.goal], r.p.z - g.z[r.b.goal]) < 0.05, `${mode} ${name}: on its node`);
+      assert.ok(r.b.arriveT > 20 && r.b.arriveT < 26, `${mode} ${name}: arrived ${r.b.arriveT}`);
+    }
+    for (const a of atDrop) for (const b of atDrop) if (a.spawnerId < b.spawnerId) assert.ok(Math.hypot(a.p.x - b.p.x, a.p.z - b.p.z) >= 1.2, `${mode}: ${a.spawnerId} and ${b.spawnerId} within 1.2 m at the drop`);
+  }
+});
+
 // ---------------------------------------------------------------- B3: retake / defuse on real collision
 // Runner + metrics shared with the sweep (scripts/round-bots-sweep.mjs retakeRun). Bots start on
 // their setups (barrier 1 s); the plant is forced (save -> edit -> restore) with the player hidden
@@ -258,7 +283,7 @@ function checkRetake(m, label, { defused = true } = {}) {
   }
 }
 
-const FAR_SET = ['Market', 'Market back', 'Pizza', 'B default', 'B back site']; // nobody on A
+const FAR_SET = ['Market', 'Market back', 'Pizza', 'B site box', 'B back corner']; // nobody on A
 test('B3 real Ascent: A site plant with no bot on A, player hidden: bots head for the staging points, push together once two are staged, one defuses with the flag held every tick until "Spike defused"; no fire while defusing; arrivals <= 1.35 x field + 1 s', { skip }, async () => {
   const N = useNav();
   const m = await retake({ set: FAR_SET, spike: SW.spotOf(N, SITE_NODE(N, 'A'), 'A') });
@@ -297,7 +322,7 @@ test('B3 real Ascent: spike on a crate (>= 0.8 m above the floor) -> defused fro
 test('B3 real Ascent: spike under the heaven ledge, the candidate is the heaven bot: it drops onto the spike (lands, never hangs in the air) and defuses', { skip }, async () => {
   let airCand = 0;
   const m = await retake({
-    set: ['A heaven', 'Market', 'Pizza', 'B default', 'B back site'], spike: { x: -77.33, y: 5, z: -60.33, site: 'A' }, seed: 23,
+    set: ['A heaven', 'Market', 'Pizza', 'B site box', 'B back corner'], spike: { x: -77.33, y: 5, z: -60.33, site: 'A' }, seed: 23,
     onTick: (s, st) => { for (const a of st.actors) if (a.alive && a.behavior.roundBot.cand === a.id && a.behavior.roundBot.gk === I.GK.spike && a.behavior.roundBot.air === 1) airCand++; },
   });
   checkRetake(m, 'A under heaven');

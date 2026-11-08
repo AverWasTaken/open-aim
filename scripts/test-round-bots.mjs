@@ -312,14 +312,23 @@ const NAV_BYTES = fs.readFileSync(path.join(MODS, 'aim-rounds', 'ascent.nav.bin'
 const NAV_AB = NAV_BYTES.buffer.slice(NAV_BYTES.byteOffset, NAV_BYTES.byteOffset + NAV_BYTES.byteLength);
 const useNav = () => { globalThis.__aimRoundNav = { ascent: NAV_AB }; return I.navFor('ascent'); };
 const DEF_BARS = ASCENT.barriers.filter((b) => b.team === 'defense');
-const SUBST = [11378, 11575]; // "B site front" (node 13874, walk:false) -> nearest reachable nodes, 2.0 m
+// A setup whose node can't be reached (walk:false, not a push spot) holds on the nearest reachable node
+// within 2.5 m. No shipped setup needs that any more, so it is tested with a synthetic setup on Ascent's
+// old "B site front" spot (nearest node 13874, walk:false) -> these reachable nodes, 2.0 m away.
+const SUBST = [11378, 11575];
+const SUBST_SPOT = { name: 'test: unreachable spot', group: 'B', x: -69.1, y: 0.96, z: 23.7 };
+const isPush = (name) => ASCENT.setups.defense.B.some((s) => s.name === name && s.push === true);
 const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
-// Three kept sets of 5 that cover all 15 setups, each mixing sites (forced: setups.groups/splits).
+// Kept sets of 5 that cover all 21 walkable setups (the 2 B Main push spots: their own test below),
+// the first three mixing sites (forced: setups.groups/splits).
 const SETS = [
-  ['A site default', 'A site front', 'Market', 'B default', 'B back site'],
-  ['A generator', 'A site tree side', 'Market back', 'B boathouse side', 'B site front'],
-  ['A heaven', 'A heaven tree side', 'A rafters back', 'Pizza', 'B workshop'],
+  ['A site default', 'A site front', 'Market', 'B site box', 'B back corner'],
+  ['A generator', 'A site tree side', 'Market back', 'B boat back', 'B front corner'],
+  ['A heaven', 'A heaven tree side', 'A rafters back', 'Pizza', 'B boat side'],
+  ['B boat front', 'B link', 'B market door', 'B CT door', 'B CT deep'],
+  ['B main door', 'A site default', 'Market', 'B site box', 'B link'],
 ];
+const PUSH_SET = ['B main pocket', 'B main alcove', 'B main door', 'B link', 'B CT door'];
 const PLANE = { id: 'ground', shape: 'plane', position: { x: 0, y: 0, z: 0 }, rotationY: 0, size: { x: 400, y: 0.4, z: 400 }, color: '#18222b', collidable: true };
 function ascentDoc({ barrierSec = 20, set = null, flat = true, oneSpawn = false } = {}) {
   const doc = buildDoc(ASCENT, { side: 'attack', weapon: 'vandal', barrierSec });
@@ -373,7 +382,7 @@ const setupGoals = (N) => Object.entries(N.g.header.setups).map(([name, s]) => [
 test('B2 fields: equal to navlib dijkstra (incoming edges, walk+drop), and every node descends to the goal (masked and unmasked)', () => {
   const N = useNav(), g = N.g, m = I.maskFor(N, I.barriersOf({ side: 'attack', barriers: ASCENT.barriers }));
   const goals = setupGoals(N).map(([, n]) => n).filter((n) => n !== null).concat(SUBST);
-  assert.equal(goals.length, 16);
+  assert.equal(goals.length, 23); // 21 walkable setups + the 2 substitute nodes
   for (const goal of goals) for (const mask of [null, m]) {
     const F = I.fieldFor(N, goal, mask), ref = navlib.dijkstra(g, [goal], { types: navlib.TYPES.walkDrop, mask, toward: true, rev: N.rev });
     let bad = 0, reached = 0;
@@ -400,7 +409,7 @@ function initBot(name, { phase = 'barrier', spawn = 0, doc = ascentDoc() } = {})
   bots.roundBotInit({ kind: 'roundBot' }, a, ctx);
   return { a, ctx, st: a.behavior.roundBot, r };
 }
-test('B2 init: nav mode for every Ascent setup, no teleport, il state as lN.init, flat finite state; "B site front" holds on a reachable node; bad/missing nav -> fallback', () => {
+test('B2 init: nav mode for every Ascent setup, no teleport, il state as lN.init, flat finite state; push spots wait behind the barriers; an unreachable spot holds on a reachable node; bad/missing nav -> fallback', () => {
   const N = useNav();
   for (const [name, node] of setupGoals(N)) {
     for (let spawn = 0; spawn < 5; spawn++) {
@@ -412,12 +421,30 @@ test('B2 init: nav mode for every Ascent setup, no teleport, il state as lN.init
       assert.equal(st.index, 0); assert.equal(st.speed, 0); assert.equal(st.finished, false);
       for (const k of ['air', 'vy', 'jy', 'jb', 'stuck']) assert.ok(!(k in st), `${k} left to il`);
       for (const [k, v] of Object.entries(st)) assert.ok((typeof v === 'number' && Number.isFinite(v)) || typeof v === 'boolean', `state ${k} = ${v}`);
-      if (node === null) { assert.ok(SUBST.includes(st.goal), `${name}: substitute ${st.goal}`); assert.equal(st.setup, N.g.header.setups[name].node); }
-      else assert.equal(st.goal, node, name);
-      assert.equal(st.wait, -1, `${name}: reachable inside the barriers`);
+      if (isPush(name)) {
+        // past the defender barriers: its own node (reach is checked without barriers), a wait node behind them
+        assert.equal(st.goal, N.g.header.setups[name].node, `${name}: push spot keeps its node`);
+        assert.ok(st.wait >= 0, `${name}: waits behind the barriers`);
+      } else {
+        assert.notEqual(node, null, `${name}: walkable`);
+        assert.equal(st.goal, node, name);
+        assert.equal(st.wait, -1, `${name}: reachable inside the barriers`);
+      }
       assert.equal(st.face, N.g.header.setups[name].face);
       assert.ok(st.goT >= 20 / TPS && st.goT - 20 / TPS <= I.STAGGER_SEC + 1e-12, 'stagger 0-0.6 s');
       assert.ok(Number.isFinite(a.facingYaw));
+    }
+  }
+  // A setup whose node can't be reached holds on a reachable node within 2.5 m (synthetic, see SUBST).
+  {
+    const doc = ascentDoc(), r = doc.rules.round;
+    r.setupBySpawner['round-B-test'] = { ...SUBST_SPOT };
+    for (let spawn = 0; spawn < 5; spawn++) {
+      const { st } = initBot(SUBST_SPOT.name, { spawn, doc });
+      assert.equal(st.nav, 1, 'substitute: nav mode');
+      assert.equal(st.setup, 13874, 'substitute: nearest node of the spot');
+      assert.ok(SUBST.includes(st.goal), `substitute ${st.goal}`);
+      assert.equal(st.wait, -1);
     }
   }
   // Without the nav (or with a broken file) the bot is the v0 fallback: on its setup spot.
@@ -471,7 +498,7 @@ test('R4e groundCtx: a ray hit is returned unchanged; a miss inside a gap narrow
 
 test('R4e update passes il the gap-safe ground (walking il and dead-mid-air il): same ctx fields, ground bridged over a gap with st.gfix counted', () => {
   useNav();
-  const { a, ctx, st } = initBot('B default');
+  const { a, ctx, st } = initBot('B site box');
   const base = (x) => (x >= 0.5 ? 0 : x <= 0.4997 ? 0.0001 : null); // a 0.3 mm gap at x 0.4997..0.5
   ctx.ground = (x, z, y, up, down) => base(x);
   let got = null;
@@ -493,7 +520,7 @@ test('R4e safety net: a real-floor bot under its nav floor stands (no il) and is
   const N = useNav(), g = N.g;
   assert.equal(I.LOW_TICKS, 16);
   for (const noOk of [false, true]) {
-    const { a, ctx, st } = initBot('B default');
+    const { a, ctx, st } = initBot('B site box');
     const k0 = st.cur;
     a.position = { x: g.x[k0], y: g.y[k0], z: g.z[k0] };
     ctx.ground = (x, z, y) => y; // a floor at every query height (never a gap)
@@ -539,7 +566,7 @@ test('R4e safety net: a real-floor bot under its nav floor stands (no il) and is
 
 test('B2 update drives il like lN: [here, target, next] + finish run + index 1 while walking, [here, goal] + stop at the end; brake on combatHold only after the barrier; yield max 0.75 s', () => {
   const N = useNav(), g = N.g;
-  const { a, ctx, st } = initBot('B default');
+  const { a, ctx, st } = initBot('B site box');
   const calls = [];
   const il = (state, opts) => { calls.push({ opts, index: state.index, finished: state.finished, same: state === st }); };
   const step = (phase, over = {}) => { ctx.tick++; ctx.elapsed = ctx.tick / TPS; ctx.round.state.phase = phase; Object.assign(ctx, over); calls.length = 0; bots.roundBotUpdate({}, a, ctx, 1 / TPS, il); return calls[0]; };
@@ -596,7 +623,7 @@ test('B2 update drives il like lN: [here, target, next] + finish run + index 1 w
 });
 
 test('B2 pickTarget never steers across an active barrier: stands ([-1, -1]) when even the line to its own node is cut', () => {
-  const N = useNav(), g = N.g, F = I.fieldFor(N, N.g.header.setups['B default'].node, null);
+  const N = useNav(), g = N.g, F = I.fieldFor(N, N.g.header.setups['B site box'].node, null);
   let c = -1;
   for (let i = 0; i < g.count && c < 0; i++) if (F.viaE[i] >= 0 && g.edgeType[F.viaE[i]] === 0 && g.x[F.via[i]] > g.x[i] + 0.4 && Math.abs(g.z[F.via[i]] - g.z[i]) < 0.01) c = i;
   assert.ok(c >= 0);
@@ -698,14 +725,19 @@ function checkWalk(results, { barrierSec, label }) {
 test('B2 flat Ascent, 20 s barrier: every setup reached before the drop; per tick on the nav floor, inside the seal, never across a barrier, no teleport, turn rate capped; holds its angle', { skip }, () => {
   const g = useNav().g;
   SETS.forEach((set, k) => {
-    const { res } = runFlat(ascentDoc({ barrierSec: 20, set }), 31 + k, TPS * 21);
+    const { s, res } = runFlat(ascentDoc({ barrierSec: 20, set }), 31 + k, TPS * 21);
     checkWalk(res, { barrierSec: 20, label: `flat set ${k}` });
+    // A bot that switched between face and face2 in the last ticks is still turning (540 deg/s): let
+    // 16 more ticks (0.125 s, any face/face2 swing) pass and read its yaw then.
+    let later = null;
+    const yawAfterTurn = (id) => { if (!later) { for (let i = 0; i < 16; i++) s.step(IDLE); later = s.saveState().actors; } return later.find((a) => a.id === id).facingYaw; };
     for (const r of res) {
       assert.equal(r.b.mode, I.MODE.hold, `${r.name} holds`);
       assert.ok(Math.hypot(r.p.x - g.x[r.b.goal], r.p.z - g.z[r.b.goal]) < 0.05, `${r.name} on its node`);
-      const off = Math.min(Math.abs(wrapA(r.yaw - r.b.face)), Math.abs(wrapA(r.yaw - r.b.face2)));
-      assert.ok(off < (8 * Math.PI) / 180, `${r.name}: facing ${off} rad off its angle`);
-      if (r.name === 'B site front') assert.ok(SUBST.includes(r.b.goal));
+      const offAt = (y) => Math.min(Math.abs(wrapA(y - r.b.face)), Math.abs(wrapA(y - r.b.face2)));
+      let off = offAt(r.yaw);
+      if (off >= (8 * Math.PI) / 180) off = offAt(yawAfterTurn(r.id));
+      assert.ok(off < (8 * Math.PI) / 180, `${r.name}: facing ${off} rad off its angle (yaw ${r.yaw.toFixed(3)} face ${r.b.face} face2 ${r.b.face2})`);
     }
   });
 });
@@ -819,6 +851,28 @@ test('B2 flat: a setup beyond def-mid -> the bot waits at the barrier (never cro
   assert.ok(r.b.arriveT > 20 && r.b.arriveT < 26, `arrived ${r.b.arriveT}`);
 });
 
+test('B2 flat: the Ascent B Main push spots wait behind the B barriers (never cross), apart from the other bots, and head out into B Main after the drop', { skip }, () => {
+  const N = useNav(), g = N.g;
+  const doc = ascentDoc({ barrierSec: 20, set: PUSH_SET });
+  const sid = Object.fromEntries(Object.entries(doc.rules.round.setupBySpawner).map(([id, s]) => [s.name, id]));
+  let atDrop = null;
+  const { res } = runFlat(doc, 17, TPS * 30, { each: (q, st, i, phase) => { if (!atDrop && phase !== 'barrier') atDrop = st.actors.map((a) => ({ spawnerId: a.spawnerId, p: { ...a.position }, mode: a.behavior.roundBot.mode })); } });
+  checkWalk(res, { barrierSec: 0, label: 'push set' });
+  for (const name of PUSH_SET.filter(isPush)) {
+    const r = res.find((x) => x.spawnerId === sid[name]), d = atDrop.find((x) => x.spawnerId === sid[name]);
+    assert.ok(r.b.wait >= 0, `${name}: has a wait node`);
+    assert.equal(d.mode, I.MODE.wait, `${name}: waiting when the barriers drop`);
+    const line = Math.min(...DEF_BARS.map((w) => segDist(d.p, w)));
+    assert.ok(line < 2, `${name}: waits ${line.toFixed(2)} m from a defender barrier`);
+    // Flat ground has no walls: after the drop the bot sees the player across the map and stops to shoot,
+    // so here it only has to head out past its barrier; arriving on the spot is checked on the real
+    // collision (test-round-bots-real.mjs).
+    assert.ok(r.p.x > -62.5 && Math.hypot(r.p.x - g.x[r.b.goal], r.p.z - g.z[r.b.goal]) < Math.hypot(d.p.x - g.x[r.b.goal], d.p.z - g.z[r.b.goal]) - 3, `${name}: walked out into B Main after the drop (at ${r.p.x.toFixed(2)},${r.p.z.toFixed(2)})`);
+  }
+  // Waiting push bots don't stand on the others (the B main door bot holds right behind def-b3).
+  for (const a of atDrop) for (const b of atDrop) if (a.spawnerId < b.spawnerId) assert.ok(Math.hypot(a.p.x - b.p.x, a.p.z - b.p.z) >= 1.2, `${a.spawnerId} and ${b.spawnerId} within 1.2 m at the drop`);
+});
+
 // ---------------------------------------------------------------- B3: speed, rotation, retake, defuse (pure + flat)
 // Bots on their Ascent setups (nav mode, fake rng); ctxAt builds the tick's ctx with the snapshot
 // of all of them (every bot sees the same list, as in the sim).
@@ -855,7 +909,7 @@ test('B3 speed: 6.75 m/s (knife) during the barrier phase whatever the gun, the 
 
 test('B3 retake latch: staged in place on site, the rest to staging slots (2 s per bot already there, 1.2 m apart), cover stops, one candidate (lowest spike time), the same in every bot; push and late joiner', () => {
   const N = useNav(), g = N.g;
-  const T = team(['A site default', 'A heaven', 'Market', 'B default', 'B back site']);
+  const T = team(['A site default', 'A heaven', 'Market', 'B site box', 'B back corner']);
   plantAt(T);
   T.tickAll(101);
   const sd = I.spikeData(N, T.r, A_SPIKE), F = sd.field, stg = I.stagingFor(N, T.r).A;
@@ -906,7 +960,7 @@ test('B3 defuse while seen: Default (no enemyRank) and iron..gold keep defusing;
 });
 
 test('B3 retake: player dead -> no staging, everyone pushes at once; time pressure pushes a far bot; one bot alive pushes; defense side -> no retake', () => {
-  const names = ['A site default', 'Market', 'B default', 'B back site', 'B workshop'];
+  const names = ['A site default', 'Market', 'B site box', 'B back corner', 'B boat side'];
   let T = team(names);
   plantAt(T); T.state.playerAlive = false;
   T.tickAll(101);
@@ -935,7 +989,7 @@ test('B3 retake: player dead -> no staging, everyone pushes at once; time pressu
 
 test('B3 candidate: latched while eligible, re-elected when it dies or gets stuck (every bot agrees); electCand rules', () => {
   const N = useNav();
-  const T = team(['A site default', 'A site front', 'Market', 'B default', 'B back site']);
+  const T = team(['A site default', 'A site front', 'Market', 'B site box', 'B back corner']);
   plantAt(T);
   T.tickAll(101);
   const F = I.spikeData(N, T.r, A_SPIKE).field, c1 = T.actors[0].behavior.roundBot.cand;
@@ -966,7 +1020,7 @@ test('B3 candidate: latched while eligible, re-elected when it dies or gets stuc
 
 test('B3 info rotation: a mid bot latches once on an A/B bot\'s sighting of the previous tick and goes after the rank delay (exact ticks) to the nearer staging point of that site; never for iron/bronze, mid sightings, old sightings, the barrier phase or after the plant', () => {
   const N = useNav();
-  const names = ['A site default', 'Market', 'B default', 'Pizza', 'B back site']; // ids 1..5; mid = 2, 4
+  const names = ['A site default', 'Market', 'B site box', 'Pizza', 'B back corner']; // ids 1..5; mid = 2, 4
   const run = (rank, { seer = 1, phase = 'live', at = 500, seenTick = at - 1, extra = null } = {}) => {
     const T = team(names, { rank });
     T.state.phase = phase;

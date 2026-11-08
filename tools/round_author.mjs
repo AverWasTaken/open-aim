@@ -154,8 +154,20 @@ const MAPS = {
         [-72.6, 5.11, -52.3, 'A site tree side'], [-78.8, 8.28, -58.8, 'A heaven'], [-79.5, 8.09, -52.7, 'A heaven tree side'],
         [-83.2, 8.09, -67.3, 'A rafters back']], // 1b59…
       mid: [[-72.6, 3.0, 0.7, 'Market'], [-80.8, 3.0, 4.7, 'Market back'], [-72.6, 3.0, -18.0, 'Pizza']], // 0466…, 54d7…
-      B: [[-82.7, -1.0, 25.3, 'B default'], [-86.6, -0.95, 30.4, 'B back site'], [-76.7, -0.98, 34.1, 'B boathouse side'],
-        [-69.1, 0.96, 23.7, 'B site front'], [-76.3, 1.0, 20.8, 'B workshop']], // 54d7…, 302e…
+      // B: from the user's own marks on the in-game minimap (where players stand on defense around B;
+      // shots/round/user/ascent-B-defender-spots.png in open-aim-hq, registered to the minimap by
+      // tools/README.md "Setup spots from minimap marks"). Site-area rows first: the Defense side's
+      // attackers take their clear spots from the first walkable rows (round-bots atkData).
+      // Flags (5th element): clear: false = attackers never use it as a clear spot; push: true = past
+      // the defender barriers (B Main): the bot waits behind its barrier and walks there at the drop;
+      // faceHint: degrees (sim yaw, atan2(dx, dz)) toward the entrance it holds, when the automatic
+      // facing (the visible node attackers reach first) looks the wrong way.
+      B: [[-76.1, -0.96, 33.4, 'B site box'], [-81.5, 1.0, 20.9, 'B boat back'], [-70.0, 1.0, 20.8, 'B boat front'],
+        [-84.9, 1.0, 18.4, 'B back corner'], [-69.83, -0.83, 27.67, 'B front corner', { faceHint: 125 }], [-76.6, 1.0, 17.4, 'B boat side'],
+        [-75.6, 1.0, 10.0, 'B link', { clear: false }], [-69.35, 1.0, 5.1, 'B market door', { clear: false }],
+        [-87.4, 1.0, 11.6, 'B CT door', { clear: false }], [-95.7, 1.0, 11.4, 'B CT deep', { clear: false }],
+        [-65.5, 1.0, 11.7, 'B main door', { clear: false }],
+        [-57.75, 1.0, 6.35, 'B main pocket', { push: true, clear: false }], [-54.67, 1.0, 15.31, 'B main alcove', { push: true, clear: false }]],
     },
     // Default defender splits [A, mid, B] (seeded pick at round start).
     SPLITS: [[2, 1, 2], [2, 1, 2], [3, 0, 2], [2, 0, 3], [1, 1, 3], [3, 1, 1]],
@@ -853,10 +865,11 @@ const face = spotOf(M.FACING ?? 'Mid Courtyard'), mid = face ? [face[0], face[fa
 const spawns = { attack: spawnRow(M.SPAWNS.attack, mid), defense: spawnRow(M.SPAWNS.defense, mid) };
 const setups = {};
 for (const [group, list] of Object.entries(M.SETUPS)) {
-  setups[group] = list.map(([x, y, z, name]) => {
+  setups[group] = list.map(([x, y, z, name, flags]) => {
     const f = floorAt(x, z, y + 1.2);
     if (f === null || Math.abs(f - y) > 0.6) throw new Error(`setup ${name}: no floor near y=${y} (got ${f})`);
-    return { name, x, y: f, z };
+    // Optional flags, written only when set (push: true, clear: false, faceHint), so other spots stay {name,x,y,z}.
+    return { name, x, y: f, z, ...(flags?.push === true ? { push: true } : {}), ...(flags?.clear === false ? { clear: false } : {}), ...(Number.isFinite(flags?.faceHint) ? { faceHint: flags.faceHint } : {}) };
   });
 }
 const retake = {};
@@ -951,7 +964,7 @@ if (IMAGE) {
   const bad = [];
   for (const p of spawns.attack) if (side(p.x, p.z) !== 'attack') bad.push(`attacker spawn ${p.x},${p.z}: ${side(p.x, p.z)}`);
   for (const p of spawns.defense) if (side(p.x, p.z) !== 'defense') bad.push(`defender spawn ${p.x},${p.z}: ${side(p.x, p.z)}`);
-  for (const list of Object.values(setups)) for (const p of list) if (side(p.x, p.z) !== 'defense') bad.push(`setup ${p.name}: ${side(p.x, p.z)}`);
+  for (const list of Object.values(setups)) for (const p of list) if (!p.push && side(p.x, p.z) !== 'defense') bad.push(`setup ${p.name}: ${side(p.x, p.z)}`);
   for (const s of sites) if (side(s.center.x, s.center.z) !== 'defense') bad.push(`site ${s.id}: ${side(s.center.x, s.center.z)}`);
   if (bad.length) { console.error('picture check failed:\n  ' + bad.join('\n  ')); process.exitCode = 1; }
   else console.log('picture check: spawns, setups and sites are on the right side');

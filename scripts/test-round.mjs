@@ -738,12 +738,13 @@ const defDoc = (attackData = null) => {
   else delete d.rules.round.attackData; // buildDoc adds the map's attack data on the defense side (R3 S3)
   return d;
 };
-// sha256 (first 16 hex) of JSON.stringify(roundPrepare(doc, seed)), seeds 1..20, computed on 1d040e8
-// (before R3): the attack doc of round-ascent-attack-vandal-20, and the defense doc (buildDoc) with
-// rules.round.attack and rules.round.attackData deleted.
+// sha256 (first 16 hex) of JSON.stringify(roundPrepare(doc, seed)), seeds 1..20: the attack doc of
+// round-ascent-attack-vandal-20 (re-frozen on ceo/round-fixes: Ascent's B setups were replaced, so the
+// doc's setup spawners changed; the draws didn't), and the defense doc (buildDoc) with
+// rules.round.attack and rules.round.attackData deleted (computed on 1d040e8, before R3).
 const FROZEN_PREPARE = {
-  attack: ['0a7382415e8b8a27', '326759ed4bd2eb0a', '5a2c67e679348198', 'c030352a142aea93', '4a06ddaff7f86fc0', '5fefcbe7368622cc', '8b24c23f07728e9b', 'ddcd183327472202', '7bba2c922402d7b8', '516b69d97a093379',
-    'efa2ea8a29bc972b', '6c2a5ea308e9b3ea', 'afd8212ffdda8975', 'd158e63b3d4d4271', 'c82104713f0e0502', '634b7ccfbe80a8f3', 'eeb122c2822d1afd', 'd2dbfd1bba6e01fe', '7c4792e5510d9027', '931406121cac768e'],
+  attack: ['c45ccedb7c4af8f6', '1082df266d537116', '5ced0d07c1f71a04', '76f9790f6e55704a', '625b4d7e53f40c10', 'eb0db391c2bf9d72', '5e02c1688a19f98e', 'a00db8f731f5ff06', 'fb260fcc4da0a887', 'da923526fab2af12',
+    '5ea2804e9008f68c', '8941d50de5d48282', 'ca9834b06eb4fe1e', '27a361cb228cc4cc', '066da7430d1d4d0d', 'f8c9475f8c219e65', 'cabb1c3fadefef8c', '827219f257ab5a42', '1957efdf417f9b88', 'd1fc8526a668753a'],
   defense: ['238952ef37dc2568', '44410f22d07cab0c', 'c4ec0a789ce91868', 'f4e2722f52eb70fe', 'f4e2722f52eb70fe', '7c3bbebd448b44af', 'c4ec0a789ce91868', '44410f22d07cab0c', '44410f22d07cab0c', '7c3bbebd448b44af',
     'f4e2722f52eb70fe', '7c3bbebd448b44af', '44410f22d07cab0c', '238952ef37dc2568', '7c3bbebd448b44af', '7c3bbebd448b44af', 'f4e2722f52eb70fe', '238952ef37dc2568', 'f4e2722f52eb70fe', '44410f22d07cab0c'],
 };
