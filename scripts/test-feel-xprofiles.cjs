@@ -154,3 +154,15 @@ test('startup prompt skipped for new players (welcome banner offers the import)'
   assert.equal(make({ 'al-workshop-runs-v1': 'garbage' })(), true);
   assert.match(src, /if \(!welcomeOffersImport\(\)\) \{ sessionStorage\.setItem\(SHOWN, "1"\); open\(\); \}/);
 });
+
+test('import prompt rule still matches ux-welcome.js (800 px, key, run keys)', () => {
+  const fs = require('fs'), path = require('path');
+  const ux = fs.readFileSync(path.join(__dirname, '..', 'app', 'ux-welcome.js'), 'utf-8');
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'app', 'valorant-import-ui.js'), 'utf-8');
+  assert.match(ux, /const COMPACT_MAX_H = 800;/);
+  assert.match(ux, /const KEY = "ux-welcome-v1";/);
+  assert.match(ux, /const RUN_KEYS = \["al-workshop-runs-v1", "al-pw-runs-v1"\];/);
+  assert.match(ui, /innerHeight \|\| 0\) > 800/);
+  assert.match(ui, /"ux-welcome-v1"/);
+  assert.match(ui, /runs\("al-workshop-runs-v1"\) && !runs\("al-pw-runs-v1"\)/);
+});
