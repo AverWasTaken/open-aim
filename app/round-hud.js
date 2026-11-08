@@ -1,5 +1,5 @@
 // Round mode HUD: timers, alive counts, spike status, hints, plant / defuse progress, end banner
-// and the spike beeps (WebAudio, synthesised; no sound files). Reads window.__aimRound, which the
+// with a stats line (also put in ux's result card container), and the spike beeps (WebAudio, synthesised; no sound files). Reads window.__aimRound, which the
 // patched play page sets after every sim step of a round run (tools/round_patch.py); does nothing
 // in normal drills (window.__aimRoundOn is false).
 (() => {
@@ -46,6 +46,10 @@
 .arh-banner.win b { color: var(--es-green, #4ade80); }
 .arh-banner.loss b { color: var(--es-red, #ff4655); }
 .arh-banner span { display: block; margin-top: 8px; font-size: 15px; letter-spacing: .12em; text-transform: uppercase; color: var(--es-soft, #d6d9df); }
+.arh-banner .arh-stats { margin-top: 8px; font-size: 13px; letter-spacing: .04em; color: var(--es-muted, #9aa1ae); font-variant-numeric: tabular-nums; }
+.arh-banner .arh-stats[hidden] { display: none; }
+/* The same stats line in ux's result card container (ux-result.js, div.ux-result-extra). */
+.ux-result-extra .arh-result-stats { font-size: 13px; letter-spacing: .04em; color: var(--es-soft, #d6d9df); font-variant-numeric: tabular-nums; }
 .arh-dead { position: absolute; left: 50%; top: 40%; transform: translateX(-50%); font-size: 18px; letter-spacing: .12em; text-transform: uppercase; color: var(--es-red-2, #ff6b77); text-shadow: 0 1px 4px #000; white-space: nowrap; }
 /* While a round scene is loaded (html.aim-round-on, set below from window.__aimRoundOn): */
 /* the game's own score / hit-rate chips sit under the round HUD's top bar, so hide them; */
@@ -67,12 +71,12 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
   root.hidden = true;
   root.innerHTML = `<div class="arh-top"><div class="arh-team us"><b>YOU</b><div class="arh-pips" data-us></div></div><div class="arh-clock"><small></small><span></span></div><div class="arh-team them"><b>ENEMY</b><div class="arh-pips" data-them></div></div></div>
 <div class="arh-spike"></div><div class="arh-bar" hidden><small></small><div class="arh-track"><div class="arh-fill"></div><div class="arh-mark" hidden></div></div></div>
-<div class="arh-hint" hidden></div><div class="arh-dead" hidden>You died. Spike planted.</div><div class="arh-flash" hidden></div><div class="arh-banner" hidden><b></b><span></span></div>`;
+<div class="arh-hint" hidden></div><div class="arh-dead" hidden>You died. Spike planted.</div><div class="arh-flash" hidden></div><div class="arh-banner" hidden><b></b><span></span><div class="arh-stats" hidden></div></div>`;
   const $ = (s) => root.querySelector(s);
   const el = {
     us: $("[data-us]"), them: $("[data-them]"), clock: $(".arh-clock"), clockLabel: $(".arh-clock small"), clockText: $(".arh-clock span"),
     spike: $(".arh-spike"), bar: $(".arh-bar"), barLabel: $(".arh-bar small"), fill: $(".arh-fill"), mark: $(".arh-mark"),
-    hint: $(".arh-hint"), dead: $(".arh-dead"), flash: $(".arh-flash"), banner: $(".arh-banner"), bannerTitle: $(".arh-banner b"), bannerText: $(".arh-banner span"),
+    hint: $(".arh-hint"), dead: $(".arh-dead"), flash: $(".arh-flash"), banner: $(".arh-banner"), bannerTitle: $(".arh-banner b"), bannerText: $(".arh-banner span"), stats: $(".arh-stats"),
   };
   // The stylesheet goes in right away (not only when a round runs): its html.aim-round-on rules
   // restyle the game's brief card before the round starts.
@@ -95,6 +99,8 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
   // before the brief card shows, while window.__aimRound is still null, so the property is wrapped
   // here to switch the class at the same moment. The poll below is a backup.
   const setOnClass = (on) => { try { document.documentElement.classList.toggle("aim-round-on", !!on); } catch {} };
+  // A round starting (off -> on) also resets the round stats below.
+  let roundStart = () => {};
   try {
     const d = Object.getOwnPropertyDescriptor(window, "__aimRoundOn");
     if (!d || d.configurable) {
@@ -102,7 +108,12 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
       Object.defineProperty(window, "__aimRoundOn", {
         configurable: true, enumerable: true,
         get() { return d?.get ? d.get.call(window) : value; },
-        set(v) { if (d?.set) d.set.call(window, v); else value = v; setOnClass(v); },
+        set(v) {
+          const was = !!(d?.get ? d.get.call(window) : value);
+          if (d?.set) d.set.call(window, v); else value = v;
+          setOnClass(v);
+          if (v && !was) roundStart();
+        },
       });
     }
   } catch {}
@@ -173,6 +184,73 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
       c.osc.stop(t + 0.08); c.lfo.stop(t + 0.08);
     } catch {}
   }
+
+  // ---------- round stats (end banner and result card) ----------
+  // Headshot % = head hits / hits on enemies, from the game's shot events: main.js makes the play
+  // page call window.__aimShot(event) for every player shot. feel's shooting-error.js owns that
+  // hook, so this chains onto it (the previous hook runs first, always) at round start and on each
+  // frame if someone replaced it. A shotgun shot counts each pellet. The player can only fire while
+  // live / planted and on the tick that ends the round (round-core roundNoFire), and the page hands
+  // over a step's shots after window.__aimRound already shows that step, so "ended" counts too: it is
+  // the shot that won the round. The counts reset when a round starts and during the barrier phase.
+  let hits = 0, heads = 0, statsLine = "";
+  const counted = new WeakSet(); // an event that reaches us twice (chained twice) counts once
+  function countShot(e) {
+    if (!e || typeof e !== "object" || counted.has(e) || !window.__aimRoundOn) return;
+    counted.add(e);
+    const ph = window.__aimRound?.phase;
+    if (ph !== "live" && ph !== "planted" && ph !== "ended") return;
+    const list = Array.isArray(e.pellets) && e.pellets.length ? e.pellets : [e];
+    for (const p of list) {
+      if (!p || p.hitActorId === null || p.hitActorId === undefined) continue;
+      hits++;
+      if (p.hitPart === "head") heads++;
+    }
+  }
+  function hookShots() {
+    const prev = window.__aimShot;
+    if (typeof prev === "function" && prev.__aimRoundStats) return;
+    const hook = function (e) {
+      try { if (typeof prev === "function") return prev.apply(this, arguments); }
+      finally { try { countShot(e); } catch {} }
+    };
+    hook.__aimRoundStats = true;
+    window.__aimShot = hook;
+  }
+  roundStart = () => { hits = 0; heads = 0; statsLine = ""; try { hookShots(); } catch {} };
+  // "Kills 3 · HS 33% · Planted at 0:58". Attack: "Planted at <round clock>", "No plant" (time ran
+  // out), "Enemy defused" (a bot defused it). Defense: "Enemy planted at <round clock>", "Defused
+  // with 0:12 left" (spike time left). A part whose number is missing is left out (no hits: no HS).
+  function buildStats(r) {
+    const parts = [];
+    if (Number.isFinite(r.kills)) parts.push(`Kills ${r.kills}`);
+    if (hits > 0) parts.push(`HS ${Math.round((heads / hits) * 100)}%`);
+    const at = Number.isFinite(r.plantClock) ? fmt(r.plantClock) : "";
+    if (r.side === "defense") {
+      if (r.reason === "defused" && Number.isFinite(r.defuseLeft)) parts.push(`Defused with ${fmt(r.defuseLeft)} left`);
+      else if (at) parts.push(`Enemy planted at ${at}`);
+    } else if (r.reason === "defused") parts.push("Enemy defused");
+    else if (at) parts.push(`Planted at ${at}`);
+    else if (r.reason === "timeout") parts.push("No plant");
+    return parts.join(" · ");
+  }
+  // ux's result card container (ux-result.js: window "ux-result-extra" with detail.el, or
+  // window.__aimUxResult.extra()). Filled only on a round's result card (its text says "Round won" /
+  // "Round lost") with the line saved at the round end; one row, text only, nothing focusable.
+  function fillResult(box) {
+    if (!statsLine) return false;
+    box = box || window.__aimUxResult?.extra?.();
+    const card = document.querySelector?.(".al-result-overlay");
+    if (!box || !card || !/\bRound (won|lost)\b/i.test(card.textContent || "")) return false;
+    let row = null;
+    for (const c of box.children || []) if (c.classList?.contains("arh-result-stats")) row = c;
+    if (!row) { row = document.createElement("div"); row.classList.add("arh-result-stats"); box.appendChild(row); }
+    row.textContent = statsLine;
+    return true;
+  }
+  window.addEventListener?.("ux-result-extra", (e) => { try { fillResult(e?.detail?.el); } catch {} });
+  // For the in-app check (shots/round/r5-check.mjs): the counts and the saved line.
+  window.__aimRoundStats = { get hits() { return hits; }, get heads() { return heads; }, get line() { return statsLine; } };
 
   // ---------- state ----------
   let last = null, nextBeep = 0, nextDefuseBeep = 0, endShownFor = null, seenTick = -1, seenAt = 0;
@@ -261,6 +339,12 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
       el.banner.classList.toggle("loss", !r.win);
       el.bannerTitle.textContent = r.win ? "ROUND WON" : "ROUND LOST";
       el.bannerText.textContent = text(r);
+      statsLine = buildStats(r);
+      el.stats.textContent = statsLine;
+      el.stats.hidden = !statsLine;
+    } else {
+      statsLine = ""; // a new round is on: the old line is gone
+      if (r.phase === "barrier") { hits = 0; heads = 0; }
     }
 
     // Sounds on changes.
@@ -297,7 +381,12 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
   function frame() {
     raf = 0;
     const r = window.__aimRound;
-    if (!window.__aimRoundOn || !r || r.done) { root.hidden = true; last = null; flashAt = null; bannerAt = 0; cueStop(); return; }
+    if (!window.__aimRoundOn || !r || r.done) {
+      // The run is over (done): its result card may already be up.
+      if (r?.done && last) { try { fillResult(); } catch {} }
+      root.hidden = true; last = null; flashAt = null; bannerAt = 0; cueStop(); return;
+    }
+    try { hookShots(); } catch {}
     mount();
     root.hidden = false;
     // Paused (pointer unlocked): the sim stops, so the view stops changing; keep showing it.

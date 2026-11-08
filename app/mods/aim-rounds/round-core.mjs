@@ -60,7 +60,7 @@
 
 export const ROUND_DEFAULTS = {
   barrierSec: 20, roundSec: 100, plantSec: 4, spikeSec: 45, defuseSec: 7, defuseCheckpointSec: 3.5,
-  endHoldSec: 3, defuseRadius: 1.6, defuseFacingDeg: 60, pickupRadius: 1.5, holdMaxSpeed: 3.2, barrierPad: 0.4,
+  endHoldSec: 4, defuseRadius: 1.6, defuseFacingDeg: 60, pickupRadius: 1.5, holdMaxSpeed: 3.2, barrierPad: 0.4,
   blastRadius: 35,
 };
 
@@ -157,7 +157,7 @@ export function roundCreate(cfg, tickSec) {
   const side = cfg?.side === 'defense' ? 'defense' : 'attack';
   return {
     phase: 'barrier', tick: 0, liveTick: 0, plantTick: -1, endTick: -1, done: false,
-    side, playerAlive: true, enemiesDead: 0,
+    side, playerAlive: true, enemiesDead: 0, kills: 0,
     spike: { carrier: side === 'attack' ? 'player' : null, dropped: null, planted: null },
     plant: 0, defuse: 0, checkpoint: false, holding: null, zone: null, near: false, defuser: null,
     botPlant: 0, carrierAt: null, plantCue: null, useHeld: false,
@@ -317,7 +317,10 @@ export function roundStep(cfg, state, io) {
   }
   const p = io.player, hold = io.hold ?? {};
   state.useHeld = !!hold.use;
-  state.enemiesDead += Math.max(0, io.kills | 0);
+  // io.kills = this tick's kill events before the blast (the blast kills come after roundStep
+  // and add to enemiesDead only), so state.kills is the player's own kills.
+  const k = Math.max(0, io.kills | 0);
+  state.enemiesDead += k; state.kills = (state.kills | 0) + k;
   const enemyCount = Math.max(0, num(cfg?.enemyCount, 5));
   const enemiesAlive = Math.max(0, enemyCount - state.enemiesDead);
   const alive = (p.health ?? 1) > 0;
@@ -443,6 +446,9 @@ function siteIds(cfg) {
 }
 
 // What the HUD needs (snapshot().round, copied to window.__aimRound every tick).
+// Round stats (end banner / result card): kills = the player's kills; plantClock = the round clock
+// when the spike went down (s, what the HUD clock showed: roundSec - time since the barriers dropped),
+// null before any plant; defuseLeft = spike time left when a defuse ended the round (s), else null.
 export function roundView(cfg, state, tickSec) {
   if (!state) return null;
   const t = state.tick, ts = tickSec, sec = (n) => Math.max(0, n * ts);
@@ -467,5 +473,8 @@ export function roundView(cfg, state, tickSec) {
     enemiesAlive: Math.max(0, enemyCount - state.enemiesDead), enemyCount, playerAlive: state.playerAlive,
     winner: state.winner, reason: state.reason, win: state.winner ? state.winner === state.side : null,
     done: state.done, tick: t,
+    kills: state.kills | 0,
+    plantClock: state.plantTick >= 0 ? sec(T(cfg, 'roundSec', ts) - (state.plantTick - state.liveTick)) : null,
+    defuseLeft: state.reason === 'defused' && state.plantTick >= 0 ? sec(T(cfg, 'spikeSec', ts) - (state.endTick - state.plantTick)) : null,
   };
 }
