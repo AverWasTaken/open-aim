@@ -584,8 +584,17 @@ function drillStep(d) {
       const s = await launchAndStart(ctx, d, via, { loadTimeout: 180000 });
       ctx.note(`via ${via}, loaded in ${(s.loadMs / 1000).toFixed(1)} s, start tries ${s.tries}`);
       ctx.data("loadMs", s.loadMs);
-      const r = await shootFor(ctx, { seconds: d.seconds || 10, offY: d.offY ?? 0 });
+      let r = await shootFor(ctx, { seconds: d.seconds || 10, offY: d.offY ?? 0 });
       ctx.note(`kills ${r.kills}, hits ${r.hits}/${r.shots} shots in ${r.secs} s`);
+      if (!d.noKillOk && r.kills === 0 && r.ticks && !r.hookFail) {
+        // The aim helper is not perfect against fast bots (the 7 s Sheriff scenario: 0-5 kills
+        // per try): one more go from a fresh launch before calling it a failure.
+        ctx.note("no kill on the first try; launched once more");
+        await exitDrill(ctx);
+        await launchAndStart(ctx, d, via, { loadTimeout: 180000 });
+        r = await shootFor(ctx, { seconds: d.seconds || 10, offY: d.offY ?? 0 });
+        ctx.note(`second try: kills ${r.kills}, hits ${r.hits}/${r.shots} shots in ${r.secs} s`);
+      }
       if (r.hookFail) throw new Error(`could not hook ${r.hookFail}`);
       if (!r.ticks) throw new Error("no sim frames seen (__aimTick never called)");
       if (d.noKillOk) {
