@@ -19,6 +19,7 @@ Run them from the repository root with Python 3.
 | `spot_scores.mjs` | Writes `app/mods/aim-ranks/spot-scores.json`: an off-angle score per spot of every shipped drill with a random spot pool, from the game's own bot-order planner. Runs against a test copy of the app (rerun steps below). |
 | `spotvary_patch.py` | Spot variation: in Human-like bot mode the static bots of the shipped pre-aim drills stand on one of their checked alternative positions (`spot_alts.mjs`), a new one each round (from the round seed; saved in the replay meta as `spotPos`). Edits the mods `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details in the script's docstring. |
 | `spot_alts.mjs` | Writes `app/mods/aim-ranks/spot-alts.json`: up to 5 checked alternative positions per static spot of every shipped pre-aim drill, and a sideways movement lane per position (ground, ledges, walls, sight lines and spacing tested with the game's own collision and sight test). `--check` re-tests the stored file. Runs against a test copy of the app (rerun steps below). |
+| `peek_cover.mjs` | Cover starts for the six `*-peekers` map drills: each pool spot gets a cover point next to it, hidden from where the player comes from (game planner route, saved in `tools/data/peek-viewpoints.json`); the bot starts there and walks a `path` loop cover -> spot -> jiggles -> cover. Rewrites the scenario files and their flat spot-score entries; `--check` fails when they are stale. Node only (runs on the real map collision). |
 | `peekmove_patch.py` | Pre-aim bots react and move: with Human-like bots and an explicit enemy rank, the static shooting bots of the shipped pre-aim drills walk ADAD along their checked lane once they see you, by rank (`aimPeekRanks` next to `aimBotRanks`; saved in the replay meta as `peekMove` and `spotLane`). Edits the mods `BiMsX6Xn.js`, `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details and the rank table in the script's docstring. |
 | `round_patch.py` | Round mode: the round controller in the sim (barrier phase, spike plant / defuse, outcomes, save/restore), the play page side (held keys, no replay, round end, result text, barrier and spike visuals) and `window.__aimLaunchScene` for the lobby panel. Edits the mods `CnrSARj_.js`, `OkAdunfX.js`, `ChJ6FlD4.js` and `Hwnlm6zD.js` (both copies). Only acts on scenes with `rules.round`. Details in the script's docstring. |
 | `round_bots_patch.py` | Round mode bots: the `roundBot` behaviour hook (logic in `app/mods/aim-rounds/round-bots.mjs`, whose header is the contract). Adds `roundBot` to the bot behaviours (its update also gets the game's mover `il`), to the movers list `dA` and to the sim's ground movers; the behaviour ctx gets `round:{cfg,state,bots}` in round runs only (a start-of-tick bot list) and the round tick gets `io.bots` (bot defuse); the shooter neither fires nor stops-to-shoot while `actor.roundDefusing===1` and re-rolls its reaction time while `actor.roundHoldFire===1` (barrier phase); the scene validator accepts the kind. Edits the mods `BiMsX6Xn.js`, `CnrSARj_.js` and `D_iGclxB.js` (both copies). `--print-pairs` dumps its (old, new) pairs for the A/B parity test (`scripts/test-round-bots-parity.mjs`). Details in the script's docstring. |
@@ -148,6 +149,24 @@ node tools/spot_alts.mjs --cdp 9351 --check
 the authored spot (cyan). The same file holds the lanes the moving bots use (`tools/peekmove_patch.py`). `--only
 <code>,<code>` redoes some drills and keeps the rest. A rebuild never changes old replays: they keep
 the positions and lanes they were recorded with (`spotPos`, `spotLane` in the replay meta).
+
+## Peekers cover points (`*-peekers` drills)
+
+Bots of the six `scenarios/*-peekers.json` drills start on a cover point next to their spot and peek
+out (`tools/peek_cover.mjs`, header has the rules). Input: `tools/data/peek-viewpoints.json` = the game's
+bot-order planner run once on the ORIGINAL drills (route + where each spot is first seen) plus the
+original pool spawners and actors. These drills get flat 0.5 spot scores (`spot_scores.mjs` keeps them
+flat), since their spawners now sit on hidden cover points. After changing the tool or its rules:
+
+```bash
+node tools/peek_cover.mjs          # rewrites the 6 scenario files + their spot-scores.json entries
+node tools/peek_cover.mjs --check  # what scripts/test-training-peekers.mjs (npm run test:peekers) checks
+```
+
+The first run decodes the map collision (CPU heavy, cached in the OS temp folder). To redo the
+planner data (only needed if a drill's spots or player spawn change): restore the original drills,
+run `node tools/peek_planner.mjs <cdpPort> scenarios > planner.json` against a test copy of the app,
+then `node tools/peek_cover.mjs --init planner.json`.
 
 ## Round mode data
 

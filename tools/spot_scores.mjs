@@ -40,6 +40,9 @@ const CDP = Number(arg("--cdp", "9351"));
 const PLOTS = arg("--plots", null);
 const ONLY = arg("--only", null)?.split(",") ?? null;
 const OUT = path.join(ROOT, "app", "mods", "aim-ranks", "spot-scores.json");
+// The *-peekers drills (tools/peek_cover.mjs) start their bots on hidden cover points, not on the
+// spots, so the planner can't score them: every spot gets a flat 0.5 (no spot bias for them).
+const FLAT = new Set(Object.values(JSON.parse(fs.readFileSync(path.join(ROOT, "tools", "data", "peek-viewpoints.json"), "utf-8")).drills).map((d) => d.shareCode));
 
 // Same text as in OkAdunfX.js.
 const KEY_SRC = 'function aimSpotKey(d){const p=d?.rules?.spawnerPick;if(!p||!Array.isArray(p.pool)||!Array.isArray(d.spawners))return null;const c=x=>Array.isArray(x)?x.map(c):x&&typeof x=="object"?Object.fromEntries(Object.keys(x).sort().map(k=>[k,c(x[k])])):x,s=JSON.stringify(c([d.environment?.map??null,d.rules.weapon??null,d.playerSpawn??null,p,d.spawners,d.blocks??[],d.actors??[]]));let e=2166136261,h=2646966556;for(let i=0;i<s.length;i++){const k=s.charCodeAt(i);e=Math.imul(e^k,16777619),h=Math.imul(h^k,2246822507)}return(e>>>0).toString(16).padStart(8,"0")+(h>>>0).toString(16).padStart(8,"0")}';
@@ -138,6 +141,12 @@ if (PLOTS) fs.mkdirSync(PLOTS, { recursive: true });
 for (const { code, name, doc } of drills()) {
   if (ONLY && !ONLY.includes(code)) continue;
   const key = aimSpotKey(doc);
+  if (FLAT.has(code)) {
+    const ids = [...new Set([...(scenes[key]?.ids ?? []), doc.meta?.id].filter((x) => typeof x === "string"))];
+    scenes[key] = { codes: [...(scenes[key]?.codes ?? []), code], ids, name: scenes[key]?.name ?? name, map: doc.environment?.map ?? null, scores: Object.fromEntries(doc.rules.spawnerPick.pool.map((id) => [id, 0.5])) };
+    console.log(`${code} ${key} flat 0.5 (peekers cover drill)  ${name}`);
+    continue;
+  }
   const value = await cdp.evaluate(`(${PAGE_SRC})(${JSON.stringify(doc)},${JSON.stringify({ plot: !!PLOTS, title: name })})`);
   if (!value) { console.log(`skip ${code} ${name}: no planner route`); continue; }
   const { p, png, skipped } = JSON.parse(value);
