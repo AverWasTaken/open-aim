@@ -51,14 +51,13 @@
 .tp-sec .tp-delta.is-good { color: var(--tp-up); }
 .tp-sec .tp-delta.is-bad { color: var(--tp-down); }
 
-/* Aim habits under a card's metrics (aim-training-analytics-v1). A row whose label and values
-   don't fit on one line puts the values on a second line, right-aligned. */
+/* Aim habits under a card's metrics (aim-training-analytics-v1). The game's tier word sits on a
+   second line under the label, so value + change keep the same column as the metric rows. */
 .tp-sec .tp-habits { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--es-line); }
 .tp-sec .tp-habits > .tp-cap { margin-bottom: 4px; }
-.tp-sec .tp-habit { flex-wrap: wrap; row-gap: 0; }
-.tp-sec .tp-habit dd { margin-left: auto; }
+.tp-sec .tp-habit dt { min-width: 0; }
 .tp-sec .tp-tier {
-  font-size: 11px; font-weight: 700; font-stretch: 75%; letter-spacing: 0.06em; text-transform: uppercase; color: var(--es-soft);
+  display: block; margin-top: 2px; font-size: 11px; font-weight: 700; font-stretch: 75%; letter-spacing: 0.06em; text-transform: uppercase; color: var(--es-soft);
 }
 .tp-sec .tp-tier:is([data-tier="elite"], [data-tier="great"]) { color: var(--tp-up); }
 .tp-sec .tp-tier[data-tier="weak"] { color: var(--es-warn, #ffd166); }

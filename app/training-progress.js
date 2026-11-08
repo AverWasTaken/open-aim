@@ -136,7 +136,8 @@
   }
 
   // "Aim habits" rows under a skill card's metrics: each habit with enough samples of its own in
-  // the last 14 days (core.CARD_MIN_N), with the game's tier word where the game has one.
+  // the last 14 days (core.CARD_MIN_N), with the game's tier word where the game has one (under
+  // the label, so the value and change stay in the same column as the rows above).
   function habitsHtml(s) {
     if (!s.recent.runs) return "";
     const shown = core.HABITS.filter((h) => typeof s.recent[h.id] === "number");
@@ -145,7 +146,7 @@
       const v = s.recent[h.id];
       const tier = core.habitTier(h.id, v);
       const tag = tier ? `<span class="tp-tier" data-tier="${tier}">${esc(core.TIER_WORDS[tier])}</span>` : "";
-      return `<div class="tp-stat tp-habit" title="${esc(h.tip)}"><dt>${esc(h.label)}</dt><dd><b>${esc(core.fmt(h.id, v))}</b>${tag}${deltaHtml(h.id, s.delta[h.id])}</dd></div>`;
+      return `<div class="tp-stat tp-habit" title="${esc(h.tip)}"><dt>${esc(h.label)}${tag}</dt><dd><b>${esc(core.fmt(h.id, v))}</b>${deltaHtml(h.id, s.delta[h.id])}</dd></div>`;
     }).join("");
     return `<div class="tp-habits"><span class="tp-cap">Aim habits</span><dl class="tp-stats">${rows}</dl></div>`;
   }
