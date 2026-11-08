@@ -80,6 +80,7 @@ test('round panel: Start launches inside the click when the nav is cached or kno
   ctx.document.body.children.at(-1).querySelector('.aim-round-start').click();
   assert.equal(launches.length, 1, 'synchronous launch');
   assert.equal(launches[0].shareCode, 'round-ascent-attack-vandal-20');
+  assert.equal(launches[0].mapId, 'ascent', 'mapId set so the loader waits for the map before preparing (first-launch AbortError)');
   // Known missing (404): synchronous too, no new fetch on Start.
   launches = [];
   let fetches = 0;
@@ -127,6 +128,7 @@ test('round panel: Ascent and Corrode in the map row; picking Corrode starts rou
   assert.equal(launches.length, 1);
   assert.equal(launches[0].shareCode, 'round-rook-attack-vandal-20');
   assert.equal(launches[0].name, 'Round · Corrode');
+  assert.equal(launches[0].mapId, 'rook');
   assert.equal(JSON.parse(ctx.localStorage.getItem('aim-round-setup')).map, 'rook');
   ctx.__aimRoundPanel.open();
   shade = ctx.document.body.children.at(-1);
