@@ -80,7 +80,8 @@ function fakeDoc() {
       for (; n; n = n.parent) if (n === this) return true;
       return false;
     }
-    querySelector() { return null; }
+    // Tests can hang child stand-ins on .qs (selector -> element).
+    querySelector(sel) { return (this.qs && this.qs[sel]) || null; }
   }
   const cls = new Set();
   const doc = {
@@ -196,6 +197,15 @@ test('decide: throwing or missing storage means no banner', () => {
   const s = store();
   s.setItem = () => { throw new Error('quota'); };
   assert.equal(W.decide(s).show, false);
+});
+
+test('decide: "done" reads one key and nothing else (runs on every page change)', () => {
+  const s = store({ [W.KEY]: 'done', 'al-workshop-runs-v1': RUNS, 'al-sensitivity-v1': '0.4' });
+  const reads = [];
+  const get = s.getItem;
+  s.getItem = (k) => { reads.push(k); return get(k); };
+  assert.equal(W.decide(s).show, false);
+  assert.deepEqual(reads, [W.KEY]);
 });
 
 test('decide: Hide ("done") hides for good', () => {
@@ -377,10 +387,20 @@ test('sync: step change swaps classes only (no new markup); height change redraw
   const win = fakeWin(s);
   const ctl = W.createController(win, doc);
   ctl.sync([]); win.flush();
+  assert.match(ctl.banner.innerHTML, /class="ux-welcome-step is-next" data-ux-welcome-step="1"/);
+  // Stand-ins for the three step items the markup created.
+  const lis = [1, 2, 3].map(() => new doc.El('li'));
+  lis[0]._className = 'ux-welcome-step is-next';
+  lis[1]._className = lis[2]._className = 'ux-welcome-step';
+  ctl.banner.qs = Object.fromEntries(lis.map((li, i) => [`[data-ux-welcome-step="${i + 1}"]`, li]));
   doc.writes.length = 0;
   s.data.set('al-sensitivity-v1', '0.3');
   ctl.sync([]); win.flush();
   assert.ok(!doc.writes.some((w) => w[0] === 'innerHTML'), 'no innerHTML on a step change');
+  assert.deepEqual(lis.map((li) => li.className), ['ux-welcome-step is-done', 'ux-welcome-step is-next', 'ux-welcome-step']);
+  s.data.set(W.STEPS_KEY, '["crosshair"]');
+  ctl.sync([]); win.flush();
+  assert.deepEqual(lis.map((li) => li.className), ['ux-welcome-step is-done', 'ux-welcome-step is-done', 'ux-welcome-step is-next']);
   win.innerHeight = 720;
   ctl.sync([]); win.flush();
   assert.ok(doc.writes.some((w) => w[0] === 'innerHTML'));
@@ -430,6 +450,8 @@ test('CSS: every rule scoped, tokens only, makes room at <= 800px tall', () => {
     assert.match(line, /^html\[data-aim-local\]/, line);
   }
   assert.match(W.CSS, /@media \(max-height:800px\)\{\s*html\[data-aim-local\]\.ux-welcome-on:not\(#es\) body \.al-wk-hero-copy>h1\{display:none!important\}/);
+  // Never the whole hero copy: it holds the featured drill and its Play button (step 3).
+  assert.ok(!/\.al-wk-hero-copy\{display:none/.test(W.CSS));
 });
 
 // ---- wiring ----

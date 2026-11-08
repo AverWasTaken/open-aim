@@ -6,15 +6,18 @@
 //
 // Order (plan W3-H R1.9):
 //   1. Lobby ready, first-run import modal closed (.valorant-import-shade .es-tool-x, no reload).
-//      The profile should be fresh; if ux-welcome-v1 is not "shown" the script resets it and reloads.
-//   2. At 1280x720 and 1920x1080: banner right after the hero, 3 steps, compact at <= 800 tall;
+//      The profile should be fresh (new player). If it is not (hp keeps /tmp/openaim-profile-<port>),
+//      the script clears the welcome, sens, crosshair and run keys of this TEST profile and reloads.
+//   2. At 1280x720, 1280x1024, 1440x900 and 1920x1080: banner right after the hero, 3 steps,
+//      compact at <= 800 tall;
 //      first drill title bottom vs bottom bar top with the banner and with ux-welcome-v1="done";
 //      banner height.
 //   3. Sens tools opens .es-tool-shade (banner stays), close it; step 1 ticked.
 //   4. Crosshair settings -> Settings page, crosshair tab selected.
 //   5. Back to VALORANT Training: banner back, step 2 ticked.
 //   6. Play featured drill -> rank picker (.aim-pick-shade) or loading (.al-wkload) within 5 s
-//      (skipped with --no-play); the page is reloaded afterwards if a drill started.
+//      (skipped with --no-play); the page is reloaded afterwards if a drill started. Runs before
+//      Hide because it needs the banner (R1.9 lists it last).
 //   7. Hide -> gone; reload -> still gone.
 // Exit 0 = all passed, 1 = a check failed, 2 = could not run.
 import fs from "node:fs";
@@ -143,6 +146,7 @@ const MEASURE = `(() => {
     barTop: bar ? Math.round(bar.getBoundingClientRect().top) : null,
     hscroll: document.documentElement.scrollWidth > innerWidth + 1,
     overflowBanner: banner ? [...banner.querySelectorAll("button, .ux-welcome-name")].filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent.trim()) : [],
+    clampedText: banner ? [...banner.querySelectorAll(".ux-welcome-text")].filter((e) => e.scrollHeight > e.clientHeight + 1).map((e) => e.textContent.trim()) : [],
   };
 })()`;
 const resync = `new Promise((r) => { window.__aimUxWelcome && window.__aimUxWelcome.sync([]); requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 200))); })`;
@@ -154,11 +158,12 @@ async function main() {
     await cdp.send("Page.enable");
     await lobby();
     check("ux-welcome.js installed", await evaluate("!!window.__aimUxWelcome"));
-    const key0 = await evaluate(`localStorage.getItem("ux-welcome-v1")`);
-    info.initialKey = key0;
-    if (key0 !== "shown") {
-      console.log(`  note: ux-welcome-v1 was ${JSON.stringify(key0)} (profile not fresh); resetting to "shown" and reloading`);
-      await evaluate(`(() => { localStorage.setItem("ux-welcome-v1", "shown"); localStorage.removeItem("ux-welcome-steps-v1"); })()`);
+    const RESET_KEYS = ["ux-welcome-steps-v1", "al-sensitivity-v1", "al-crosshair-v1", "al-workshop-runs-v1", "al-pw-runs-v1"];
+    const pre = await evaluate(`(() => { const o = {}; for (const k of ["ux-welcome-v1", ...${JSON.stringify(RESET_KEYS)}]) o[k] = localStorage.getItem(k); return o; })()`);
+    info.initialKey = pre["ux-welcome-v1"];
+    if (pre["ux-welcome-v1"] !== "shown" || RESET_KEYS.some((k) => pre[k] != null)) {
+      console.log(`  note: profile not fresh (${JSON.stringify(Object.keys(pre).filter((k) => pre[k] != null))}); clearing test-profile keys and reloading`);
+      await evaluate(`(() => { for (const k of ${JSON.stringify(RESET_KEYS)}) localStorage.removeItem(k); localStorage.setItem("ux-welcome-v1", "shown"); })()`);
       await reload();
     }
     info.preKeys = await evaluate(`({ sens: localStorage.getItem("al-sensitivity-v1"), crosshair: localStorage.getItem("al-crosshair-v1"),
@@ -167,7 +172,7 @@ async function main() {
 
     // 2. Placement + numbers per size.
     info.sizes = {};
-    for (const [w, h] of [[1280, 720], [1920, 1080]]) {
+    for (const [w, h] of [[1280, 720], [1280, 1024], [1440, 900], [1920, 1080]]) {
       await cdp.send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: 1, mobile: false });
       await evaluate(`(() => { const b = document.querySelector(".hall-board-body"); if (b) b.scrollTop = 0; })()`);
       await settle();
@@ -181,6 +186,7 @@ async function main() {
       check(`${label} banner height`, m.banner && m.banner.h <= (h <= 800 ? 40 : 104), `${m.banner?.h}px, max ${h <= 800 ? 40 : 104}`);
       check(`${label} no horizontal scroll`, !m.hscroll);
       check(`${label} no cut-off banner text`, !m.overflowBanner.length, m.overflowBanner.join(" | "));
+      if (m.clampedText.length) console.log(`WARN ${label} step text clamped to 2 lines (full text in title): ${m.clampedText.join(" | ")}`);
       if (h <= 800) check(`${label} hero heading hidden while banner shows`, !m.h1Shown);
       check(`${label} hero play button still there`, m.go);
       await shot(`welcome-${label}`);
@@ -209,9 +215,14 @@ async function main() {
     await settle();
     await evaluate(resync);
 
-    // 3. Sens tools.
+    // 3. Sens tools. The import modal is an .es-tool-shade too: make sure it is closed first.
+    await evaluate(CLOSE_IMPORT);
+    await waitFor(`!document.querySelector(".es-tool-shade")`, 3000);
+    check("no panel open before Sens tools", !(await evaluate(`!!document.querySelector(".es-tool-shade")`)));
+    const s0 = await evaluate(MEASURE);
+    check("no step done yet (fresh profile)", JSON.stringify(s0.done) === "[false,false,false]", JSON.stringify(s0.done));
     check("click Sens tools", await clickSel('.ux-welcome [data-ux-welcome="sens"]'));
-    const shade = await waitFor(`document.querySelector(".es-tool-shade")`, 3000);
+    const shade = await waitFor(`document.querySelector(".es-tool-shade:not(.valorant-import-shade) .es-sens-grid")`, 3000);
     check("Sens tools opens .es-tool-shade", shade);
     const under = await evaluate(MEASURE);
     check("banner stays while a dialog is open", under.connected && under.afterHero);

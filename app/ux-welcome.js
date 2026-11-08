@@ -16,8 +16,9 @@
 
    Hidden while the startup screen (.es-startup) or a run (.al-aimlab-root) is on the page, and
    on lobby views without the hero. Not hidden for dialogs: their shade covers it, and hiding
-   would make the drill list jump. At 800px tall or less it is one 40px line and the hero's
-   "VALORANT TRAINING" heading is hidden while it shows (html.ux-welcome-on) to make room.
+   would make the drill list jump. At 800px tall or less it is one 40px line; to make room the
+   hero's "VALORANT TRAINING" heading is hidden and its padding trimmed while it shows
+   (html.ux-welcome-on). Not the whole .al-wk-hero-copy: it also holds the featured drill.
 
    decide(), stepsDone(), place(), sig() and render() are tested in node
    (scripts/test-ux-welcome.mjs). */
@@ -78,7 +79,8 @@
         storage.setItem(KEY, value);
       }
     } catch { return none; }
-    if (value !== "shown") return { show: false, value, steps: stepsDone(storage) };
+    // "done" (the usual case for existing players): no more reads on every page change.
+    if (value !== "shown") return { show: false, value, steps: [false, false, false] };
     const steps = stepsDone(storage);
     if (steps.every(Boolean)) {
       try { storage.setItem(KEY, "done"); } catch { /* still hide */ }
@@ -157,7 +159,7 @@
       return `<li class="${stepClass(steps, i)}" data-ux-welcome-step="${s.n}"><div class="ux-welcome-copy">` +
         `<p class="ux-welcome-cap"><span>Step ${s.n}</span><span class="ux-welcome-next">Next</span>` +
         `<span class="ux-welcome-done">${CHECK}Done</span></p>` +
-        `<h3 class="ux-welcome-name">${s.name}</h3><p class="ux-welcome-text">${s.text}</p></div>` +
+        `<h3 class="ux-welcome-name">${s.name}</h3><p class="ux-welcome-text" title="${s.text}">${s.text}</p></div>` +
         `<div class="ux-welcome-acts">${acts}</div></li>`;
     }).join("");
     return `<div class="ux-welcome-head"><h2 class="ux-welcome-title">New here? Three quick steps</h2>${HIDE}</div>` +
@@ -189,7 +191,7 @@ ${P} .ux-welcome{flex:none;position:relative;z-index:4;box-sizing:border-box;dis
  outline:1px solid var(--es-line);outline-offset:-1px;clip-path:var(--es-cut);font-family:var(--es-head);text-align:left}
 ${P} .ux-welcome *{box-sizing:border-box}
 ${P} .ux-welcome p{margin:0}
-${P} .ux-welcome-head{flex:0 0 150px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start;gap:6px}
+${P} .ux-welcome-head{flex:0 0 128px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start;gap:6px}
 ${P} .ux-welcome-title{margin:0;color:var(--es-text);font:800 15px/1.15 var(--es-head)!important;font-stretch:75%!important;
  text-transform:uppercase!important;letter-spacing:.03em}
 ${P} .ux-welcome-steps{flex:1;min-width:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0;padding:0;list-style:none}
@@ -233,6 +235,7 @@ ${P} .ux-welcome.is-compact .ux-welcome-hide{flex:none;margin-left:auto!importan
 @media (max-width:900px){${P} .ux-welcome{margin-left:20px;margin-right:20px}}
 @media (max-height:${COMPACT_MAX_H}px){
  html[data-aim-local].${ON_CLASS}:not(#es) body .al-wk-hero-copy>h1{display:none!important}
+ html[data-aim-local].${ON_CLASS}:not(#es) body .al-wk-hero-copy{padding-top:8px!important;padding-bottom:8px!important}
  html[data-aim-local].${ON_CLASS}:not(#es) body .al-wk-hero-copy>.al-wk-feat{margin-top:0!important}
 }`;
 
@@ -324,6 +327,7 @@ ${P} .ux-welcome.is-compact .ux-welcome-hide{flex:none;margin-left:auto!importan
       const tab = [...doc.querySelectorAll(".hall-root .hall-topnav .hall-tab")]
         .find((el) => /^(settings|设置)$/i.test((el.textContent || "").trim()));
       if (!tab) return warn("no Settings tab");
+      markUsed("crosshair");
       tab.click();
       const until = Date.now() + 3000;
       const look = () => {
@@ -364,7 +368,7 @@ ${P} .ux-welcome.is-compact .ux-welcome-hide{flex:none;margin-left:auto!importan
         else if (act === "import") {
           markUsed("sens");
           if (win.__aimValorantImporter && typeof win.__aimValorantImporter.open === "function") win.__aimValorantImporter.open();
-        } else if (act === "crosshair") { markUsed("crosshair"); openCrosshair(); }
+        } else if (act === "crosshair") openCrosshair();
         else if (act === "play") playFeatured();
         else if (act === "hide") return hide();
       } catch (err) {
