@@ -469,7 +469,7 @@ test('R4e groundCtx: a ray hit is returned unchanged; a miss inside a gap narrow
   assert.equal(I.groundCtx(plain, {}), plain);
 });
 
-test('R4e update passes il the gap-safe ground (il, dead-mid-air il, spawn snap): same ctx fields, ground bridged over a gap with st.gfix counted', () => {
+test('R4e update passes il the gap-safe ground (walking il and dead-mid-air il): same ctx fields, ground bridged over a gap with st.gfix counted', () => {
   useNav();
   const { a, ctx, st } = initBot('B default');
   const base = (x) => (x >= 0.5 ? 0 : x <= 0.4997 ? 0.0001 : null); // a 0.3 mm gap at x 0.4997..0.5
@@ -487,6 +487,54 @@ test('R4e update passes il the gap-safe ground (il, dead-mid-air il, spawn snap)
   bots.roundBotUpdate({}, a, ctx, 1 / TPS, il);
   assert.ok(got && got.gap === 0.0001, 'dead-mid-air il: gap bridged');
   assert.equal(st.gfix, 2);
+});
+
+test('R4e safety net: a real-floor bot under its nav floor stands (no il) and is put back on its last on-floor node after LOW_TICKS ticks (lowN 1); without one it gives up (stuck); a bot on its floor is never flagged', () => {
+  const N = useNav(), g = N.g;
+  assert.equal(I.LOW_TICKS, 16);
+  for (const noOk of [false, true]) {
+    const { a, ctx, st } = initBot('B default');
+    const k0 = st.cur;
+    a.position = { x: g.x[k0], y: g.y[k0], z: g.z[k0] };
+    ctx.ground = (x, z, y) => y; // a floor at every query height (never a gap)
+    let calls = 0;
+    const il = () => { calls++; };
+    const step = () => { ctx.tick++; ctx.elapsed = ctx.tick / TPS; ctx.round.state.phase = 'barrier'; bots.roundBotUpdate({}, a, ctx, 1 / TPS, il); };
+    st.goT = 0; st.real = 1;
+    step();
+    assert.equal(calls, 1, 'walks');
+    assert.equal(st.lowT, 0, 'on its floor: not flagged');
+    const ok = st.okN;
+    assert.ok(ok >= 0 && Math.abs(g.y[ok] - a.position.y) < 0.5, 'okN = its on-floor node');
+    const p0 = { x: a.position.x, y: g.y[st.cur] - 3, z: a.position.z };
+    assert.equal(I.nodesNear(N, p0.x, p0.z, 0.75, p0.y, 0.5).length, 0, 'no nav floor 3 m down here');
+    a.position = { ...p0 };
+    if (noOk) st.okN = -1;
+    calls = 0;
+    for (let i = 1; i < I.LOW_TICKS; i++) {
+      step();
+      assert.equal(st.lowT, i, `tick ${i}: flagged`);
+      assert.deepEqual(a.position, p0, `tick ${i}: stands`);
+      assert.equal(st.speed, 0);
+    }
+    assert.equal(calls, 0, 'no il while flagged');
+    step();
+    if (noOk) {
+      assert.equal(st.mode, I.MODE.stuck, 'no on-floor node: gives up');
+      assert.deepEqual(a.position, p0);
+      assert.equal(st.lowN, 0);
+      step();
+      assert.equal(calls, 0, 'stuck: stands');
+    } else {
+      assert.deepEqual(a.position, { x: g.x[ok], y: g.y[ok], z: g.z[ok] }, 'back on okN, on its floor');
+      assert.equal(st.lowN, 1); assert.equal(st.lowT, 0); assert.equal(st.cur, ok); assert.equal(st.tgt, -1);
+      assert.equal(calls, 0);
+      step();
+      assert.equal(calls, 1, 'walks on');
+      assert.equal(st.lowT, 0);
+    }
+    for (const [k, v] of Object.entries(st)) assert.ok((typeof v === 'number' && Number.isFinite(v)) || typeof v === 'boolean', `flat state ${k} = ${v}`);
+  }
 });
 
 test('B2 update drives il like lN: [here, target, next] + finish run + index 1 while walking, [here, goal] + stop at the end; brake on combatHold only after the barrier; yield max 0.75 s', () => {

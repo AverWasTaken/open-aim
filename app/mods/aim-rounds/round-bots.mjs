@@ -278,7 +278,9 @@ const STEP_MAX = 0.45, RISER = 0.25;
 // gives il a ctx whose ground is unchanged when the ray hits; on a miss it probes GAP_EPS to both
 // sides along x and along z (fixed order) and, only when BOTH probes of one axis hit (a hole
 // narrower than 2 * GAP_EPS, not a ledge edge or an overhang's rim), returns the highest probe hit.
-// st.gfix counts the rescues. A run with no rescue is bit-identical to plain ctx.ground.
+// st.gfix counts the rescues. A run with no rescue is bit-identical to plain ctx.ground. (Not
+// covered: the < 1 mm^2 corner where two strips meet at right angles; the safety net below is the
+// backstop there. The wrapper is built per bot update: a small object + closure.)
 const GAP_EPS = 0.002;
 // Safety net (R4e): a real-floor bot, not airborne, with no nav node of its floor within LOW_XZ
 // (|dy| <= LOW_DY; the sweeps' off-floor rule) but nav floor above it, for LOW_TICKS ticks in a
