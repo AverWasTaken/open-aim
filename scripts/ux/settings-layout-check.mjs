@@ -13,11 +13,18 @@
 // Checks, per size and per settings tab:
 //   - no truncated description: .st-list .hall-field-text small, .st-list .al-number-hint,
 //     .st-tele dt, .st-tele dd with white-space nowrap + text-overflow ellipsis + scrollWidth > clientWidth+1
-//   - no horizontal scroll inside .st-view, .st-main, .st-list
+//   - no horizontal scroll inside .st-view, .st-main, .st-list, .st-side, and nothing in the
+//     preview stack sticks out past the left edge of .st-side (it would be clipped)
 //   - live preview hidden on the Control and Audio tabs
 //   - at CSS width >= 1920 with the preview shown: .st-list width in [480, 880] and
 //     .st-stack width <= 1.4x .st-list width
-//   - the preview stack is not cut off at the bottom of .st-side
+//   - the preview stack is not cut off at the bottom of .st-side: it either fits, or .st-side
+//     scrolls (overflow-y auto/scroll and scrollHeight > clientHeight) so the rest can be reached.
+//     At window heights >= 1000 it must fit (scrolling there fails).
+//     The line per tab shows "rest" (stack height minus the preview frame: what the CSS
+//     --st-rest reserve must cover), the stat count/columns, and "fits" / "scrolls N px"
+//   - at CSS width >= 3000 the page is centred: .st-main left gap ~= right gap (within 40 px),
+//     and on tabs with the preview, settings column left gap ~= preview right gap (within 40 px)
 //   - search on the Audio tab brings the preview back (data-tab is stale while searching),
 //     clearing the search hides it again
 // Exit code 0 = all passed, 1 = a check failed, 2 = could not run.
@@ -142,18 +149,29 @@ const MEASURE = `(() => {
       truncated.push(el.textContent.trim().slice(0, 70));
   }
   const hscroll = [];
-  for (const s of [":scope", ".st-main", ".st-list"]) {
+  for (const s of [":scope", ".st-main", ".st-list", ".st-main > .st-side"]) {
     const el = s === ":scope" ? view : q(s);
-    if (el && el.scrollWidth > el.clientWidth + 1) hscroll.push(s === ":scope" ? ".st-view" : s);
+    if (el && el.scrollWidth > el.clientWidth + 1) hscroll.push(s === ":scope" ? ".st-view" : s === ".st-main > .st-side" ? ".st-side" : s);
   }
   const side = q(".st-main > .st-side");
   const stack = q(".st-stack");
+  const on = shown(side) && shown(stack);
+  const kids = on ? [...stack.querySelectorAll("*")].filter((e) => e.getClientRects().length).map((e) => e.getBoundingClientRect()) : [];
+  const mon = on ? stack.querySelector(".st-monitor") : null;
+  const tele = on ? stack.querySelector(":scope > .st-tele") : null;
+  const sideCs = on ? getComputedStyle(side) : null;
   return {
     tab: view.dataset.tab,
     searching: !q(".st-list.st-brief") && !["controls", "crosshair"].includes(view.dataset.tab),
     innerWidth, innerHeight,
     list: box(q(".st-list")), side: shown(side) ? box(side) : null, stack: shown(stack) ? box(stack) : null,
-    stackBottom: shown(stack) ? Math.round(Math.max(...[...stack.querySelectorAll("*")].map((e) => e.getBoundingClientRect().bottom), stack.getBoundingClientRect().bottom)) : null,
+    stackBottom: on ? Math.round(Math.max(...kids.map((r) => r.bottom), stack.getBoundingClientRect().bottom)) : null,
+    stackLeft: on ? Math.round(Math.min(...kids.map((r) => r.left), stack.getBoundingClientRect().left)) : null,
+    stackRight: on ? Math.round(Math.max(...kids.map((r) => r.right), stack.getBoundingClientRect().right)) : null,
+    rest: on && mon ? Math.round(stack.getBoundingClientRect().height - mon.getBoundingClientRect().height) : null,
+    tele: tele ? { n: tele.children.length, cols: getComputedStyle(tele).gridTemplateColumns.split(" ").length } : null,
+    sideScroll: on ? { overflowY: sideCs.overflowY, sh: side.scrollHeight, ch: side.clientHeight } : null,
+    main: box(q(".st-main")), clientWidth: document.documentElement.clientWidth,
     truncated, hscroll,
   };
 })()`;
@@ -169,10 +187,30 @@ function check(ctx, m) {
       if (m.list.w < 480 || m.list.w > 880) f(`settings column ${m.list.w}px, want 480-880`);
       if (m.stack.w > 1.4 * m.list.w + 1) f(`preview ${m.stack.w}px is more than 1.4x the settings column ${m.list.w}px`);
     }
-    if (m.stackBottom > m.side.bottom + 1) f(`preview cut off: content bottom ${m.stackBottom} > side bottom ${m.side.bottom}`);
+    if (m.stackBottom > m.side.bottom + 1) {
+      const sc = m.sideScroll;
+      const scrolls = ["auto", "scroll"].includes(sc.overflowY) && sc.sh > sc.ch + 1;
+      if (!scrolls) f(`preview cut off: content bottom ${m.stackBottom} > side bottom ${m.side.bottom} and .st-side does not scroll`);
+      else if (m.innerHeight >= 1000) f(`preview column scrolls ${sc.sh - sc.ch}px at ${m.innerHeight}px tall (it should fit there)`);
+    }
+    if (m.stackLeft < m.side.x - 1) f(`preview sticks out ${m.side.x - m.stackLeft}px past the left edge of .st-side (clipped)`);
+  }
+  if (m.innerWidth >= 3000 && m.main) {
+    const gl = m.main.x, gr = m.clientWidth - (m.main.x + m.main.w);
+    if (Math.abs(gl - gr) > 40) f(`settings page not centred: .st-main left gap ${gl}px, right gap ${gr}px`);
+    if (m.side && m.stack) {
+      const cl = m.list.x, cr = m.clientWidth - m.stackRight;
+      if (Math.abs(cl - cr) > 40) f(`settings + preview not centred: left gap ${cl}px, right gap ${cr}px`);
+    }
   }
 }
-const fmt = (m) => `list ${m.list?.w}x${m.list?.h}  preview ${m.side ? `${m.stack?.w}px (side ${m.side.w}x${m.side.h})` : "hidden"}  truncated ${m.truncated.length}  hscroll ${m.hscroll.length ? m.hscroll.join("/") : "none"}`;
+const fit = (m) => {
+  if (!m.side || !m.stack) return "";
+  const t = m.tele ? `  stats ${m.tele.n} in ${m.tele.cols} col` : "  no stats";
+  const over = m.sideScroll.sh - m.sideScroll.ch;
+  return `  rest ${m.rest}px${t}  ${over > 1 ? `scrolls ${over}px` : "fits"}`;
+};
+const fmt = (m) => `list ${m.list?.w}x${m.list?.h}  preview ${m.side ? `${m.stack?.w}px (side ${m.side.w}x${m.side.h})` : "hidden"}${fit(m)}  truncated ${m.truncated.length}  hscroll ${m.hscroll.length ? m.hscroll.join("/") : "none"}${m.innerWidth >= 3000 && m.main ? `  main x ${m.main.x}..${m.main.x + m.main.w} of ${m.clientWidth}` : ""}`;
 
 async function main() {
   cdp = await connect();

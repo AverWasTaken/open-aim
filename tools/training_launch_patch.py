@@ -18,10 +18,12 @@ Adds two globals in the lobby (hall) setup scope, right after the training layer
   workshop history. (window.__aimLaunchScene from round_patch.py launches with source "plaza":
   'aim-local-result' still fires but with eligible:false and nothing is saved; it stays for
   Round mode.)
-  The item is completed from the lobby catalogue with si(code, item) (like the history tab's own
-  Play, Sc()), so a bare share code or a partial item works; the caller's description is kept.
+  The item is completed with si(code, item) (like the history tab's own Play, Sc()). si() only
+  knows drills in the player's run history, so a bare share code or a partial item without a
+  type works only for drills played before; otherwise pass the full catalogue item (as routines
+  and progress do). The caller's description is kept.
   Returns false and does nothing when: no string shareCode; the code has no known type (not in
-  the catalogue and no item.type); a drill is open or loading (l.value / yt.view.open; the layer
+  the run history and no item.type); a drill is open or loading (l.value / yt.view.open; the layer
   loads its scene only on mount, so a launch on top of an open drill would not reload it).
   true means the launch started; with the rank picker gate the player can still cancel, so
   callers wait for the window 'aim-local-scene' event to know the drill really started.

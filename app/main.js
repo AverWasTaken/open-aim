@@ -10,6 +10,7 @@ const studio = require("./studio-store");
 const guard = require("./local-guard");
 const variants = require("./drill-variants");
 const rounds = require("./round-scene");
+const practice = require("./practice-scene");
 const shellLog = require("./shell-log");
 const shellEnv = require("./shell-env");
 
@@ -154,6 +155,12 @@ const STARTUP_SCREEN_JS = fs.readFileSync(path.join(__dirname, "startup-screen.j
 const PAGE_WATCH_JS = fs.readFileSync(path.join(__dirname, "page-watch.js"), "utf-8");
 // Result screen keys (R = play again, Esc = back) and Q in the Tab menu.
 const UX_KEYS_JS = fs.readFileSync(path.join(__dirname, "ux-keys.js"), "utf-8");
+// Hit marker at the crosshair and the kills line on bot drills (events from tools/ux_hud_patch.py).
+const UX_HUD_JS = fs.readFileSync(path.join(__dirname, "ux-hud.js"), "utf-8");
+// Empty container on the result card for other teams' rows (training's routine bar).
+const UX_RESULT_JS = fs.readFileSync(path.join(__dirname, "ux-result.js"), "utf-8");
+// First-run "getting started" banner under the VALORANT Training hero.
+const UX_WELCOME_JS = fs.readFileSync(path.join(__dirname, "ux-welcome.js"), "utf-8");
 const SMOOTH_SCROLL_JS = fs.readFileSync(path.join(__dirname, "smooth-scroll.js"), "utf-8");
 const VIDEO_SETTINGS_JS = fs.readFileSync(path.join(__dirname, "video-settings.js"), "utf-8");
 // Map lighting setting (Enhanced / Original), read by the patched BiMsX6Xn.js. Optional:
@@ -177,26 +184,50 @@ const RANK_PICKER_JS = fs.readFileSync(path.join(__dirname, "rank-picker.js"), "
 // Round mode (round-scene.js builds the scenes): lobby panel and in-game HUD.
 const ROUND_PANEL_JS = fs.readFileSync(path.join(__dirname, "round-panel.js"), "utf-8");
 const ROUND_HUD_JS = fs.readFileSync(path.join(__dirname, "round-hud.js"), "utf-8");
+// Practice mode (practice-scene.js builds the scenes): lobby panel.
+const PRACTICE_PANEL_JS = fs.readFileSync(path.join(__dirname, "practice-panel.js"), "utf-8");
 const VALORANT_IMPORT_JS = ["valorant-import.js", "valorant-import-ui.js"]
   .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
 // Crosshair profiles (feel-crosshair-profiles.js): a named list switched from the Crosshair settings.
 const CROSSHAIR_PROFILES_JS = fs.readFileSync(path.join(__dirname, "feel-crosshair-profiles.js"), "utf-8");
 const VALORANT_IMPORT_CSS = fs.readFileSync(path.join(__dirname, "valorant-import.css"), "utf-8");
+// Progress in TRAINING HISTORY ("Your skills": per-skill trends, what to practise, drill chart)
+// and best/run-count chips on lobby cards. The core (pure math) is loaded first.
+const TRAINING_PROGRESS_JS = ["training-progress-core.js", "training-progress.js"]
+  .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
+const TRAINING_PROGRESS_CSS = fs.readFileSync(path.join(__dirname, "training-progress.css"), "utf-8");
+// Routines: chained drills with a summary (training-routines-core.js holds the logic and data).
+const TRAINING_ROUTINES_JS = ["training-routines-core.js", "training-routines.js"]
+  .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
+const TRAINING_ROUTINES_CSS = fs.readFileSync(path.join(__dirname, "training-routines.css"), "utf-8");
+
+// Aim analytics per saved run (data only): stores the game's end-of-run "aim-run-stats" event
+// (tools/training_stats_patch.py) in aim-training-analytics-v1. The core (pure math) is loaded first.
+const TRAINING_ANALYTICS_JS = ["training-analytics-core.js", "training-analytics.js"]
+  .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
 
 // The Studio (studio/ folder, served at /studio/) replaces the site's own scenario editor:
 // /aim/studio redirects there. studio-launch.js lets the Studio start a drill in the lobby.
 const STUDIO_DIR = path.join(__dirname, "studio");
 const STUDIO_PATH = "/studio/";
 const STUDIO_LAUNCH_JS = fs.readFileSync(path.join(__dirname, "studio-launch.js"), "utf-8");
+const TRAINING_LAUNCH_JS = fs.readFileSync(path.join(__dirname, "training-launch.js"), "utf-8");
 
 // Shooting error graph (shooting-error.js). The game's frame loop is served with one extra
 // call that hands every shot (its total spread and the spray part) to the graph.
 const SHOT_GRAPH_JS = fs.readFileSync(path.join(__dirname, "shooting-error.js"), "utf-8");
+// Shared per-frame hook (window.__aimTickHub) and the callout label under the minimap.
+const AIM_TICK_HUB_JS = fs.readFileSync(path.join(__dirname, "aim-tick-hub.js"), "utf-8");
+const MAPS_LOCATION_JS = fs.readFileSync(path.join(__dirname, "maps-location.js"), "utf-8");
 // One executeJavaScript call avoids Electron registering a did-stop-loading
 // listener for each UI script while the page is still loading.
 const UI_SCRIPTS = [
   ["PAGE WATCH", PAGE_WATCH_JS],
   ["UX KEYS", UX_KEYS_JS],
+  ["UX HUD", UX_HUD_JS],
+  ["UX RESULT", UX_RESULT_JS],
+  ["UX WELCOME", UX_WELCOME_JS],
+  ["AIM TICK HUB", AIM_TICK_HUB_JS],
   ["SMOOTH SCROLL", SMOOTH_SCROLL_JS],
   ["SNIPER SCOPES", SNIPER_SCOPES_JS],
   ["FAN AUDIO", FAN_AUDIO_JS],
@@ -213,11 +244,17 @@ const UI_SCRIPTS = [
   ["RANK PICKER", RANK_PICKER_JS],
   ["ROUND PANEL", ROUND_PANEL_JS],
   ["ROUND HUD", ROUND_HUD_JS],
+  ["PRACTICE PANEL", PRACTICE_PANEL_JS],
   ["LOBBY BAR", LOBBY_BAR_JS],
   ["STUDIO LAUNCH", STUDIO_LAUNCH_JS],
+  ["TRAINING LAUNCH", TRAINING_LAUNCH_JS],
   ["SHOT GRAPH", SHOT_GRAPH_JS],
+  ["MAPS LOCATION", MAPS_LOCATION_JS],
   ["CROSSHAIR PROFILES", CROSSHAIR_PROFILES_JS],
   ["VALORANT IMPORT", VALORANT_IMPORT_JS],
+  ["TRAINING PROGRESS", TRAINING_PROGRESS_JS],
+  ["TRAINING ANALYTICS", TRAINING_ANALYTICS_JS],
+  ["TRAINING ROUTINES", TRAINING_ROUTINES_JS],
 ];
 // The startup screen goes in on its own, straight away (see createWindow).
 const STARTUP_SCREEN_RUN = `try {
@@ -230,9 +267,10 @@ const SHOT_LOOP_FILE = "/next/js/OkAdunfX.js";
 const SHOT_LOOP_FROM = 'xe.kind==="shot"&&(Kt.push(xe.tick*ve)';
 const SHOT_LOOP_TO = 'xe.kind==="shot"&&(window.__aimShot?.(xe),Kt.push(xe.tick*ve)';
 // The same frame loop also hands the round's state to the graph once per frame, so the
-// end-of-round summary can trace where the player walked (state.player.position, state.tick).
+// end-of-round summary can trace where the player walked (state.player.position, state.tick),
+// then to every listener added with window.__aimTickHub.add (aim-tick-hub.js).
 const ROUTE_LOOP_FROM = "const ce=hs(de);for(const xe of Cn)";
-const ROUTE_LOOP_TO = "const ce=hs(de);window.__aimTick?.(ce);for(const xe of Cn)";
+const ROUTE_LOOP_TO = "const ce=hs(de);window.__aimTick?.(ce);window.__aimTickHub?.emit(ce);for(const xe of Cn)";
 
 // The site's English translator is machine translated. Serve a thin wrapper in its
 // place that first adds english-fixes.js (Chinese) and translations.js (Vietnamese)
@@ -500,8 +538,9 @@ function handleRequest(req, res) {
   if (requested.startsWith(SCENE_PREFIX)) {
     const code = requested.slice(SCENE_PREFIX.length);
     const own = mine.find((e) => e.item.shareCode === code);
-    // Round mode scenes (round-<map>-<side>-<weapon>-<barrierSec>) are built on request.
-    const scene = own ? own.scene : trainingSet.scenes[code] || rounds.roundScene(MODS, code);
+    // Round mode scenes (round-<map>-<side>-<weapon>-<barrierSec>) and Practice scenes
+    // (practice-<map>-<area>-<weapon>-<bots>-<count>) are built on request.
+    const scene = own ? own.scene : trainingSet.scenes[code] || rounds.roundScene(MODS, code) || practice.practiceScene(MODS, code);
     if (scene) {
       sendJson(req, res, { code: "00000", data: scene, msg: "", local: true });
       return;
@@ -614,6 +653,8 @@ function createWindow(url) {
       win.webContents.insertCSS(THEME_CSS),
       win.webContents.insertCSS(OFFLINE_CSS),
       win.webContents.insertCSS(VALORANT_IMPORT_CSS),
+      win.webContents.insertCSS(TRAINING_PROGRESS_CSS),
+      win.webContents.insertCSS(TRAINING_ROUTINES_CSS),
       win.webContents.mainFrame.executeJavaScript(STARTUP_SCREEN_RUN).catch((err) => console.log(`STARTUP SCREEN: ${err}`)),
     ]).catch(() => {}).finally(show);
     win.webContents.executeJavaScript(UI_SCRIPT_BATCH).catch((err) => console.log(`UI SCRIPTS: ${err}`));

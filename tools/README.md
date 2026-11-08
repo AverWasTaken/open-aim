@@ -29,8 +29,15 @@ Run them from the repository root with Python 3.
 | `round_navdata.mjs`, `round_navlib.mjs`, `round_png.mjs` | Helpers for `round_nav.mjs`, `round_author.mjs` and the round tests: nav header data (setup facings, staging and zone checks, attacker route / plant / post-plant data, travel report, plots, retake and attacker staging candidates, plant spot candidates), graph searches (floods, Dijkstra, barrier edge mask), a small PNG canvas. |
 | `round_nav.mjs` | Writes `app/mods/aim-rounds/<map>.nav.bin`, the Round mode nav graph: the game's own nav builder run on the real collision from both spawns (2-3 min, below-normal priority). `--reuse` keeps the graph and only rewrites the header (setup facings, staging and zone checks, which need sight rays; helpers in `round_navdata.mjs`). `--candidates`, `--setup-candidates`, `--attack-candidates` list the spots the authored retake / setup / attacker data was picked from. See [Round mode nav graph](#round-mode-nav-graph). |
 | `maps_callouts.mjs` | Writes `app/mods/aim-maps/<map>.minimap.json` for every map: the game's callout list with Riot's in-game English names ("A Main", "B Boat House") in place of the Chinese ones, from `tools/maps-callouts-en.json`, node only. Only the names change; every spot and every other byte stays as in `site/aim-maps/` (juliett, which only exists in `app/mods/aim-maps/`, is renamed in place). `--check` fails when a file is out of date. See [Callout names](#callout-names). |
+| `maps_previews.mjs` | Writes `app/mods/aim-maps/<map>.preview.png` (our own top-down picture of each map, drawn from its collision data, no Riot art) and `app/mods/aim-maps/maps.json` (the shared map list: id, English name, preview, size and the world -> pixel transform), node only. `--check` fails when a file is out of date. See [Map previews](#map-previews). |
 | `maps_callout_patch.py` | Keeps the space in English callout names ("A Main", not "AMain") in the place line of the workshop cards and the workshop detail: the nearest-callout lookup `$u` in the mods `Dc2Dm9E6.js` (both copies) now removes only whitespace next to a non-ASCII character, so Chinese names give the same text as before. Details in the script's docstring. |
-| `training_launch_patch.py` | Training shell hooks in the lobby (`ChJ6FlD4.js`, both copies): `window.__aimLaunchWorkshop(item or code)` starts a drill exactly like a lobby click (rank picker gate, workshop brief, so the run is saved to the workshop history); it refuses while a drill is open or loading. `window.__aimLeaveTraining()` closes the open or loading drill like its Back button. Used by the routines and progress scripts; checked by `scripts/test-training-hooks.mjs`. Details in the script's docstring. |
+| `training_launch_patch.py` | Training shell hooks in the lobby (`ChJ6FlD4.js`, both copies): `window.__aimLaunchWorkshop(item or code)` starts a drill exactly like a lobby click (rank picker gate, workshop brief, so the run is saved to the workshop history); a bare code only resolves drills already in the run history, so pass the full catalogue item for others; it refuses while a drill is open or loading. `window.__aimLeaveTraining()` closes the open or loading drill like its Back button. Used by the routines and progress scripts; checked by `scripts/test-training-hooks.mjs`. For a bare share code (also never-played drills, Easy twins) use the shell helper `window.__aimLaunchByCode(code, extra)` in `app/training-launch.js` (returns a Promise of true/false; finds the full item in the training list or `/aim/drill-variants.json`, then calls this hook; tested by `scripts/test-training-launch.mjs`). Details in the script's docstring. |
+| `training_stats_patch.py` | End-of-run aim stats for the training shell scripts (`OkAdunfX.js`, both copies): in `Ks` (the live run's onRoundComplete handler), right before `p.value=wt,h.value=Math.round(wt.smoothness)`, it dispatches the window event `aim-run-stats` once per live run: the run record's id/shareCode (null for Studio/plaza and Round runs), outcome, `round`/`tracking` tags, the `up()` stats, one compact row per `cp()` life (ticks, first/second hit, moving, approach stop/radius/stop depth) and the killLog spawn-to-kill ticks. Read-only after the run ended: no sim change, no replay flag. `app/training-analytics.js` stores a summary per run in `aim-training-analytics-v1`; other scripts can listen to the event too. Checked by `npm run test:stats`. |
+| `practice_areas.mjs` | Writes `app/mods/aim-practice/areas.json` (Practice mode: per map the areas, i.e. player spawn and bot spots with their checked strafe lanes) from `app/mods/aim-ranks/spot-alts.json` and the shipped pre-aim drills, node only. `--check` fails when the stored file is out of date. See [Practice areas](#practice-areas). |
+| `practice_patch.py` | Practice mode on the play page: no replay recorder for scenes with `rules.practice`, `window.__aimPracticeOn` set while one is loaded, and the HUD shows score and accuracy only (no timer). Edits the mods `OkAdunfX.js` (both copies). Details in the script's docstring. |
+| `graphics_fx_patch.py` | Combat feedback effects (render only): wall impact sparks + dust, bot hit sparks, kill burst, optional enemy muzzle flash. Hooks the play page `Jy` in the mods `OkAdunfX.js` (both copies) into `app/mods/aim-fx/fx.mjs` (loaded with a dynamic import; until it loads every call is a no-op). See [Graphics effects](#graphics). |
+| `graphics_holes_patch.py` | Bullet holes from a fixed pool of 64 meshes (same look, no new mesh/material per hole). Edits `l1` in the mods `OkAdunfX.js` (both copies). Run after `graphics_fx_patch.py`. |
+| `graphics_botfx_patch.py` | Bot hit flash and death animation (render side only): a short white hit pulse on humanoid bots (stronger and longer on a headshot) and a short "drop" when a humanoid dies (sinks, squashes and glows white-hot, gone after 220 ms). Spheres (grid dots) are left exactly as before. Edits the actor renderer `Uf` in the mods `CnrSARj_.js` (both copies), so the game and the replay player both get it. No sim change. See [Graphics](#graphics). |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
@@ -81,6 +88,41 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
     It doesn't touch the regions of `feel_audio_patch.py`: the two apply in either order, but the bytes
     differ; run them in the listed order. Test:
     `npm run test:feelxbloom` in `app/`.
+19. `graphics_look_patch.py` (needs `lighting_patch.py`; BiMsX6Xn only; refuses to run twice: it looks
+    for `/* graphics-look */`; keeps each copy's own line ends). It doesn't share code with the other
+    graphics scripts (fx, holes, botfx, warm, leak) and applies on top of them in any order. See below.
+20. `training_stats_patch.py` (OkAdunfX only, independent of the others; refuses to run twice: it looks for `"aim-run-stats"`). It keeps each copy's own line ends.
+21. `practice_patch.py` (after `round_patch.py`: it works next to round_patch's replay-recorder line and in its `__aimRoundStart` / `__aimRoundStop`; only touches `OkAdunfX.js`; refuses to run twice: it looks for `__aimPracticeOn`). It keeps each copy's own line ends.
+
+22. `graphics_fx_patch.py` (after `round_patch.py`; applied after 20 and 21 in the shipped files; refuses to run twice: it looks for `__aimFxBoot`)
+23. `graphics_holes_patch.py` (needs `graphics_fx_patch.py`; refuses to run twice: it looks for `__aimHoleFree`)
+24. `graphics_botfx_patch.py` (after `graphics_holes_patch.py`; refuses to run twice: it looks for `/* graphics-botfx */`). It keeps each copy's own line ends.
+25. `ux_hud_patch.py` (ux; after `ux_result_patch.py` (15); applied last in the shipped files; touches no string any other patch uses;
+    refuses to run twice: it looks for `__aimEmitHits` in
+    `OkAdunfX.js`). Read-only HUD events for `app/ux-hud.js` (hit marker, kills line). The live tick
+    calls `__aimEmitHits(Ze,Ae)` after the replay recorder `Ou(je,Ze)` and `Cn.push(...Ze)`: one window
+    event `aim-hit` {head, kill, dot, pellets, tick} per player shot that hit (kill = the step had a
+    non-aimBlast kill, on its first hitting shot; dot = a ball/grid target and no bot). The HUD builder
+    `ya()` calls `__aimEmitHud(Z,F)` only when the stat box changed (`Hu` false): `aim-hud` {kills,
+    total (null on respawning drills), headshots, humanoidHits, score, hits, shots}. Listener errors
+    are caught. No sim, RNG, recorder or replay code: `C_VPDXvn.js` imports only BiMsX6Xn,
+    index.uPZ7wDgX, DXHU7cEs, D_iGclxB and CnrSARj_, and only ChJ6FlD4/Hwnlm6zD import OkAdunfX, so
+    saved runs and replays are unchanged. Tests: `npm run test:hit` (`--mods <dir>` patches another
+    copy; includes real sim steps). It keeps each copy's own line ends.
+
+## Range drill floor (graphics_look_patch.py)
+
+The shipped range drills (Micro flicks, Drift, the strafers...) store the old default light values
+(ambient 1.55, key 2.2) but are tagged `lightingVersion: 2`, so the game uses them as raw
+multipliers (x1.55 / x2.2). Non-map scenes have no tone mapping, so their light grey floor came
+out flat white. With **Enhanced** map lighting, the block with id `ground` in a scene with exactly
+that signature (no map, lightingVersion 2, ambient 1.55, key 2.2) now gets its own copy of its
+material with the colour multiplied by `__aimMapLighting.look.floor`. Targets, bots, the backdrop
+and the view model keep their colours. Studio arenas, the official non-map drills, map scenes and
+**Original** lighting are unchanged; switching the setting applies live. Test:
+`npm run test:graphics-look` (in `app/`).
+
+
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
@@ -95,6 +137,60 @@ either order. `app/main.js` also patches `OkAdunfX.js` while serving it (`SHOT_L
 
 To start the bot patch over: `git checkout` the three mods files, delete both mods
 `C_VPDXvn.js` copies, then run `python -I tools/bot_patch.py`.
+
+## Graphics
+
+Combat visuals, render side only (nothing the sim or a replay depends on changes).
+
+### Bot hit flash and death (`graphics_botfx_patch.py`)
+
+`graphics_botfx_patch.py` edits only the actor renderer `Uf` in `CnrSARj_.js` (its per-frame
+`apply`), right before `function Uf(` and inside its two actor loops:
+
+- Hit flash (humanoids): on a shot event that hits a bot, its material's `emissive` (and
+  `emissiveIntensity` for the older skins that use the albedo as emissive map) goes towards white;
+  full strength for 4 ticks (~31 ms), then it eases out over 14 ticks; a headshot (`hitPart === "head"`) is brighter, holds 5 and eases out over 20. Humanoids
+  no longer get the inverted-colour tint. Only uniform values change (no shader recompile), and
+  only while a pulse runs.
+- Death (humanoids): alive -> dead while still visible (kills, Round mode spike blast; not
+  time-outs) keeps the bot drawn for 220 ms (pose frozen, sinks 0.32 m, squashes, tips back,
+  white-hot, then shrinks away). Wall-clock timed, so it finishes even when the drill ends on that
+  kill. A respawn cancels it; `clear()` (retry, replay seek) drops it.
+- Spheres are the "grid dot" targets (`__aimDotTemplates`): no new effect at all, same as the
+  combat effects below. (`aimBfxSpheres` in the injected code is off.)
+
+Test: `npm run test:graphics-botfx` (in `app/`) checks the patch is in both copies once and only
+inside `Uf`, and drives the real patched renderer headless with real sim snapshots.
+
+### Combat effects (`graphics_fx_patch.py`, `graphics_holes_patch.py`)
+
+`graphics_fx_patch.py` and `graphics_holes_patch.py` (run in that order, after `round_patch.py`)
+add render-only combat feedback to the play page (`OkAdunfX.js`, both copies). No sim, replay or
+RNG change: the effects read the page's events and snapshots, nothing is written back.
+
+- `app/mods/aim-fx/fx.mjs` draws everything from 4 fixed GPU pools (one mesh and one draw call
+  each, hidden while idle; spark streaks and kill rings are shaped in the shaders, no textures):
+  - wall impacts (every `Us` call, bullet holes on or off, penetration holes too): 7 short
+    orange-white streaks along the ricochet direction and a faint grey dust puff;
+  - bot hits (not grid dots): 4 small white-hot streaks toward the shooter, 6 for the head;
+  - kills (not grid dots; Round spike-blast kills too): a white ring + flash at chest height,
+    about 250 ms, gold for a headshot kill;
+  - enemy muzzle flash (off by default).
+- Settings: localStorage `aim-fx-settings-v1`, e.g.
+  `{"impactSparks":true,"killBurst":true,"enemyMuzzle":false,"hitSpark":true}` (missing keys use
+  these defaults). Read when the drill starts or restarts. There's no menu for it yet.
+- `window.__aimFxStats` = `{loaded, spawned:{wall,hit,kill,enemy}, active, frameMs}` for tests and
+  the bench; `__aimFxStats.api` is the effects object (debug: call `api.kill({position,headshot})`
+  etc. by hand).
+- The page's wall-impact normal is only computed when it costs nothing extra: when bullet holes
+  are on (as before) or the projectile collision is already built. Otherwise the sparks use the
+  reversed shot direction, so the lazy collision build never starts mid-drill for them.
+- Tests: `cd app && npm run test:graphics-fx` (hooks present once in both copies, scripts refuse a
+  second run, fx.mjs imports cold in node, pools never allocate after start-up, the real pooled
+  bullet hole code capped at 64 and reused).
+
+To redo them: `git checkout` both mods `OkAdunfX.js` copies at the commit before the graphics
+patches, then run both scripts again.
 
 ## Spot scores (rank-biased spots)
 
@@ -314,6 +410,58 @@ points, zone coverage and the attacker data (staging never on the defender side,
 entry, plant spots defusable all around, post-plant spots re-checked with real sight rays when the
 terrain cache exists).
 
+
+## Practice areas
+
+Practice mode (lobby: **Practice**) plays any map with no timer. `app/practice-scene.js` builds the
+scene for a code `practice-<map>-<area>-<weapon>-<none|static|strafe>-<count>` (main.js serves it
+like the Round codes) from `app/mods/aim-practice/areas.json`:
+
+- One area per route of the shipped pre-aim drills in `spot-alts.json` (easy and hard variants
+  merged). The English route name comes from the drill name ("DDY's pre-aim: Haven A Long attack"
+  -> "A Long"); a few names are fixed by hand in `RENAME` at the top of the script. Two routes with
+  the same name get the nearest callout to their spawn added ("A Retake from A Tower").
+- Spawn = the drill's player spawn, environment = the drill's lighting.
+- Spots = the drill's static bot spots (authored points), 0.8 m apart at least, nearest to the
+  spawn first; the scene takes the first N. Spots inside one of the drill's own solid blocks are
+  dropped (Practice scenes have no blocks).
+- Strafing bots only stand on spots with a checked lane (`spot_alts.mjs`, at least 0.6 m long and
+  not crossing another spot's lane): their home is the middle of the lane and they swing at most
+  +-0.75 m along it, so every point they reach was checked.
+
+Bots never shoot and come back 1.5 s after a kill (`respawn` behaviour: `inPlace` for standing
+bots, `reSpawner` for strafing ones, as Studio does). After changing spot-alts or the drills:
+
+```bash
+node tools/practice_areas.mjs          # write app/mods/aim-practice/areas.json
+node tools/practice_areas.mjs --check  # what scripts/test-practice.mjs runs (npm run test:practice)
+```
+
+## Map previews
+
+The Practice panel shows a top-down picture of the chosen map with your start (arrow, pointing
+where you face) and the bots it will spawn. `maps_previews.mjs` draws those pictures itself; it
+never uses `site/aim-maps/<map>.minimap.png` or the cover/slice art.
+
+- 8 maps: the navmesh in `<map>.collision.json` (highest surface per pixel). rook (Corrode) has no
+  navmesh: the game's pawn floors from `round_terrain.mjs` (lowest floor with 2 m of headroom and
+  no wall through it). Crates and ledges a practice bot stands on are added from the pawn floors.
+- A flood fill from the callouts and the practice spawns drops islands outside the map.
+- 5 flat tones by height (darker = lower), light outline on edges and ledges, transparent background.
+- Same orientation as the in-game minimap (attackers at the bottom): the minimap.json transform plus
+  the rotation table `Gs` and `qs` from `Dc2Dm9E6.js`, lifted at run time.
+
+`maps.json` is one entry per map: `{id, name, preview, size: [w, h], world: {a..f}, mm, pixels}`.
+A world point (x, z) is at pixel `px = a*x + b*z + c`, `py = d*x + e*z + f`. `mm` is the same
+transform in minimap units (`pixel = mm.scale * (qs(x, z) - [mm.u0, mm.v0])`), `pixels` a hash of
+the decoded image. Forward for a yaw is `(-sin yaw, -cos yaw)` in (x, z).
+
+```bash
+node tools/maps_previews.mjs          # write the PNGs + maps.json (~1.5 min the first time: map GLB decode)
+node tools/maps_previews.mjs --check  # what scripts/test-maps-previews.mjs runs (npm run test:maps)
+```
+
+Run it again after changing `areas.json`, a map's collision/minimap files or the tool.
 
 ## Callout names
 
