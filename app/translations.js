@@ -1,6 +1,7 @@
 // English for Vietnamese text the site's own translator leaves untranslated or
-// garbles (it translates unknown phrases word by word). Keys are matched as
-// substrings, longest first, before the site's translator runs.
+// garbles (it translates unknown phrases word by word). app/main.js adds these to the
+// translator's dictionary after english-fixes.js (keys must not overlap): whole
+// strings match exactly, otherwise the longest key at each position wins.
 module.exports = {
   "TIẾNG VIỆT": "VIETNAMESE",
   "Quảng cáo": "Advertisement",
@@ -11,6 +12,15 @@ module.exports = {
   "Hạng nhất": "First place",
   "Server đã nhận": "Server received",
   "Đang gửi": "Sending",
+  "Đang gửi…": "Sending…",
+  "Đóng video và các tab khác": "Close videos and other tabs",
+  "Đóng cửa sổ bật lên để xem tác động của những thay đổi.": "Close this window to see the change.",
+  "Đóng cửa sổ bật lên để xem tác động của những thay đổi": "Close this window to see the change",
+  "Độ khó dễ vẫn có trong danh sách như thường lệ": "Easy difficulty is still ranked as usual",
+  "Độ khó dễ sẽ có trong danh sách như thường lệ; mọi khó khăn khác sẽ được bật lên và vòng này sẽ không được tính vào bảng xếp hạng.":
+    "Easy difficulty is ranked as usual. With any other difficulty option on, this run is unranked.",
+  "Hầu hết chúng là các tiện ích mở rộng của trình duyệt (chẳng hạn như chặn quảng cáo) hoặc các tab khác. Đóng các tab như video hoặc mở cửa sổ ẩn danh và thử - tiện ích mở rộng không chạy ở chế độ ẩn danh theo mặc định.":
+    "Usually browser extensions (such as ad blockers) or other tabs. Close tabs like videos, or try a private window. Extensions don't run in private windows by default.",
   "xếp hạng ·": "ranked ·",
   "lượt chơi": "plays",
   "Gói map chưa hợp lệ:": "Invalid map pack:",

@@ -4,7 +4,7 @@
 //
 // Header fields (angles: SIM/bot convention, facingYaw = atan2(dx, dz), forward = (sin, cos)):
 //   inputs:  { file, sha256 }  hash of the map json fields this data was derived from
-//            (spawns, barriers, sites, setups, retake); the round tests fail when it is stale.
+//            (spawns, barriers, sites, setups, retake, attack); the round tests fail when it is stale.
 //   setups:  { <name>: { group, node, walk, face, face2, faceNode, face2Node, spawnT } }
 //            node  = nav node within 0.5 m xz / 0.3 m y of the spot, else -1
 //            walk  = node reachable from the defender spawns on walk + drop edges with the
@@ -24,6 +24,32 @@
 //            spike can lie; noDefuseNode = fraction with no walk + drop node (reachable from the
 //            defender spawn) within 1.6 m xz and |dy| < 2 (round-core's defuse rule)
 //   siteGoals: { <site>: { node, x, y, z } }  the nav node nearest the site centre on the zone floor
+//   attack:  checks and derived spots for the attacker bots (map json `attack`, round mode R3), or
+//            null when the map has no attack block. "Attackers walk" = walk + drop edges (what the
+//            bots path on), from the 5 attacker spawns, no barriers.
+//     plant:     { <site>: [{ name, node, margin, inZone, reach, nearOk, near, spawnT }] }
+//                margin = xz distance from the node to the zone polygon's edge (m); inZone = node in
+//                the polygon and the site's y range; reach = attackers walk there; nearOk = every node
+//                attackers reach on any edge within PLANT_NEAR (xz, |dy| < 2) of the node is inside
+//                the zone and defusable (= none of them is in zones.bad), so a bot that stops a bit
+//                off the node still plants a defusable spike; spawnT = slowest attacker spawn (s)
+//     staging:   { <site>: [{ route, entry: { name, node }, staging: [{ name, node, side, reach,
+//                spawnT, wait: { node, t }, plantT: [s per plant spot], entryD: [m per plant spot] }] }] }
+//                side = 'attack' | 'neutral' | 'defense' (barrier phase: reached from that team's
+//                spawns over all edges with its barriers up, else neutral); wait = the node on the
+//                attackers' barrier-phase side (walk + drop, attacker barriers up) with the shortest
+//                walk + drop time to the staging point (where a bot waits for the barrier to drop),
+//                t = that time; plantT = walk + drop time staging -> plant spot; entryD = closest xz
+//                distance of that shortest path to the route's entry waypoint (the route is real
+//                only when the bots' shortest path passes the entry)
+//     postPlant: { <site>: { <plant name>: [{ node, x, y, z, d, seen }] } }  where attackers hold
+//                after the plant: nodes POST_MIN..POST_MAX m (3D) from the plant node, attackers walk
+//                there, open floor (8 walk neighbours), the bots' sight test from eye height (floor
+//                + 1.6) to the spike (plant floor + 0.3) is clear; ranked by seen = how many of the
+//                site's retake staging points see the spot (eye 1.6 at the point, 1.0 or 1.6 above
+//                the spot; fewer first), then the attackers' side first (slowest attacker spawn ->
+//                node walk + drop time, less first), then node; greedily POST_TOP of them at least
+//                POST_GAP m apart and POST_SPREAD degrees apart as seen from the spike (crossfire)
 import crypto from 'node:crypto';
 import { reverseEdges } from '../app/mods/aim-rounds/round-nav.mjs';
 import { TYPES, nodeIndex, nodesNear, nearestNode, flood, dijkstra, barrierMask, viaPath } from './round_navlib.mjs';
@@ -34,9 +60,22 @@ export const DEFUSE_R = 1.6, DEFUSE_DY = 2;
 export const ATTACKER_TYPES = [0, 1, 2]; // walk, drop, jump up (no 2-cell gap hops)
 const r2 = (v) => Math.round(v * 100) / 100, r4 = (v) => Math.round(v * 1e4) / 1e4;
 
+export const PLANT_MARGIN = 1.0, PLANT_NEAR = 1.0, SPIKE_H = 0.3;
+export const POST_MIN = 6, POST_MAX = 20, POST_TOP = 4, POST_GAP = 4, POST_SPREAD = 20;
+
 export function inputsHash(data) {
-  const { spawns, barriers, sites, setups, retake } = data;
-  return crypto.createHash('sha256').update(JSON.stringify({ spawns, barriers, sites, setups, retake: retake ?? null })).digest('hex');
+  const { spawns, barriers, sites, setups, retake, attack } = data;
+  return crypto.createHash('sha256').update(JSON.stringify({ spawns, barriers, sites, setups, retake: retake ?? null, attack: attack ?? null })).digest('hex');
+}
+// xz distance from (x, z) to the nearest edge of a polygon.
+export function polyEdgeDist(poly, x, z) {
+  let m = Infinity;
+  for (let a = 0, b = poly.length - 1; a < poly.length; b = a++) {
+    const [ax, az] = poly[b], [bx, bz] = poly[a], vx = bx - ax, vz = bz - az, l = vx * vx + vz * vz;
+    const t = l > 0 ? Math.max(0, Math.min(1, ((x - ax) * vx + (z - az) * vz) / l)) : 0;
+    m = Math.min(m, Math.hypot(x - ax - vx * t, z - az - vz * t));
+  }
+  return m;
 }
 export function inPoly(poly, x, z) {
   let ins = false;
@@ -114,7 +153,221 @@ export function deriveHeader(g, T, data) {
     }
     zones[id] = { samples, noDefuseNode: samples ? r4(bad.length / samples) : 0, bad };
   }
-  return { setups, staging, zones, siteGoals };
+  return { setups, staging, zones, siteGoals, attack: deriveAttack(g, T, data, C) };
+}
+
+// ---------------------------------------------------------------- attack side (R3)
+// Floods / fields the attacker checks share (see the header comment, `attack`).
+export function attackContext(g, data, C = navContext(g, data)) {
+  return {
+    atkWalk: flood(g, C.sp.attack, { types: TYPES.walkDrop }),                       // live
+    atkWalkBar: flood(g, C.sp.attack, { types: TYPES.walkDrop, mask: C.atkMask }),   // barrier phase
+    atkSide: flood(g, C.sp.attack, { types: TYPES.all, mask: C.atkMask }),
+    defSide: flood(g, C.sp.defense, { types: TYPES.all, mask: C.defMask }),
+    spawnT: C.sp.attack.map((n) => dijkstra(g, [n], { types: TYPES.walkDrop }).dist),
+  };
+}
+export const sideOf = (A, i) => (A.defSide[i] !== -2 ? 'defense' : A.atkSide[i] !== -2 ? 'attack' : 'neutral');
+const openFloor = (g, i) => { let d = 0; for (let e = g.edgeStart[i]; e < g.edgeStart[i + 1]; e++) if (g.edgeType[e] === 0) d++; return d >= 8; };
+const inSite = (g, s, i) => inPoly(s.zone, g.x[i], g.z[i]) && g.y[i] >= s.y[0] && g.y[i] <= s.y[1];
+// round-core's defuse rule from a defender-walkable node (same as header.zones).
+const defusable = (C, i) => nodesNear(C.g, C.H, C.g.x[i], C.g.z[i], DEFUSE_R).some((j) => C.defWalk[j] !== -2 && Math.abs(C.g.y[j] - C.g.y[i]) < DEFUSE_DY);
+
+export function plantCheck(g, C, A, s, node) {
+  if (node < 0) return { node, margin: 0, inZone: false, reach: false, nearOk: false, near: 0, spawnT: null };
+  const near = nodesNear(g, C.H, g.x[node], g.z[node], PLANT_NEAR).filter((j) => C.atkAll[j] !== -2 && Math.abs(g.y[j] - g.y[node]) < DEFUSE_DY);
+  const reach = A.atkWalk[node] !== -2;
+  return {
+    node, margin: r2(inPoly(s.zone, g.x[node], g.z[node]) ? polyEdgeDist(s.zone, g.x[node], g.z[node]) : -polyEdgeDist(s.zone, g.x[node], g.z[node])),
+    inZone: inSite(g, s, node), reach, nearOk: near.every((j) => inSite(g, s, j) && defusable(C, j)), near: near.length,
+    spawnT: reach ? r2(Math.max(...A.spawnT.map((f) => f[node]))) : null,
+  };
+}
+
+export function deriveAttack(g, T, data, C = navContext(g, data)) {
+  const atk = data.attack;
+  if (!atk) return null;
+  const A = attackContext(g, data, C), { H } = C;
+  const snap = (p) => nearestNode(g, H, p.x, p.z, 0.5, p.y, 0.3);
+  const plant = {}, staging = {}, postPlant = {};
+  for (const [id, list] of Object.entries(atk.plant)) {
+    const s = data.sites.find((q) => q.id === id);
+    plant[id] = list.map((p) => ({ name: p.name, ...plantCheck(g, C, A, s, snap(p)) }));
+  }
+  for (const [id, routes] of Object.entries(atk.routes)) {
+    const pn = (plant[id] ?? []).map((p) => p.node);
+    staging[id] = routes.map((rt) => {
+      const e = rt.entry;
+      const points = rt.staging.map((p) => {
+        const node = snap(p);
+        if (node < 0) return { name: p.name, node, side: null, reach: false, spawnT: null, wait: null, plantT: [], entryD: [] };
+        const fwd = dijkstra(g, [node], { types: TYPES.walkDrop });
+        const back = dijkstra(g, [node], { types: TYPES.walkDrop, toward: true, rev: C.rev });
+        let w = -1;
+        for (let i = 0; i < g.count; i++) if (A.atkWalkBar[i] !== -2 && Number.isFinite(back.dist[i]) && (w < 0 || back.dist[i] < back.dist[w])) w = i;
+        const reach = A.spawnT.every((f) => Number.isFinite(f[node]));
+        return {
+          name: p.name, node, side: sideOf(A, node), reach,
+          spawnT: reach ? r2(Math.max(...A.spawnT.map((f) => f[node]))) : null,
+          wait: w >= 0 ? { node: w, t: r2(back.dist[w]) } : null,
+          plantT: pn.map((n) => (n >= 0 && Number.isFinite(fwd.dist[n]) ? r2(fwd.dist[n]) : null)),
+          entryD: pn.map((n) => (n >= 0 && Number.isFinite(fwd.dist[n]) ? r2(Math.min(...viaPath(fwd.via, n).map((q) => Math.hypot(g.x[q] - e.x, g.z[q] - e.z)))) : null)),
+        };
+      });
+      return { route: rt.name, entry: { name: e.name, node: snap(e) }, staging: points };
+    });
+  }
+  for (const [id, list] of Object.entries(plant)) {
+    postPlant[id] = {};
+    const views = (data.retake?.[id] ?? []).map((q) => [q.x, q.y + EYE, q.z]);
+    for (const p of list) {
+      if (p.node < 0) { postPlant[id][p.name] = []; continue; }
+      const px = g.x[p.node], py = g.y[p.node], pz = g.z[p.node], spike = [px, py + SPIKE_H, pz];
+      const cands = [];
+      for (const i of nodesNear(g, H, px, pz, POST_MAX)) {
+        const d = Math.hypot(g.x[i] - px, g.y[i] - py, g.z[i] - pz);
+        // attackers walk there from every spawn (also keeps t finite for the sort)
+        if (d < POST_MIN || d > POST_MAX || A.atkWalk[i] === -2 || !openFloor(g, i) || !A.spawnT.every((f) => Number.isFinite(f[i]))) continue;
+        if (!T.sight([g.x[i], g.y[i] + EYE, g.z[i]], spike)) continue;
+        const seen = views.filter((v) => T.sight(v, [g.x[i], g.y[i] + BODY, g.z[i]]) || T.sight(v, [g.x[i], g.y[i] + EYE, g.z[i]])).length;
+        cands.push({ i, d, seen, t: Math.max(...A.spawnT.map((f) => f[i])), a: Math.atan2(g.x[i] - px, g.z[i] - pz) });
+      }
+      cands.sort((a, b) => a.seen - b.seen || a.t - b.t || a.i - b.i);
+      const pick = [];
+      for (const k of cands) {
+        if (pick.length >= POST_TOP) break;
+        if (pick.some((q) => Math.hypot(g.x[q.i] - g.x[k.i], g.z[q.i] - g.z[k.i]) < POST_GAP || angDiff(q.a, k.a) < POST_SPREAD * Math.PI / 180)) continue;
+        pick.push(k);
+      }
+      postPlant[id][p.name] = pick.map((k) => ({ node: k.i, x: r2(g.x[k.i]), y: r2(g.y[k.i]), z: r2(g.z[k.i]), d: r2(k.d), seen: k.seen }));
+    }
+  }
+  return { plant, staging, postPlant };
+}
+
+// Plant spot candidates for a site (how the authored ATTACK plant spots in round_author.mjs were
+// picked): attackers walk there, at least PLANT_MARGIN inside the zone polygon and inside its y range,
+// nearOk (plantCheck), open floor; nearest to the site goal first.
+export function plantCandidates(g, data, siteId, { C = navContext(g, data), A = attackContext(g, data, C) } = {}) {
+  const S = C.sites[siteId], s = S.site, c = S.centre, out = [];
+  for (let i = 0; i < g.count; i++) {
+    if (A.atkWalk[i] === -2 || !inSite(g, s, i) || polyEdgeDist(s.zone, g.x[i], g.z[i]) < PLANT_MARGIN || !openFloor(g, i)) continue;
+    const k = plantCheck(g, C, A, s, i);
+    if (!k.nearOk) continue;
+    out.push({ node: i, x: r2(g.x[i]), y: r2(g.y[i]), z: r2(g.z[i]), d: r2(Math.hypot(g.x[i] - g.x[c], g.z[i] - g.z[c])), margin: k.margin, spawnT: k.spawnT });
+  }
+  return out.sort((a, b) => a.d - b.d || a.node - b.node);
+}
+// Attacker staging candidates near a spot (how the authored ATTACK staging points were picked):
+// within r m (xz) of (x, z), open floor, never on the defender side, attackers walk there from all 5
+// spawns; nearest to the spot first.
+export function attackStagingCandidates(g, data, x, z, { r = 4, C = navContext(g, data), A = attackContext(g, data, C) } = {}) {
+  return nodesNear(g, C.H, x, z, r).filter((i) => openFloor(g, i) && sideOf(A, i) !== 'defense' && A.spawnT.every((f) => Number.isFinite(f[i])))
+    .map((i) => ({ node: i, x: r2(g.x[i]), y: r2(g.y[i]), z: r2(g.z[i]), side: sideOf(A, i), d: r2(Math.hypot(g.x[i] - x, g.z[i] - z)), spawnT: r2(Math.max(...A.spawnT.map((f) => f[i]))) }));
+}
+
+// ---------------------------------------------------------------- setup candidates (R4 maps)
+// Sight sample points along a barrier segment (where the other team comes through or waits): at 20,
+// 50 and 80 % of its length, on the floor of the nearest node within 1.5 m inside the barrier's y
+// range, 1.0 and 1.6 m above it.
+export function barrierSamples(g, H, b) {
+  const out = [];
+  for (const t of [0.2, 0.5, 0.8]) {
+    const x = b.a.x + (b.b.x - b.a.x) * t, z = b.a.z + (b.b.z - b.a.z) * t;
+    const n = nodesNear(g, H, x, z, 1.5).find((i) => !Array.isArray(b.y) || (g.y[i] >= b.y[0] && g.y[i] <= b.y[1]));
+    if (n === undefined) continue;
+    out.push([x, g.y[n] + BODY, z], [x, g.y[n] + EYE, z]);
+  }
+  return out;
+}
+// Attackers' fastest time from their barriers to each site's zone (walk + drop, from the nodes on the
+// attackers' barrier-phase side within 1.5 m of an attacker barrier, no barriers): with the shortest
+// barrier phase (10 s) a defender setup is safe in time when its spawnT <= 10 + this.
+export function attackEntryTimes(g, data, C = navContext(g, data)) {
+  const A = attackContext(g, data, C), src = [];
+  for (const b of data.barriers.filter((q) => q.team === 'attack')) {
+    const vx = b.b.x - b.a.x, vz = b.b.z - b.a.z, l = vx * vx + vz * vz;
+    for (const i of nodesNear(g, C.H, (b.a.x + b.b.x) / 2, (b.a.z + b.b.z) / 2, Math.sqrt(l) / 2 + 1.5)) {
+      const t = Math.max(0, Math.min(1, ((g.x[i] - b.a.x) * vx + (g.z[i] - b.a.z) * vz) / l));
+      if (A.atkWalkBar[i] !== -2 && Math.hypot(g.x[i] - b.a.x - vx * t, g.z[i] - b.a.z - vz * t) <= 1.5) src.push(i);
+    }
+  }
+  const f = dijkstra(g, src, { types: TYPES.walkDrop }).dist, out = {};
+  for (const s of data.sites) {
+    let m = Infinity;
+    for (let i = 0; i < g.count; i++) if (f[i] < m && inSite(g, s, i)) m = f[i];
+    out[s.id] = r2(m);
+  }
+  return out;
+}
+// Defender setup candidates (how the authored SETUPS of the R4 maps were picked) for a site id, or for
+// a group around `near` points ([x, z] list, e.g. mid callouts): defender-walkable (walk + drop from
+// the defender spawns with the defender barriers up), open floor, inside the zone or within `range`
+// m of it (of a near point), slowest defender spawn -> node <= maxSpawnT s (default for a site:
+// 10 s barrier + the attackers' fastest barrier -> zone time - SETUP_MARGIN, so a setup is held
+// before the first attacker can step into the zone; for a group: MID_SPAWN_T); sees at least one
+// "entrance" (a defender barrier: where attackers come in) within faceRange m and is seen from at
+// most maxSeenBy of them (the bots' sight test, eye 1.6 m, barrier samples 1.0 / 1.6 m);
+// hiddenAtk = no attacker-barrier sample sees it at 1.0 or 1.6 m (attackers waiting at their
+// barriers). Ranked: seen by fewer entrances, then sees more, then nearer the site centre; picked
+// greedily `gap` m apart. Also returns any `hints` ([x, y, z, name]) checked against the same rules.
+export const SETUP_BARRIER_S = 10, SETUP_MARGIN = 1, MID_SPAWN_T = 11.5;
+export function setupCandidates(g, T, data, group, { near = null, range = 12, maxSpawnT = null, faceRange = FACE_RANGE, maxSeenBy = 2, gap = 3, top = 14, hints = [] } = {}) {
+  const C = navContext(g, data), { H } = C;
+  const site = data.sites.find((s) => s.id === group);
+  if (!site && !near) throw new Error(`setupCandidates: ${group} is not a site id; pass near points`);
+  const entryT = attackEntryTimes(g, data, C);
+  if (maxSpawnT === null) maxSpawnT = site ? SETUP_BARRIER_S + entryT[site.id] - SETUP_MARGIN : MID_SPAWN_T;
+  const ctr = site ? [site.center.x, site.center.z] : [near.reduce((a, p) => a + p[0], 0) / near.length, near.reduce((a, p) => a + p[1], 0) / near.length];
+  const spawnFields = C.sp.defense.map((n) => dijkstra(g, [n], { types: TYPES.walkDrop, mask: C.defMask }).dist);
+  const ent = data.barriers.filter((b) => b.team === 'defense').map((b) => ({ id: b.id, pts: barrierSamples(g, H, b) }));
+  const atk = data.barriers.filter((b) => b.team === 'attack').map((b) => ({ id: b.id, pts: barrierSamples(g, H, b) }));
+  const inArea = (i) => site
+    ? (inPoly(site.zone, g.x[i], g.z[i]) || polyEdgeDist(site.zone, g.x[i], g.z[i]) <= range)
+    : near.some(([x, z]) => Math.hypot(g.x[i] - x, g.z[i] - z) <= range);
+  const judge = (i) => {
+    const spawnT = Math.max(...spawnFields.map((f) => f[i]));
+    const eye = [g.x[i], g.y[i] + EYE, g.z[i]], body = [g.x[i], g.y[i] + BODY, g.z[i]];
+    const sees = [], seenBy = [];
+    for (const e of ent) {
+      const pts = e.pts.filter((p) => Math.hypot(p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]) <= faceRange);
+      if (pts.some((p) => T.sight(eye, p))) sees.push(e.id);
+      if (pts.some((p) => T.sight(p, eye) || T.sight(p, body))) seenBy.push(e.id);
+    }
+    const hiddenAtk = !atk.some((a) => a.pts.some((p) => T.sight(p, eye) || T.sight(p, body)));
+    return { spawnT, sees, seenBy, hiddenAtk };
+  };
+  const zoneY = site ? site.y[0] + 0.3 : null;
+  // The spot must reach its site goal (any site for a non-site group) over walk + drop edges: a spot
+  // the bots can only leave by a rope (Split's Mid Vent room) can't rotate or retake.
+  const reachesGoal = (i) => site ? Number.isFinite(C.sites[site.id].field.dist[i]) : Object.values(C.sites).some((S) => Number.isFinite(S.field.dist[i]));
+  const out = [];
+  for (let i = 0; i < g.count; i++) {
+    if (C.defWalkBar[i] === -2 || !inArea(i) || !openFloor(g, i) || !reachesGoal(i)) continue;
+    const sp = Math.max(...spawnFields.map((f) => f[i]));
+    if (!(sp <= maxSpawnT)) continue;
+    const j = judge(i);
+    if (!j.sees.length || j.seenBy.length > maxSeenBy) continue;
+    out.push({ node: i, x: r2(g.x[i]), y: r2(g.y[i]), z: r2(g.z[i]), spawnT: r2(j.spawnT), sees: j.sees, seenBy: j.seenBy, hiddenAtk: j.hiddenAtk,
+      inZone: site ? inSite(g, site, i) : false, high: zoneY !== null && g.y[i] > zoneY + 1, d: r2(Math.hypot(g.x[i] - ctr[0], g.z[i] - ctr[1])) });
+  }
+  out.sort((a, b) => a.seenBy.length - b.seenBy.length || b.sees.length - a.sees.length || a.d - b.d || a.node - b.node);
+  const pick = [];
+  for (const k of out) { if (pick.length >= top) break; if (pick.some((q) => Math.hypot(q.x - k.x, q.z - k.z) < gap)) continue; pick.push(k); }
+  const hint = hints.map(([x, y, z, name]) => {
+    const n = nearestNode(g, H, x, z, 0.75, y, 0.6);
+    if (n < 0) return { name, node: -1 };
+    const j = judge(n);
+    return { name, node: n, x: r2(g.x[n]), y: r2(g.y[n]), z: r2(g.z[n]), walk: C.defWalkBar[n] !== -2, open: openFloor(g, n), area: inArea(n), goal: reachesGoal(n), spawnT: r2(j.spawnT), sees: j.sees, seenBy: j.seenBy, hiddenAtk: j.hiddenAtk };
+  });
+  // Per entrance: the best few that watch it (same ranking, `gap` apart), so every entrance gets a look.
+  const byEntrance = {};
+  for (const e of ent) {
+    const l = [];
+    for (const k of out) { if (l.length >= 5) break; if (!k.sees.includes(e.id) || l.some((q) => Math.hypot(q.x - k.x, q.z - k.z) < gap)) continue; l.push(k); }
+    byEntrance[e.id] = l;
+  }
+  return { count: out.length, maxSpawnT: r2(maxSpawnT), pick, byEntrance, hints: hint, entryT };
 }
 
 // Travel-time report (seconds on edgeCost, i.e. run speed 6.75 m/s).
@@ -145,7 +398,7 @@ export function travelReport(g, data, header) {
       const t = S.field.dist[s.node];
       if (!worst || t > worst.t) worst = { name, t };
     }
-    out.sites[id] = { worstSetup: worst.name, t: r2(worst.t), plusDefuse: r2(worst.t + 7), budget: 45 };
+    out.sites[id] = worst ? { worstSetup: worst.name, t: r2(worst.t), plusDefuse: r2(worst.t + 7), budget: 45 } : { worstSetup: null, t: null, plusDefuse: null, budget: 45 };
     out.spawnToSite[id] = r2(Math.max(...C.sp.defense.map((n) => S.field.dist[n])));
   }
   return out;
@@ -191,6 +444,54 @@ export function plots(g, data, header, dir, map) {
     draw([Math.min(...xsS) - 14, Math.max(...xsS) + 14, Math.min(...zsS) - 14, Math.max(...zsS) + 14], 16, `${map} SITE ${s.id}. ${legend}`, `${dir}/${map}-nav-site-${s.id}.png`);
   }
   return files;
+}
+
+// Top-down plot of the attacker data (header.attack): routes (staging -> plant paths), entry
+// waypoints, plant spots, post-plant spots with a line to their plant spot.
+export function attackPlot(g, data, header, file, map = data.map) {
+  const at = header.attack;
+  if (!at) throw new Error('attackPlot: header has no attack data');
+  const pts = [...data.sites.flatMap((s) => s.zone), ...data.spawns.attack.map((p) => [p.x, p.z])];
+  const x0 = Math.min(...pts.map((p) => p[0])) - 12, x1 = Math.max(...pts.map((p) => p[0])) + 12;
+  const z0 = Math.min(...pts.map((p) => p[1])) - 12, z1 = Math.max(...pts.map((p) => p[1])) + 12, S = 7;
+  const W = Math.ceil((x1 - x0) * S), Hh = Math.ceil((z1 - z0) * S) + 52;
+  const im = new Img(W, Hh), px = (x) => (x - x0) * S, pz = (z) => (z - z0) * S + 52;
+  const order = [...Array(g.count).keys()].filter((i) => g.x[i] >= x0 && g.x[i] <= x1 && g.z[i] >= z0 && g.z[i] <= z1).sort((a, b) => g.y[a] - g.y[b]);
+  for (const i of order) { const v = Math.round(50 + Math.max(0, Math.min(1, (g.y[i] + 2) / 12)) * 80); im.rect(px(g.x[i]), pz(g.z[i]), 4, [v, v, v + 8]); }
+  for (const s of data.sites) { const p = s.zone; for (let k = 0; k < p.length; k++) { const q = p[(k + 1) % p.length]; im.line(px(p[k][0]), pz(p[k][1]), px(q[0]), pz(q[1]), [250, 220, 40], 2); } }
+  for (const b of data.barriers) im.line(px(b.a.x), pz(b.a.z), px(b.b.x), pz(b.b.z), b.team === 'attack' ? [255, 160, 0] : [0, 220, 230], 3);
+  for (const s of data.spawns.attack) im.circle(px(s.x), pz(s.z), 4, [255, 255, 255]);
+  const routeCol = [[90, 255, 120], [255, 120, 255]];
+  for (const [id, routes] of Object.entries(at.staging)) routes.forEach((rt, k) => {
+    const col = routeCol[k % 2], pn = at.plant[id].map((p) => p.node).filter((n) => n >= 0);
+    for (const st of rt.staging) {
+      if (st.node < 0) continue;
+      const f = dijkstra(g, [st.node], { types: TYPES.walkDrop });
+      for (const n of pn) { const path = viaPath(f.via, n); for (let m = 1; m < path.length; m++) im.line(px(g.x[path[m - 1]]), pz(g.z[path[m - 1]]), px(g.x[path[m]]), pz(g.z[path[m]]), col.map((c) => c * 0.6), 1); }
+      if (st.wait && st.wait.node !== st.node) { const w = st.wait.node; im.rect(px(g.x[w]), pz(g.z[w]), 6, [255, 160, 0]); }
+    }
+    for (const st of rt.staging) if (st.node >= 0) { im.rect(px(g.x[st.node]), pz(g.z[st.node]), 9, [0, 0, 0]); im.rect(px(g.x[st.node]), pz(g.z[st.node]), 7, col); }
+    const s0 = rt.staging.find((q) => q.node >= 0);
+    if (s0) im.label(px(g.x[s0.node]) + 8, pz(g.z[s0.node]) - 4, `${id} ${rt.route}`, col, 2);
+    const e = data.attack.routes[id][k].entry;
+    im.circle(px(e.x), pz(e.z), 3 * S, col, 2); im.label(px(e.x) + 3 * S + 3, pz(e.z) - 4, `ENTRY ${e.name}`, col, 2);
+  });
+  for (const [id, list] of Object.entries(at.plant)) list.forEach((p) => {
+    if (p.node < 0) return;
+    const X = px(g.x[p.node]), Z = pz(g.z[p.node]);
+    for (const q of at.postPlant[id][p.name]) {
+      im.line(X, Z, px(q.x), pz(q.z), [80, 170, 255], 1);
+      im.rect(px(q.x), pz(q.z), 9, [0, 0, 0]); im.rect(px(q.x), pz(q.z), 7, q.seen ? [150, 200, 255] : [60, 140, 255]);
+    }
+    im.circle(X, Z, DEFUSE_R * S, [255, 60, 60], 2); im.rect(X, Z, 7, [255, 60, 60]);
+    im.label(X + 8, Z + 6, p.name, [255, 120, 120], 2);
+  });
+  [`${map} ATTACK DATA. X RIGHT, Z DOWN. WHITE RINGS = ATTACKER SPAWNS.`,
+    'GREEN/PINK = ROUTES - SQUARES STAGING, LINES PATH TO PLANT, RING ENTRY.',
+    'RED = PLANT SPOT (RING = DEFUSE RADIUS). BLUE = POST-PLANT SPOT.',
+    'BARRIERS - ORANGE ATTACKER, CYAN DEFENDER. ORANGE SQUARE = WAIT NODE.'].forEach((t, k) => im.text(6, 4 + k * 12, t, [255, 255, 255], 2));
+  im.save(file);
+  return file;
 }
 
 // Retake staging candidates for a site (how the authored RETAKE points in round_author.mjs were

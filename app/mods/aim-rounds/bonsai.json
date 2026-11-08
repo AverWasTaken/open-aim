@@ -1,0 +1,1181 @@
+{
+ "schema": 1,
+ "map": "bonsai",
+ "name": "Split",
+ "spawns": {
+  "attack": [
+   {
+    "x": 0.6,
+    "y": 3,
+    "z": -19.02,
+    "yaw": 1.56
+   },
+   {
+    "x": 0.59,
+    "y": 3,
+    "z": -17.42,
+    "yaw": 1.56
+   },
+   {
+    "x": 0.61,
+    "y": 3,
+    "z": -20.62,
+    "yaw": 1.56
+   },
+   {
+    "x": 0.58,
+    "y": 3,
+    "z": -15.82,
+    "yaw": 1.56
+   },
+   {
+    "x": 0.62,
+    "y": 3,
+    "z": -22.22,
+    "yaw": 1.56
+   }
+  ],
+  "defense": [
+   {
+    "x": -89.65,
+    "y": 5,
+    "z": -21.42,
+    "yaw": -1.61
+   },
+   {
+    "x": -89.59,
+    "y": 5,
+    "z": -23.02,
+    "yaw": -1.61
+   },
+   {
+    "x": -89.71,
+    "y": 5,
+    "z": -19.82,
+    "yaw": -1.61
+   },
+   {
+    "x": -89.53,
+    "y": 5,
+    "z": -24.62,
+    "yaw": -1.61
+   },
+   {
+    "x": -89.77,
+    "y": 5,
+    "z": -18.22,
+    "yaw": -1.61
+   }
+  ]
+ },
+ "barriers": [
+  {
+   "id": "atk-a-main",
+   "team": "attack",
+   "name": "A Lobby / A Main",
+   "a": {
+    "x": -35.5,
+    "z": -75.5
+   },
+   "b": {
+    "x": -35.5,
+    "z": -67.5
+   },
+   "y": [
+    1.27,
+    7.5
+   ],
+   "width": 7
+  },
+  {
+   "id": "atk-a-sewer",
+   "team": "attack",
+   "name": "A Sewer / Mid Bottom",
+   "a": {
+    "x": -26.5,
+    "z": -47
+   },
+   "b": {
+    "x": -21.5,
+    "z": -47
+   },
+   "y": [
+    -0.63,
+    6.13
+   ],
+   "width": 4
+  },
+  {
+   "id": "atk-b-link",
+   "team": "attack",
+   "name": "B Lobby / B Link",
+   "a": {
+    "x": -21.95,
+    "z": 4.25
+   },
+   "b": {
+    "x": -17.5,
+    "z": 4.25
+   },
+   "y": [
+    2,
+    8
+   ],
+   "width": 3.45
+  },
+  {
+   "id": "atk-b-garage",
+   "team": "attack",
+   "name": "B Lobby / B Garage",
+   "a": {
+    "x": -32.25,
+    "z": 10.5
+   },
+   "b": {
+    "x": -32.25,
+    "z": 15.5
+   },
+   "y": [
+    2,
+    7.5
+   ],
+   "width": 4
+  },
+  {
+   "id": "def-a-main",
+   "team": "defense",
+   "name": "A Site / A Main",
+   "a": {
+    "x": -53,
+    "z": -64.5
+   },
+   "b": {
+    "x": -53,
+    "z": -59.5
+   },
+   "y": [
+    0.88,
+    6.5
+   ],
+   "width": 4
+  },
+  {
+   "id": "def-a-tower",
+   "team": "defense",
+   "name": "A Tower / A Ramps",
+   "a": {
+    "x": -58.75,
+    "z": -48
+   },
+   "b": {
+    "x": -58.75,
+    "z": -43
+   },
+   "y": [
+    5.5,
+    11
+   ],
+   "width": 4
+  },
+  {
+   "id": "def-mid-vent",
+   "team": "defense",
+   "name": "Mid Vent / Mid Top",
+   "a": {
+    "x": -55.97,
+    "z": -30.5
+   },
+   "b": {
+    "x": -51.5,
+    "z": -30.5
+   },
+   "y": [
+    5.5,
+    11
+   ],
+   "width": 3.47
+  },
+  {
+   "id": "def-mid-mail",
+   "team": "defense",
+   "name": "Mid Mail / Mid Top",
+   "a": {
+    "x": -48.8,
+    "z": -15.75
+   },
+   "b": {
+    "x": -44.02,
+    "z": -15.75
+   },
+   "y": [
+    5.5,
+    11.66
+   ],
+   "width": 3.79
+  },
+  {
+   "id": "def-b-garage",
+   "team": "defense",
+   "name": "B Site / B Garage",
+   "a": {
+    "x": -46,
+    "z": 24.5
+   },
+   "b": {
+    "x": -46,
+    "z": 31.5
+   },
+   "y": [
+    2,
+    9.5
+   ],
+   "width": 6
+  }
+ ],
+ "sites": [
+  {
+   "id": "A",
+   "zone": [
+    [
+     -76.49,
+     -83.17
+    ],
+    [
+     -53.45,
+     -83.17
+    ],
+    [
+     -53.45,
+     -69.98
+    ],
+    [
+     -76.49,
+     -69.98
+    ]
+   ],
+   "y": [
+    -0.3,
+    0.6
+   ],
+   "center": {
+    "x": -64.97,
+    "y": 0,
+    "z": -79.58
+   }
+  },
+  {
+   "id": "B",
+   "zone": [
+    [
+     -70.99,
+     7.86
+    ],
+    [
+     -61.22,
+     7.86
+    ],
+    [
+     -61.22,
+     25.03
+    ],
+    [
+     -70.99,
+     25.03
+    ]
+   ],
+   "y": [
+    2.2,
+    6.6
+   ],
+   "center": {
+    "x": -66.1,
+    "y": 4,
+    "z": 16.44
+   }
+  }
+ ],
+ "setups": {
+  "defense": {
+   "A": [
+    {
+     "name": "A site",
+     "x": -69.33,
+     "y": 0.042,
+     "z": -69.83
+    },
+    {
+     "name": "A front",
+     "x": -63.33,
+     "y": 1,
+     "z": -65.83
+    },
+    {
+     "name": "A screens",
+     "x": -75.33,
+     "y": 1,
+     "z": -63.33
+    },
+    {
+     "name": "A main door",
+     "x": -55.33,
+     "y": 1.917,
+     "z": -62.83
+    },
+    {
+     "name": "A site south",
+     "x": -66.83,
+     "y": 1,
+     "z": -61.83
+    }
+   ],
+   "mid": [
+    {
+     "name": "Mail",
+     "x": -51.33,
+     "y": 8,
+     "z": -13.83
+    },
+    {
+     "name": "Mail door",
+     "x": -47.33,
+     "y": 6.564,
+     "z": -14.83
+    },
+    {
+     "name": "A tower",
+     "x": -62.83,
+     "y": 6.5,
+     "z": -42.33
+    }
+   ],
+   "B": [
+    {
+     "name": "B site",
+     "x": -67.33,
+     "y": 3.665,
+     "z": 23.67
+    },
+    {
+     "name": "B site front",
+     "x": -64.33,
+     "y": 3.165,
+     "z": 24.67
+    },
+    {
+     "name": "B right",
+     "x": -56.83,
+     "y": 3,
+     "z": 19.67
+    },
+    {
+     "name": "B back",
+     "x": -72.33,
+     "y": 3,
+     "z": 28.17
+    },
+    {
+     "name": "B corner",
+     "x": -53.83,
+     "y": 3,
+     "z": 22.67
+    }
+   ]
+  },
+  "splits": [
+   [
+    2,
+    1,
+    2
+   ],
+   [
+    2,
+    1,
+    2
+   ],
+   [
+    3,
+    0,
+    2
+   ],
+   [
+    2,
+    0,
+    3
+   ],
+   [
+    1,
+    1,
+    3
+   ],
+   [
+    3,
+    1,
+    1
+   ]
+  ]
+ },
+ "retake": {
+  "A": [
+   {
+    "name": "A back",
+    "x": -79.83,
+    "y": 0.62,
+    "z": -68.33
+   },
+   {
+    "name": "A screens door",
+    "x": -72.83,
+    "y": 1,
+    "z": -61.83
+   }
+  ],
+  "B": [
+   {
+    "name": "B alley",
+    "x": -80.83,
+    "y": 4.832,
+    "z": 5.67
+   },
+   {
+    "name": "B back south",
+    "x": -74.83,
+    "y": 3,
+    "z": 30.17
+   }
+  ]
+ },
+ "attack": {
+  "routes": {
+   "A": [
+    {
+     "name": "A Main",
+     "entry": {
+      "name": "A Main door",
+      "x": -52.83,
+      "y": 2,
+      "z": -61.83
+     },
+     "staging": [
+      {
+       "name": "A Main 1",
+       "x": -44.83,
+       "y": 2,
+       "z": -63.83
+      },
+      {
+       "name": "A Main 2",
+       "x": -43.33,
+       "y": 2,
+       "z": -63.83
+      },
+      {
+       "name": "A Main 3",
+       "x": -44.83,
+       "y": 2,
+       "z": -65.33
+      }
+     ]
+    },
+    {
+     "name": "A Ramps",
+     "entry": {
+      "name": "A Ramps stairs",
+      "x": -45.83,
+      "y": 4.043,
+      "z": -51.33
+     },
+     "staging": [
+      {
+       "name": "A Ramps 1",
+       "x": -50.33,
+       "y": 6.5,
+       "z": -44.83
+      },
+      {
+       "name": "A Ramps 2",
+       "x": -51.83,
+       "y": 6.5,
+       "z": -44.83
+      },
+      {
+       "name": "A Ramps 3",
+       "x": -50.33,
+       "y": 6.5,
+       "z": -43.33
+      }
+     ]
+    }
+   ],
+   "B": [
+    {
+     "name": "B Garage",
+     "entry": {
+      "name": "B Garage door",
+      "x": -45.83,
+      "y": 3,
+      "z": 27.83
+     },
+     "staging": [
+      {
+       "name": "B Garage 1",
+       "x": -38.33,
+       "y": 3,
+       "z": 22.17
+      },
+      {
+       "name": "B Garage 2",
+       "x": -36.83,
+       "y": 3,
+       "z": 22.17
+      },
+      {
+       "name": "B Garage 3",
+       "x": -38.33,
+       "y": 3,
+       "z": 23.67
+      }
+     ]
+    },
+    {
+     "name": "Mid Mail",
+     "entry": {
+      "name": "Mail door",
+      "x": -46.33,
+      "y": 6.5,
+      "z": -15.83
+     },
+     "staging": [
+      {
+       "name": "Mid Mail 1",
+       "x": -46.33,
+       "y": 6.5,
+       "z": -18.83
+      },
+      {
+       "name": "Mid Mail 2",
+       "x": -44.83,
+       "y": 6.5,
+       "z": -18.83
+      },
+      {
+       "name": "Mid Mail 3",
+       "x": -46.33,
+       "y": 6.5,
+       "z": -20.33
+      }
+     ]
+    }
+   ]
+  },
+  "plant": {
+   "A": [
+    {
+     "name": "A default",
+     "x": -64.83,
+     "y": 0,
+     "z": -79.83
+    },
+    {
+     "name": "A behind box",
+     "x": -68.83,
+     "y": 0,
+     "z": -76.83
+    }
+   ],
+   "B": [
+    {
+     "name": "B default",
+     "x": -66.33,
+     "y": 4,
+     "z": 16.67
+    },
+    {
+     "name": "B north",
+     "x": -66.33,
+     "y": 4,
+     "z": 11.67
+    }
+   ]
+  }
+ },
+ "authoring": {
+  "tool": "tools/round_author.mjs",
+  "world": "terrain: rays against the pawn world of tools/round_terrain.mjs (the nav bake's triangles)",
+  "siteCenter": {
+   "A": [
+    -64.97,
+    -79.58
+   ]
+  },
+  "notes": {
+   "barriers": "9 world marks at the nav chokes between the sides (the 9 SM_Barrier planes are parked at the origin). Each snaps to the narrowest closed choke within 3 m; the flood rule (one team per barrier, >= 5 cut walk edges, none bypassed with every barrier up) gives the mark team, and the seal check (ropes included) passes. The chokes are narrower than the plane lengths (15.4 .. 4 m): warning only",
+   "sides": "A Ramps neutral (the attackers' second way to A; defender barrier at the A Tower door); Mid Mail and Mid Vent defense; A Sewer attack (sewer room and its ropes are behind atk-a-sewer, reached by dropping from A Lobby)",
+   "ropes": "7 ropes (bonsai.ropes.json) are two-way links in the seal and barrier-team floods (no rope edges in the nav graph); a rope within 8 m of a barrier of team T must not cross it and both ends must be on T's side (authoring.ropes)",
+   "setupSpawnT": "setups: spawnT <= 10 s (shortest barrier) + attackers' fastest barrier -> zone time - 1 s (A 14 s, B 14.82 s; mid 11.5 s); the defender spawn is 9-12 s from both sites",
+   "setupsInZone": "A has no setup inside the zone: no spot in it sees a defender barrier within 30 m; the A setups stand on the site front band (0-8 m south of the zone) and at the A Main door",
+   "mid": "mid group: Mail and Mail door (watch def-mid-mail / def-mid-vent) and A tower (watches def-a-tower, the A Ramps door; it is more than 12 m from the A zone, so it can't be an A setup)",
+   "aRamps": "A Ramps route: the bots cannot drop from A Tower to the site (more than 4.5 m), so their path goes back down the ramps stairs and through the A Main door; its entry waypoint is the ramps stairs (the path passes it), not a barrier doorway",
+   "plant": "second plant spots are 5 m from the default (Ascent: about 6 m)"
+  },
+  "barriers": {
+   "atk-a-main": {
+    "mark": {
+     "a": [
+      -38.5,
+      -77
+     ],
+     "b": [
+      -38.5,
+      -64
+     ],
+     "world": {
+      "x": -38.5,
+      "z": -70.5
+     }
+    },
+    "shiftM": -3,
+    "widthM": 7,
+    "floors": [
+     2.27,
+     3
+    ],
+    "cutEdges": {
+     "walk": 68,
+     "all": 68
+    },
+    "votes": {
+     "attack": {
+      "walk": 68,
+      "all": 68
+     },
+     "defense": {
+      "walk": 0,
+      "all": 0
+     }
+    },
+    "inside": 0,
+    "conflict": 0,
+    "floodTeam": "attack",
+    "primMatch": {
+     "primLengthM": 15.43,
+     "diffM": -8.43
+    }
+   },
+   "atk-a-sewer": {
+    "mark": {
+     "a": [
+      -27.5,
+      -44
+     ],
+     "b": [
+      -20.5,
+      -44
+     ],
+     "world": {
+      "x": -24,
+      "z": -44
+     }
+    },
+    "shiftM": -3,
+    "widthM": 4,
+    "floors": [
+     0.38,
+     1.63
+    ],
+    "cutEdges": {
+     "walk": 32,
+     "all": 32
+    },
+    "votes": {
+     "attack": {
+      "walk": 32,
+      "all": 32
+     },
+     "defense": {
+      "walk": 0,
+      "all": 0
+     }
+    },
+    "inside": 0,
+    "conflict": 0,
+    "floodTeam": "attack",
+    "primMatch": {
+     "primLengthM": 8.75,
+     "diffM": -4.75
+    }
+   },
+   "atk-b-link": {
+    "mark": {
+     "a": [
+      -23,
+      6.5
+     ],
+     "b": [
+      -16.5,
+      6.5
+     ],
+     "world": {
+      "x": -19.75,
+      "z": 6.5
+     }
+    },
+    "shiftM": -2.25,
+    "widthM": 3.45,
+    "floors": [
+     3,
+     3.5
+    ],
+    "cutEdges": {
+     "walk": 26,
+     "all": 26
+    },
+    "votes": {
+     "attack": {
+      "walk": 26,
+      "all": 26
+     },
+     "defense": {
+      "walk": 0,
+      "all": 0
+     }
+    },
+    "inside": 0,
+    "conflict": 0,
+    "floodTeam": "attack",
+    "primMatch": {
+     "primLengthM": 4,
+     "diffM": -0.55
+    }
+   },
+   "atk-b-garage": {
+    "mark": {
+     "a": [
+      -31,
+      9
+     ],
+     "b": [
+      -31,
+      17
+     ],
+     "world": {
+      "x": -31,
+      "z": 13
+     }
+    },
+    "shiftM": 1.25,
+    "widthM": 4,
+    "floors": [
+     3,
+     3
+    ],
+    "cutEdges": {
+     "walk": 32,
+     "all": 32
+    },
+    "votes": {
+     "attack": {
+      "walk": 32,
+      "all": 32
+     },
+     "defense": {
+      "walk": 0,
+      "all": 0
+     }
+    },
+    "inside": 0,
+    "conflict": 0,
+    "floodTeam": "attack",
+    "primMatch": {
+     "primLengthM": 6.75,
+     "diffM": -2.75
+    }
+   },
+   "def-a-main": {
+    "mark": {
+     "a": [
+      -56,
+      -68
+     ],
+     "b": [
+      -56,
+      -54
+     ],
+     "world": {
+      "x": -56,
+      "z": -61
+     }
+    },
+    "shiftM": -3,
+    "widthM": 4,
+    "floors": [
+     1.88,
+     2
+    ],
+    "cutEdges": {
+     "walk": 32,
+     "all": 32
+    },
+    "votes": {
+     "attack": {
+      "walk": 0,
+      "all": 0
+     },
+     "defense": {
+      "walk": 32,
+      "all": 32
+     }
+    },
+    "inside": 0,
+    "conflict": 0,
+    "floodTeam": "defense",
+    "primMatch": {
+     "primLengthM": 6,
+     "diffM": -2
+    }
+   },
+   "def-a-tower": {
+    "mark": {
+     "a": [
+      -59,
+      -50
+     ],
+     "b": [
+      -59,
+      -41
+     ],
+     "world": {
+      "x": -59,
+      "z": -45.5
+     }
+    },
+    "shiftM": -0.25,
+    "widthM": 4,
+    "floors": [
+     6.5,
+     6.5
+    ],
+    "cutEdges": {
+     "walk": 32,
+     "all": 32
+    },
+    "votes": {
+     "attack": {
+      "walk": 0,
+      "all": 0
+     },
+     "defense": {
+      "walk": 32,
+      "all": 32
+     }
+    },
+    "inside": 0,
+    "conflict": 0,
+    "floodTeam": "defense",
+    "primMatch": {
+     "primLengthM": 6,
+     "diffM": -2
+    }
+   },
+   "def-mid-vent": {
+    "mark": {
+     "a": [
+      -58,
+      -27.5
+     ],
+     "b": [
+      -49.7,
+      -27.5
+     ],
+     "world": {
+      "x": -53.85,
+      "z": -27.5
+     }
+    },
+    "shiftM": -3,
+    "widthM": 3.47,
+    "floors": [
+     6.5,
+     6.5
+    ],
+    "cutEdges": {
+     "walk": 26,
+     "all": 26
+    },
+    "votes": {
+     "attack": {
+      "walk": 0,
+      "all": 0
+     },
+     "defense": {
+      "walk": 26,
+      "all": 26
+     }
+    },
+    "inside": 0,
+    "conflict": 0,
+    "floodTeam": "defense",
+    "primMatch": {
+     "primLengthM": 4.73,
+     "diffM": -1.26
+    }
+   },
+   "def-mid-mail": {
+    "mark": {
+     "a": [
+      -50,
+      -15.5
+     ],
+     "b": [
+      -43,
+      -15.5
+     ],
+     "world": {
+      "x": -46.5,
+      "z": -15.5
+     }
+    },
+    "shiftM": -0.25,
+    "widthM": 3.79,
+    "floors": [
+     6.5,
+     7.16
+    ],
+    "cutEdges": {
+     "walk": 32,
+     "all": 32
+    },
+    "votes": {
+     "attack": {
+      "walk": 0,
+      "all": 0
+     },
+     "defense": {
+      "walk": 32,
+      "all": 32
+     }
+    },
+    "inside": 0,
+    "conflict": 0,
+    "floodTeam": "defense",
+    "primMatch": {
+     "primLengthM": 6,
+     "diffM": -2.21
+    }
+   },
+   "def-b-garage": {
+    "mark": {
+     "a": [
+      -49,
+      23
+     ],
+     "b": [
+      -49,
+      33
+     ],
+     "world": {
+      "x": -49,
+      "z": 28
+     }
+    },
+    "shiftM": -3,
+    "widthM": 6,
+    "floors": [
+     3,
+     5
+    ],
+    "cutEdges": {
+     "walk": 56,
+     "all": 56
+    },
+    "votes": {
+     "attack": {
+      "walk": 0,
+      "all": 0
+     },
+     "defense": {
+      "walk": 56,
+      "all": 56
+     }
+    },
+    "inside": 0,
+    "conflict": 0,
+    "floodTeam": "defense",
+    "primMatch": {
+     "primLengthM": 11.4,
+     "diffM": -5.4
+    }
+   }
+  },
+  "seal": {
+   "nav": {
+    "file": "app/mods/aim-rounds/bonsai.nav.bin",
+    "nodes": 17913,
+    "edges": 131407
+   },
+   "ropeLinks": 7,
+   "attack": {
+    "nodes": 4595,
+    "leaks": [],
+    "unreached": [],
+    "walk": {
+     "nodes": 4424,
+     "leaks": [],
+     "unreached": []
+    },
+    "all": {
+     "nodes": 4595,
+     "leaks": [],
+     "unreached": []
+    }
+   },
+   "defense": {
+    "nodes": 8662,
+    "leaks": [],
+    "unreached": [],
+    "walk": {
+     "nodes": 8596,
+     "leaks": [],
+     "unreached": []
+    },
+    "all": {
+     "nodes": 8662,
+     "leaks": [],
+     "unreached": []
+    }
+   }
+  },
+  "ropes": [
+   {
+    "rope": "Ascender_SewerToA2",
+    "bottom": 6235,
+    "top": 5959,
+    "bottomFloor": -1,
+    "topFloor": 3,
+    "side": [
+     "attack",
+     "attack"
+    ],
+    "near": []
+   },
+   {
+    "rope": "Ascender_BTower",
+    "bottom": 11569,
+    "top": 11257,
+    "bottomFloor": 5,
+    "topFloor": 9.25,
+    "side": [
+     "defense",
+     "defense"
+    ],
+    "near": []
+   },
+   {
+    "rope": "Ascender_AToBVents1",
+    "bottom": 11027,
+    "top": 10654,
+    "bottomFloor": 2.5,
+    "topFloor": 6.5,
+    "side": [
+     "defense",
+     "defense"
+    ],
+    "near": [
+     {
+      "barrier": "def-mid-vent",
+      "team": "defense",
+      "d": 1.26,
+      "cross": false,
+      "ownSide": true
+     }
+    ]
+   },
+   {
+    "rope": "Ascender_AToBVents2",
+    "bottom": 11032,
+    "top": 10658,
+    "bottomFloor": 2.5,
+    "topFloor": 6.5,
+    "side": [
+     "defense",
+     "defense"
+    ],
+    "near": [
+     {
+      "barrier": "def-mid-vent",
+      "team": "defense",
+      "d": 1.26,
+      "cross": false,
+      "ownSide": true
+     }
+    ]
+   },
+   {
+    "rope": "Ascender_BToAVents1",
+    "bottom": 12672,
+    "top": 15053,
+    "bottomFloor": 2.5,
+    "topFloor": 6.5,
+    "side": [
+     "defense",
+     "defense"
+    ],
+    "near": [
+     {
+      "barrier": "def-a-tower",
+      "team": "defense",
+      "d": 6.89,
+      "cross": false,
+      "ownSide": true
+     }
+    ]
+   },
+   {
+    "rope": "Ascender_BToAVents2",
+    "bottom": 12069,
+    "top": 15049,
+    "bottomFloor": 2.5,
+    "topFloor": 6.5,
+    "side": [
+     "defense",
+     "defense"
+    ],
+    "near": [
+     {
+      "barrier": "def-a-tower",
+      "team": "defense",
+      "d": 6.13,
+      "cross": false,
+      "ownSide": true
+     },
+     {
+      "barrier": "def-mid-vent",
+      "team": "defense",
+      "d": 6.45,
+      "cross": false,
+      "ownSide": true
+     }
+    ]
+   },
+   {
+    "rope": "Ascender_SewerToA1",
+    "bottom": 6241,
+    "top": 5963,
+    "bottomFloor": -1,
+    "topFloor": 3,
+    "side": [
+     "attack",
+     "attack"
+    ],
+    "near": [
+     {
+      "barrier": "atk-a-main",
+      "team": "attack",
+      "d": 7.12,
+      "cross": false,
+      "ownSide": true
+     }
+    ]
+   }
+  ]
+ }
+}
