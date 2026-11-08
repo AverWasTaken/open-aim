@@ -226,3 +226,237 @@ test('shell registration: UI script, CSS and build files', () => {
   const ui = fs.readFileSync(path.join(app, 'training-progress.js'), 'utf-8') + fs.readFileSync(path.join(app, 'training-progress-core.js'), 'utf-8');
   assert.doesNotMatch(ui, /setItem|removeItem/);
 });
+
+// ---------- aim habits (D2): analytics store join, pooled habits, tiers, practise hint ----------
+// A stored analytics summary (training-analytics-core.js summarize) with the counts D2 reads.
+function summary(o = {}) {
+  return {
+    at: NOW - DAY, shareCode: 'c-aim1', endReason: 'time', round: false, tracking: false,
+    approach: { over: 2, under: 1, on: 2, n: 5 }, followUp: { hit: 1, n: 2 }, moving: { yes: 1, n: 5 }, overflickDeg: 1.5, ...o,
+  };
+}
+const store = (runs) => JSON.stringify({ v: 1, runs });
+
+test('habits: parseAnalytics tolerates missing, corrupt and foreign data', () => {
+  for (const bad of [null, undefined, '', 'not json', '42', 'null', '[]', '{"v":2,"runs":{"a":{"at":1}}}', '{"v":1,"runs":[]}', '{"v":1}']) {
+    assert.equal(Object.keys(core.parseAnalytics(bad).runs).length, 0, String(bad));
+  }
+  const s = core.parseAnalytics('{"v":1,"runs":{"a":{"at":1},"b":{"at":"x"},"c":null,"d":[1],"__proto__":{"at":1}}}');
+  assert.deepEqual(Object.keys(s.runs).sort(), ['__proto__', 'a']);
+  assert.equal(Object.getPrototypeOf(s.runs), null, 'no prototype: "__proto__" is a plain key');
+  assert.equal(core.ANALYTICS_KEY, 'aim-training-analytics-v1');
+});
+
+test('habits: join attaches counts by record id, skips round/tracking, never mutates', () => {
+  const a = run({ id: 'r-a' });
+  const b = run({ id: 'r-b' });
+  const c = run({ id: 'r-c' });
+  const d = run({ id: 'toString' }); // prototype name as an id: not in the store
+  const list = [a, b, c, d];
+  const st = core.parseAnalytics(store({ 'r-a': summary(), 'r-b': summary({ tracking: true }), 'r-c': summary({ round: true }) }));
+  const out = core.joinAnalytics(list, st);
+  assert.deepEqual(out[0].habits, { approach: { n: 5, over: 2, under: 1 }, followUp: { n: 2, hit: 1 }, moving: { n: 5, yes: 1 }, overflickDeg: 1.5 });
+  assert.equal(out[1].habits, undefined);
+  assert.equal(out[2].habits, undefined);
+  assert.equal(out[3].habits, undefined);
+  assert.equal(a.habits, undefined, 'input run not mutated');
+  assert.equal(out[1], b, 'runs without habits come back as they were');
+  // Bad stores and bad inputs.
+  assert.deepEqual(core.joinAnalytics(list, core.parseAnalytics('garbage')).map((r) => r.habits), [undefined, undefined, undefined, undefined]);
+  assert.deepEqual(core.joinAnalytics(null, st), []);
+  assert.equal(core.joinAnalytics(list, null), list);
+});
+
+test('habits: corrupt count groups are dropped one by one', () => {
+  const st = core.parseAnalytics(store({
+    x: summary({ approach: { over: 3, under: 3, n: 5 }, followUp: { hit: 1.5, n: 2 }, moving: { yes: 6, n: 5 } }),
+    y: summary({ approach: { over: 1, under: 0, n: 4 }, followUp: 'no', moving: { yes: -1, n: 5 }, overflickDeg: -2 }),
+    z: summary({ approach: null, followUp: null, moving: null }),
+  }));
+  const [x, y, z] = core.joinAnalytics([run({ id: 'x' }), run({ id: 'y' }), run({ id: 'z' })], st);
+  assert.equal(x.habits, undefined, 'all groups bad: no habits');
+  assert.deepEqual(y.habits, { approach: { n: 4, over: 1, under: 0 }, followUp: null, moving: null, overflickDeg: null });
+  assert.equal(z.habits, undefined);
+});
+
+test('habits: pooled over runs, null under the card minimum, deltas between windows', () => {
+  const recent = [];
+  const prev = [];
+  const sums = {};
+  // 4 recent runs x 5 flicks = 20 (= CARD_MIN_N); pooled, not a mean of per-run ratios.
+  const rc = [[1, 0, 0.5], [4, 1, 2.5], [2, 1, 1], [3, 0, 2]];
+  rc.forEach(([over, under, deg], i) => {
+    recent.push(run({ id: `h-r${i}`, createdAt: NOW - DAY }));
+    sums[`h-r${i}`] = summary({ approach: { over, under, on: 5 - over - under, n: 5 }, overflickDeg: deg, followUp: { hit: 2, n: 5 }, moving: { yes: i, n: 5 } });
+  });
+  // Previous window: 20 flicks, 25% overflick.
+  for (let i = 0; i < 4; i += 1) {
+    prev.push(run({ id: `h-p${i}`, createdAt: NOW - 20 * DAY }));
+    sums[`h-p${i}`] = summary({ approach: { over: i === 0 ? 2 : 1, under: 0, on: 4, n: 5 }, followUp: { hit: 1, n: 5 }, moving: { yes: 0, n: 5 } });
+  }
+  const list = core.joinAnalytics([...recent, ...prev, run({ id: 'old', createdAt: NOW - DAY })], core.parseAnalytics(store(sums)));
+  const s = byId(core.skillStats(list, { now: NOW }), 'aim');
+  assert.equal(s.recent.runs, 5, 'the old run without analytics still counts for the main metrics');
+  assert.equal(s.recent.overflick, (10 / 20) * 100);
+  assert.equal(s.recent.underflick, (2 / 20) * 100);
+  assert.equal(s.recent.followUp, (8 / 20) * 100);
+  assert.equal(s.recent.moving, (6 / 20) * 100);
+  // Depth weighted by each run's over count.
+  assert.equal(s.recent.overflickDeg, (1 * 0.5 + 4 * 2.5 + 2 * 1 + 3 * 2) / 10);
+  assert.deepEqual(s.recent.habitN, { approach: 20, followUp: 20, moving: 20 });
+  assert.equal(s.prev.overflick, 25);
+  assert.equal(s.delta.overflick, 25);
+  assert.equal(s.delta.moving, 30);
+  assert.equal(s.delta.followUp, 20);
+  // Below the minimum (one run = 5 flicks): null, and no delta.
+  const one = core.joinAnalytics([recent[0]], core.parseAnalytics(store(sums)));
+  const s1 = byId(core.skillStats(one, { now: NOW }), 'aim');
+  for (const h of core.HABITS) assert.equal(s1.recent[h.id], null, h.id);
+  assert.equal(s1.recent.overflickDeg, null);
+  assert.equal(s1.delta.overflick, null);
+  // Each habit has its own minimum: 20 flicks but only 4 follow-up samples.
+  const fewFollow = Object.fromEntries(Object.entries(sums).map(([k, v]) => [k, { ...v, followUp: { hit: 1, n: 1 } }]));
+  const s2 = byId(core.skillStats(core.joinAnalytics(recent, core.parseAnalytics(store(fewFollow))), { now: NOW }), 'aim');
+  assert.equal(s2.recent.followUp, null);
+  assert.equal(s2.recent.overflick, 50);
+  // No analytics at all: every habit null, nothing else changes.
+  const plain = byId(core.skillStats(recent, { now: NOW }), 'aim');
+  for (const h of core.HABITS) assert.equal(plain.recent[h.id], null, h.id);
+  assert.deepEqual(plain.recent.habitN, { approach: 0, followUp: 0, moving: 0 });
+});
+
+test('habits: chart series per run with the per-run minimum, lower overflick is the PB', () => {
+  const runs = [
+    run({ id: 'c1', createdAt: NOW - 3 * DAY }),
+    run({ id: 'c2', createdAt: NOW - 2 * DAY }),
+    run({ id: 'c3', createdAt: NOW - DAY }),
+    run({ id: 'c4', createdAt: NOW - DAY / 2 }), // no analytics
+  ];
+  const list = core.joinAnalytics(runs, core.parseAnalytics(store({
+    c1: summary({ approach: { over: 3, under: 0, on: 2, n: 5 } }),
+    c2: summary({ approach: { over: 1, under: 1, on: 2, n: 4 } }), // under the per-run minimum (5)
+    c3: summary({ approach: { over: 1, under: 2, on: 7, n: 10 } }),
+  })));
+  const s = core.drillSeries(list, 'c-aim1', 'overflick');
+  assert.equal(s.metric.id, 'overflick');
+  assert.deepEqual(s.points.map((p) => p.value), [60, 10]);
+  assert.equal(s.pb, 10);
+  assert.equal(s.runs, 4);
+  assert.deepEqual(core.drillSeries(list, 'c-aim1', 'underflick').points.map((p) => p.value), [0, 20]);
+  assert.equal(core.metricValue(list[3], 'overflick'), null);
+  assert.equal(core.CHART_MIN_N, 5);
+  assert.equal(core.CARD_MIN_N, 20);
+  // Unknown metric still falls back to accuracy.
+  assert.equal(core.drillSeries(list, 'c-aim1', 'nope').metric.id, 'accuracy');
+});
+
+test('habits: formatting in whole percent, deltas in whole points', () => {
+  assert.equal(core.fmt('overflick', 37.6), '38%');
+  assert.equal(core.fmt('moving', null), '–');
+  assert.deepEqual(core.fmtDelta('overflick', 4.4), { text: '4', dir: 'up', good: false });
+  assert.deepEqual(core.fmtDelta('followUp', 4.6), { text: '5', dir: 'up', good: true });
+  assert.deepEqual(core.fmtDelta('moving', -0.4), { text: '0', dir: 'flat', good: null });
+  // METRICS formatting unchanged.
+  assert.equal(core.fmt('accuracy', 37.66), '37.7%');
+  assert.deepEqual(core.fmtDelta('accuracy', 3.14), { text: '3.1', dir: 'up', good: true });
+});
+
+test('habits: game tiers (Bn in OkAdunfX.js) and their words', () => {
+  // Thresholds match the bundle's own table.
+  const bundle = fs.readFileSync(path.join(__dirname, '..', 'app', 'mods', 'next', 'js', 'OkAdunfX.js'), 'utf-8');
+  assert.ok(bundle.includes('overshoot:{dir:-1,good:45,great:30,elite:18}'));
+  assert.ok(bundle.includes('movingShot:{dir:-1,good:25,great:12,elite:5}'));
+  assert.ok(bundle.includes('followUp:{dir:1,good:40,great:60,elite:75}'));
+  assert.deepEqual(core.TIERS.overshoot, { dir: -1, good: 45, great: 30, elite: 18 });
+  assert.deepEqual(core.TIERS.movingShot, { dir: -1, good: 25, great: 12, elite: 5 });
+  assert.deepEqual(core.TIERS.followUp, { dir: 1, good: 40, great: 60, elite: 75 });
+  assert.equal(core.OVERFLICK_HINT, 45);
+  // Limits are inclusive like Lx(), on the whole % shown.
+  assert.equal(core.habitTier('overflick', 18), 'elite');
+  assert.equal(core.habitTier('overflick', 18.4), 'elite');
+  assert.equal(core.habitTier('overflick', 18.5), 'great');
+  assert.equal(core.habitTier('overflick', 30), 'great');
+  assert.equal(core.habitTier('overflick', 45), 'good');
+  assert.equal(core.habitTier('overflick', 45.3), 'good');
+  assert.equal(core.habitTier('overflick', 45.5), 'weak');
+  assert.equal(core.habitTier('moving', 5), 'elite');
+  assert.equal(core.habitTier('moving', 12), 'great');
+  assert.equal(core.habitTier('moving', 25), 'good');
+  assert.equal(core.habitTier('moving', 26), 'weak');
+  assert.equal(core.habitTier('underflick', 80), null, 'no tier for underflick');
+  assert.equal(core.habitTier('followUp', 80), null, 'tier word not shown for hit after miss');
+  assert.equal(core.habitTier('overflick', null), null);
+  assert.deepEqual(core.TIER_WORDS, { elite: 'Excellent', great: 'Great', good: 'Good', weak: 'Needs work' });
+  assert.deepEqual(core.HABITS.map((h) => h.label), ['Overflick', 'Underflick', 'Hit after miss', 'Crosshair moving']);
+  // Habits are not chart METRICS (the card and tab loops over METRICS stay the same).
+  assert.deepEqual(core.METRICS.map((m) => m.id), ['accuracy', 'firstShot', 'killTime', 'headshot']);
+});
+
+test('habits: practise hint priority and text', () => {
+  const st = (id, recent, prev = {}, delta = {}) => ({
+    id, label: core.labelOf(id),
+    recent: { runs: 5, accuracy: 50, overflick: null, overflickDeg: null, habitN: { approach: 0, followUp: 0, moving: 0 }, ...recent },
+    prev: { runs: 5, accuracy: 50, ...prev },
+    delta: { accuracy: 0, ...delta },
+  });
+  const cands = ['basic', 'aim', 'ball'];
+  // (b) overflick above 45% with >= 20 flicks wins over "least played".
+  let stats = [st('basic', {}), st('aim', { overflick: 52.4, overflickDeg: 1.26, habitN: { approach: 30, followUp: 0, moving: 0 } }), st('ball', { runs: 0 })];
+  let h = core.practiseHint(stats, cands);
+  assert.equal(h.kind, 'habit');
+  assert.equal(h.habit, 'overflick');
+  assert.equal(h.skill, 'aim');
+  assert.equal(h.value, 52);
+  assert.equal(h.deg, 1.3);
+  assert.equal(h.text, 'You overflick 52% of your flicks in Pre-aim, about 1.3° past the target. Ease off at the end of the flick.');
+  // No depth: the degrees part is left out.
+  stats[1].recent.overflickDeg = null;
+  assert.equal(core.practiseHint(stats, cands).text, 'You overflick 52% of your flicks in Pre-aim. Ease off at the end of the flick.');
+  // (a) an accuracy drop beats the habit hint.
+  stats = [st('basic', { accuracy: 40 }, { accuracy: 50 }, { accuracy: -10 }), stats[1], stats[2]];
+  h = core.practiseHint(stats, cands);
+  assert.equal(h.kind, 'dropped');
+  assert.equal(h.skill, 'basic');
+  // 45% shown (Good tier, also 45.4 rounded) or too few flicks: back to "least played", same as weakSpot.
+  for (const recent of [{ overflick: 45, habitN: { approach: 30 } }, { overflick: 45.4, habitN: { approach: 30 } }, { overflick: 70, habitN: { approach: 19 } }]) {
+    const s2 = [st('basic', {}), st('aim', recent), st('ball', { runs: 0 })];
+    const x = core.practiseHint(s2, cands);
+    assert.equal(x.kind, 'least');
+    assert.deepEqual(x, core.weakSpot(s2, cands));
+  }
+  // Not a candidate: ignored.
+  const s3 = [st('basic', {}), st('hold', { overflick: 90, habitN: { approach: 50 } }), st('ball', { runs: 0 })];
+  assert.equal(core.practiseHint(s3, cands).kind, 'least');
+  // Worst skill wins; equal values follow TIE_ORDER (basic before aim).
+  const s4 = [st('aim', { overflick: 60, habitN: { approach: 20 } }), st('basic', { overflick: 50, habitN: { approach: 20 } })];
+  assert.equal(core.practiseHint(s4, ['basic', 'aim']).skill, 'aim');
+  s4[0].recent.overflick = 50;
+  assert.equal(core.practiseHint(s4, ['basic', 'aim']).skill, 'basic');
+  // No candidates: null like weakSpot.
+  assert.equal(core.practiseHint(s4, []), null);
+});
+
+test('habits: end to end from stored strings, UI wiring, no banned words', () => {
+  const sums = {};
+  const list = [];
+  for (let i = 0; i < 5; i += 1) {
+    list.push(run({ id: `e${i}`, createdAt: NOW - DAY }));
+    sums[`e${i}`] = summary({ approach: { over: 3, under: 0, on: 2, n: 5 }, overflickDeg: 2 });
+  }
+  const joinedRuns = core.joinAnalytics(core.parseRuns(raw(list)), core.parseAnalytics(store(sums)));
+  const stats = core.skillStats(joinedRuns, { now: NOW });
+  const h = core.practiseHint(stats, ['aim', 'ball']);
+  assert.equal(h.text, 'You overflick 60% of your flicks in Pre-aim, about 2.0° past the target. Ease off at the end of the flick.');
+  // D1 data has no reaction time, and "moving" is the crosshair, not the player.
+  const app = path.join(__dirname, '..', 'app');
+  const src = ['training-progress-core.js', 'training-progress.js'].map((n) => fs.readFileSync(path.join(app, n), 'utf-8')).join('\n');
+  assert.doesNotMatch(src, /reaction|strafe|on the move/i);
+  // No em dashes in habit texts.
+  for (const t of [h.text, ...core.HABITS.flatMap((x) => [x.label, x.tip]), ...Object.values(core.TIER_WORDS)]) assert.doesNotMatch(t, /—/);
+  // The UI joins the analytics store, refreshes on new run stats and uses the habit-aware hint.
+  const ui = fs.readFileSync(path.join(app, 'training-progress.js'), 'utf-8');
+  assert.match(ui, /addEventListener\("aim-run-stats", schedule\)/);
+  assert.match(ui, /core\.practiseHint\(/);
+  assert.match(ui, /core\.joinAnalytics\(/);
+  assert.doesNotMatch(ui, /core\.weakSpot\(/);
+});

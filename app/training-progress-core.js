@@ -101,6 +101,7 @@
     if (id === "firstShot") return num(run.firstShotHitRate) ? run.firstShotHitRate : null;
     if (id === "killTime") return num(run.avgKillTime) && run.avgKillTime > 0 ? run.avgKillTime : null;
     if (id === "headshot") return run.headshots !== null && num(run.headshots) && num(run.killed) && run.killed > 0 ? (run.headshots / run.killed) * 100 : null;
+    if (HABIT_IDS.has(id)) return run.habits ? habitValue(habitPool([run]), id, CHART_MIN_N) : null;
     return null;
   }
 
@@ -123,6 +124,7 @@
       firstShot: mean(runs.map((r) => metricValue(r, "firstShot")).filter((v) => v !== null)),
       killTime: mean(runs.map((r) => metricValue(r, "killTime")).filter((v) => v !== null)),
       headshot: killed > 0 ? (hs / killed) * 100 : null,
+      ...habitAggregate(runs),
     };
   }
 
@@ -147,7 +149,7 @@
       const prev = aggregate(b.prev);
       if (s.id === "ball") recent.headshot = prev.headshot = null;
       const delta = {};
-      for (const m of METRICS) delta[m.id] = recent[m.id] !== null && prev[m.id] !== null ? recent[m.id] - prev[m.id] : null;
+      for (const m of [...METRICS, ...HABITS]) delta[m.id] = recent[m.id] !== null && prev[m.id] !== null ? recent[m.id] - prev[m.id] : null;
       return { id: s.id, label: s.label, recent, prev, delta };
     });
   }
@@ -251,7 +253,7 @@
   // Last 30 counted runs of a drill group (oldest -> newest) with a value for the metric.
   // pb: best value among them (max, or min for kill time). Easy-twin runs are included.
   function drillSeries(runs, code, metric, variants) {
-    const m = METRICS.find((x) => x.id === metric) || METRICS[0];
+    const m = METRICS.find((x) => x.id === metric) || HABITS.find((x) => x.id === metric) || METRICS[0];
     const own = runs
       .filter((r) => isCounted(r) && groupCode(r.shareCode, variants) === code)
       .sort((a, b) => a.createdAt - b.createdAt)
@@ -310,17 +312,199 @@
   function fmt(metric, v) {
     if (v === null || v === undefined || !num(v)) return "–";
     if (metric === "killTime") return `${Math.round(v)} ms`;
+    if (HABIT_IDS.has(metric)) return `${Math.round(v)}%`;
     return `${(Math.round(v * 10) / 10).toFixed(1)}%`;
   }
   // Change vs the previous window: { text, dir: "up"|"down"|"flat", good: true|false|null }.
   function fmtDelta(metric, d) {
     if (d === null || d === undefined || !num(d)) return { text: "–", dir: "flat", good: null };
-    const m = METRICS.find((x) => x.id === metric);
-    const r = metric === "killTime" ? Math.round(d) : Math.round(d * 10) / 10;
-    if (r === 0) return { text: metric === "killTime" ? "0 ms" : "0.0", dir: "flat", good: null };
+    const m = METRICS.find((x) => x.id === metric) || HABITS.find((x) => x.id === metric);
+    const whole = HABIT_IDS.has(metric); // habits: whole percentage points
+    const r = metric === "killTime" || whole ? Math.round(d) : Math.round(d * 10) / 10;
+    if (r === 0) return { text: metric === "killTime" ? "0 ms" : whole ? "0" : "0.0", dir: "flat", good: null };
     const abs = Math.abs(r);
-    const text = metric === "killTime" ? `${abs} ms` : abs.toFixed(1);
+    const text = metric === "killTime" ? `${abs} ms` : whole ? String(abs) : abs.toFixed(1);
     return { text, dir: r > 0 ? "up" : "down", good: (r > 0) === (m.better > 0) };
+  }
+
+  // ---------- aim habits (training-analytics store) ----------
+  // Per-run aim counts saved by training-analytics.js (aim-training-analytics-v1, keyed by the run
+  // record id; schema in training-analytics-core.js). Old runs have none. Read-only here.
+  const ANALYTICS_KEY = "aim-training-analytics-v1";
+  // Pooled habit values need this many measured samples in a window (skill cards, hint) and per
+  // run (chart points), so one short run can't show a scary number.
+  const CARD_MIN_N = 20;
+  const CHART_MIN_N = 5;
+  // The game's own result-card tiers: Bn in app/mods/next/js/OkAdunfX.js (~@315530), checked like
+  // its Lx() (dir -1: value <= limit). overshoot = overshootRatio, movingShot = movingShotRatio,
+  // followUp = followUpHitRate, all percent.
+  const TIERS = {
+    overshoot: { dir: -1, good: 45, great: 30, elite: 18 },
+    movingShot: { dir: -1, good: 25, great: 12, elite: 5 },
+    followUp: { dir: 1, good: 40, great: 60, elite: 75 },
+  };
+  // Tier words as the English game shows them (zx in OkAdunfX.js through english-fixes.js:
+  // 极佳 Excellent, 良好 Good, 待提升 Needs work). 优秀 (great) has no english-fixes entry and the
+  // machine dictionary turns it into "Excellent." too; "Great" keeps the two apart.
+  const TIER_WORDS = { elite: "Excellent", great: "Great", good: "Good", weak: "Needs work" };
+  // Overflick hint only above the game's "good" overshoot limit (the Needs work tier).
+  const OVERFLICK_HINT = TIERS.overshoot.good;
+
+  // Habits shown under the skill cards and as chart tabs (kept out of METRICS: the card and tab
+  // loops over METRICS stay as they are). Ratios are per measured sample: approach = flicks the
+  // game measured (over/under/on), followUp = second shots after a missed first shot, moving =
+  // first shots on a target (crosshair still moving). tier: TIERS key shown on the cards, or null.
+  // tip: hover text.
+  const HABITS = [
+    { id: "overflick", label: "Overflick", unit: "%", better: -1, tier: "overshoot", count: "approach", tip: "Flicks that stopped past the target" },
+    { id: "underflick", label: "Underflick", unit: "%", better: -1, tier: null, count: "approach", tip: "Flicks that stopped short of the target" },
+    { id: "followUp", label: "Hit after miss", unit: "%", better: 1, tier: null, count: "followUp", tip: "Second shots that hit after a missed first shot" },
+    { id: "moving", label: "Crosshair moving", unit: "%", better: -1, tier: "movingShot", count: "moving", tip: "First shots fired while the crosshair was still moving" },
+  ];
+  const HABIT_IDS = new Set(HABITS.map((h) => h.id));
+
+  // Store text -> { v: 1, runs } with the same rules as training-analytics-core.js parse (v === 1,
+  // runs a plain object, entries objects with a numeric `at`, no prototype keys). Bad data -> empty.
+  // Own copy: this file loads before the analytics core and is required alone by the tests.
+  function parseAnalytics(raw) {
+    let o = null;
+    try {
+      o = typeof raw === "string" ? JSON.parse(raw) : null;
+    } catch {}
+    const runs = Object.create(null);
+    if (o && typeof o === "object" && o.v === 1 && o.runs && typeof o.runs === "object" && !Array.isArray(o.runs)) {
+      for (const [id, r] of Object.entries(o.runs)) {
+        if (r && typeof r === "object" && !Array.isArray(r) && num(r.at)) runs[id] = r;
+      }
+    }
+    return { v: 1, runs };
+  }
+
+  // A count group { [k]: count, n } with whole numbers, each k <= n and their sum <= n, else null.
+  const isCount = (v) => num(v) && v >= 0 && Math.floor(v) === v;
+  function countGroup(g, keys) {
+    if (!g || typeof g !== "object" || !isCount(g.n)) return null;
+    const out = { n: g.n };
+    let sum = 0;
+    for (const k of keys) {
+      if (!isCount(g[k]) || g[k] > g.n) return null;
+      out[k] = g[k];
+      sum += g[k];
+    }
+    return sum <= g.n ? out : null;
+  }
+
+  // Habit counts of one stored summary, or null. Round mode and tracking runs are skipped (tracking
+  // targets force a moving crosshair and have no flicks to measure).
+  function habitsOf(summary) {
+    if (!summary || typeof summary !== "object" || summary.round || summary.tracking) return null;
+    const approach = countGroup(summary.approach, ["over", "under"]);
+    const followUp = countGroup(summary.followUp, ["hit"]);
+    const moving = countGroup(summary.moving, ["yes"]);
+    if (!approach && !followUp && !moving) return null;
+    const deg = num(summary.overflickDeg) && summary.overflickDeg >= 0 ? summary.overflickDeg : null;
+    return { approach, followUp, moving, overflickDeg: approach && approach.over > 0 ? deg : null };
+  }
+
+  // Runs with `habits` attached from the analytics store (new objects for those runs; neither
+  // store is written). Runs without a stored summary come back unchanged.
+  function joinAnalytics(runs, store) {
+    if (!Array.isArray(runs)) return [];
+    const map = store && store.runs && typeof store.runs === "object" ? store.runs : null;
+    if (!map) return runs;
+    return runs.map((r) => {
+      if (!r || typeof r.id !== "string" || !Object.prototype.hasOwnProperty.call(map, r.id)) return r;
+      const habits = habitsOf(map[r.id]);
+      return habits ? { ...r, habits } : r;
+    });
+  }
+
+  // Summed counts over the runs that have habits. deg/degW: overflick depth weighted by each
+  // run's over count.
+  function habitPool(runs) {
+    const p = { approach: { over: 0, under: 0, n: 0 }, followUp: { hit: 0, n: 0 }, moving: { yes: 0, n: 0 }, deg: 0, degW: 0 };
+    for (const r of runs) {
+      const h = r && r.habits;
+      if (!h) continue;
+      if (h.approach) {
+        p.approach.over += h.approach.over;
+        p.approach.under += h.approach.under;
+        p.approach.n += h.approach.n;
+        if (h.overflickDeg !== null && h.approach.over > 0) {
+          p.deg += h.overflickDeg * h.approach.over;
+          p.degW += h.approach.over;
+        }
+      }
+      if (h.followUp) {
+        p.followUp.hit += h.followUp.hit;
+        p.followUp.n += h.followUp.n;
+      }
+      if (h.moving) {
+        p.moving.yes += h.moving.yes;
+        p.moving.n += h.moving.n;
+      }
+    }
+    return p;
+  }
+
+  // Percent value of a habit from a pool; null under minN samples (and never from 0 samples).
+  function habitValue(p, id, minN) {
+    const pct = (a, n) => (n > 0 && n >= minN ? (a / n) * 100 : null);
+    if (id === "overflick") return pct(p.approach.over, p.approach.n);
+    if (id === "underflick") return pct(p.approach.under, p.approach.n);
+    if (id === "followUp") return pct(p.followUp.hit, p.followUp.n);
+    if (id === "moving") return pct(p.moving.yes, p.moving.n);
+    return null;
+  }
+
+  // Window fields for aggregate(): each habit (null under CARD_MIN_N samples), the mean overflick
+  // depth in degrees (null with no overflick value) and the sample counts behind them.
+  function habitAggregate(runs) {
+    const p = habitPool(runs);
+    const out = {};
+    for (const h of HABITS) out[h.id] = habitValue(p, h.id, CARD_MIN_N);
+    out.overflickDeg = out.overflick !== null && p.degW > 0 ? p.deg / p.degW : null;
+    out.habitN = { approach: p.approach.n, followUp: p.followUp.n, moving: p.moving.n };
+    return out;
+  }
+
+  // Game tier of a habit value ("elite" | "great" | "good" | "weak"), same rule as Lx() but on the
+  // whole % the card shows (45.3 shows "45%", which is Good); null when the habit has no tier or
+  // there is no value.
+  function habitTier(id, v) {
+    const h = HABITS.find((x) => x.id === id);
+    const t = h && h.tier ? TIERS[h.tier] : null;
+    if (!t || !num(v)) return null;
+    const w = Math.round(v);
+    const ok = (lim) => (t.dir === 1 ? w >= lim : w <= lim);
+    return ok(t.elite) ? "elite" : ok(t.great) ? "great" : ok(t.good) ? "good" : "weak";
+  }
+
+  // "What to practise" with aim habits: (a) a weakSpot accuracy drop wins; (b) else an overflick
+  // hint for the candidate whose recent pooled overflick (whole %) is above OVERFLICK_HINT with at least
+  // CARD_MIN_N measured flicks (highest value / limit wins, ties TIE_ORDER); (c) else weakSpot's
+  // "least played". Same shape as weakSpot, plus habit/value/deg for (b).
+  function practiseHint(stats, candidates) {
+    const spot = weakSpot(stats, candidates);
+    if (!spot || spot.kind === "dropped") return spot;
+    const set = new Set(candidates);
+    let best = null;
+    for (const id of TIE_ORDER) {
+      if (!set.has(id)) continue;
+      const s = stats.find((x) => x.id === id);
+      const v = s && s.recent ? s.recent.overflick : null;
+      if (!num(v) || !(s.recent.habitN && s.recent.habitN.approach >= CARD_MIN_N) || Math.round(v) <= OVERFLICK_HINT) continue;
+      const score = v / OVERFLICK_HINT;
+      if (!best || score > best.score) best = { s, v, score };
+    }
+    if (!best) return spot;
+    const value = Math.round(best.v);
+    const deg = num(best.s.recent.overflickDeg) ? Math.round(best.s.recent.overflickDeg * 10) / 10 : null;
+    const past = deg !== null ? `, about ${deg.toFixed(1)}° past the target` : "";
+    return {
+      kind: "habit", habit: "overflick", value, deg, skill: best.s.id, label: best.s.label,
+      text: `You overflick ${value}% of your flicks in ${best.s.label}${past}. Ease off at the end of the flick.`,
+    };
   }
 
   return {
@@ -328,5 +512,7 @@
     parseRuns, isLive, isCounted, indexCatalogue, groupCode, skillOf, metricValue, aggregate,
     skillStats, weakSpot, candidateSkills, drillForSkill, cleanName, drillName, drillList, drillSeries,
     cardSummary, chipText, fmt, fmtDelta, labelOf,
+    ANALYTICS_KEY, HABITS, TIERS, TIER_WORDS, CARD_MIN_N, CHART_MIN_N, OVERFLICK_HINT,
+    parseAnalytics, joinAnalytics, habitPool, habitValue, habitTier, practiseHint,
   };
 });

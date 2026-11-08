@@ -51,6 +51,18 @@
 .tp-sec .tp-delta.is-good { color: var(--tp-up); }
 .tp-sec .tp-delta.is-bad { color: var(--tp-down); }
 
+/* Aim habits under a card's metrics (aim-training-analytics-v1). The game's tier word sits on a
+   second line under the label, so value + change keep the same column as the metric rows. */
+.tp-sec .tp-habits { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--es-line); }
+.tp-sec .tp-habits > .tp-cap { margin-bottom: 4px; }
+.tp-sec .tp-habit dt { min-width: 0; }
+.tp-sec .tp-tier {
+  display: block; margin-top: 2px; font-size: 11px; font-weight: 700; font-stretch: 75%; letter-spacing: 0.06em; text-transform: uppercase; color: var(--es-soft);
+}
+.tp-sec .tp-tier:is([data-tier="elite"], [data-tier="great"]) { color: var(--tp-up); }
+.tp-sec .tp-tier[data-tier="weak"] { color: var(--es-warn, #ffd166); }
+.tp-sec .tp-habits-none { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--es-line); font-size: 13px; color: var(--es-muted); }
+
 /* Drill trend */
 .tp-sec .tp-trend { padding: 12px 16px 8px; background: var(--es-panel); border: 1px solid var(--es-line); }
 .tp-sec .tp-trend-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }

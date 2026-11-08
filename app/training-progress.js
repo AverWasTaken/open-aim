@@ -1,8 +1,10 @@
 // Training progress (read-only): a "Your skills" section in TRAINING HISTORY (skill cards with the
 // last 14 days vs the 14 before, a "What to practise" hint with a Play button, a per-drill trend
 // chart) and a "PB · runs" chip on lobby drill cards. All numbers come from the game's run store
-// (al-workshop-runs-v1); the math is in training-progress-core.js (window.aimTrainingProgress),
-// loaded just before this file. Nothing is written to storage.
+// (al-workshop-runs-v1), plus aim habits from the training analytics store
+// (aim-training-analytics-v1, written by training-analytics.js); the math is in
+// training-progress-core.js (window.aimTrainingProgress), loaded just before this file. Nothing is
+// written to storage.
 (() => {
   if (window.__aimTrainingProgress) return;
   window.__aimTrainingProgress = true;
@@ -26,6 +28,25 @@
       runsCache = core.parseRuns(raw);
     }
     return runsCache;
+  }
+
+  // Runs with aim habits from the analytics store (aim-training-analytics-v1) joined in; read
+  // again only when either store changed. Used by the history section only.
+  let analyticsRaw = null;
+  let joinedRuns = null;
+  let joinedFrom = null;
+  function joined() {
+    const list = runs();
+    let raw = null;
+    try {
+      raw = localStorage.getItem(core.ANALYTICS_KEY);
+    } catch {}
+    if (raw !== analyticsRaw || list !== joinedFrom || !joinedRuns) {
+      analyticsRaw = raw;
+      joinedFrom = list;
+      joinedRuns = core.joinAnalytics(list, core.parseAnalytics(raw));
+    }
+    return joinedRuns;
   }
 
   // Training list (Easy twins left out, Studio drills included) and the twin map. Studio drills
@@ -110,14 +131,30 @@
       const n = s.recent.runs;
       return `<div class="tp-card${n ? "" : " is-empty"}" data-skill="${esc(s.id)}">
         <div class="tp-card-head"><h4>${esc(s.label)}</h4><span>${n} ${n === 1 ? "run" : "runs"}</span></div>
-        <dl class="tp-stats">${rows}</dl></div>`;
+        <dl class="tp-stats">${rows}</dl>${habitsHtml(s)}</div>`;
     }).join("");
+  }
+
+  // "Aim habits" rows under a skill card's metrics: each habit with enough samples of its own in
+  // the last 14 days (core.CARD_MIN_N), with the game's tier word where the game has one (under
+  // the label, so the value and change stay in the same column as the rows above).
+  function habitsHtml(s) {
+    if (!s.recent.runs) return "";
+    const shown = core.HABITS.filter((h) => typeof s.recent[h.id] === "number");
+    if (!shown.length) return `<p class="tp-habits-none">Not enough data for aim habits yet.</p>`;
+    const rows = shown.map((h) => {
+      const v = s.recent[h.id];
+      const tier = core.habitTier(h.id, v);
+      const tag = tier ? `<span class="tp-tier" data-tier="${tier}">${esc(core.TIER_WORDS[tier])}</span>` : "";
+      return `<div class="tp-stat tp-habit" title="${esc(h.tip)}"><dt>${esc(h.label)}${tag ? " " + tag : ""}</dt><dd><b>${esc(core.fmt(h.id, v))}</b>${deltaHtml(h.id, s.delta[h.id])}</dd></div>`;
+    }).join("");
+    return `<div class="tp-habits"><span class="tp-cap">Aim habits</span><dl class="tp-stats">${rows}</dl></div>`;
   }
 
   function hintHtml(stats, list) {
     // Wait for the training list: the candidates are the lobby types it has.
     if (!items) return "";
-    const spot = core.weakSpot(stats, core.candidateSkills(items));
+    const spot = core.practiseHint(stats, core.candidateSkills(items));
     if (!spot) return "";
     const drill = core.drillForSkill(spot.skill, list, catalogue, variants, items);
     const btn = drill && window.__aimLaunchWorkshop
@@ -173,7 +210,11 @@
       `<option value="${esc(d.code)}"${d.code === ui.drill ? " selected" : ""}>${esc(d.name)}${d.merged ? " (incl. no return fire)" : ""} · ${d.runs} runs</option>`).join("");
     // Target drills have no headshots: no Headshot % tab for them.
     const type = catalogue.get(ui.drill)?.type ?? list.find((r) => core.groupCode(r.shareCode, variants) === ui.drill)?.type;
-    const metrics = core.METRICS.filter((m) => !(type === "ball" && m.id === "headshot"));
+    // Aim habit tabs only when this drill has at least 2 runs with that habit.
+    const metrics = [
+      ...core.METRICS.filter((m) => !(type === "ball" && m.id === "headshot")),
+      ...core.HABITS.filter((h) => core.drillSeries(list, ui.drill, h.id, variants).points.length >= 2),
+    ];
     const metric = metrics.some((m) => m.id === ui.metric) ? ui.metric : "accuracy";
     const tabs = metrics.map((m) =>
       `<button type="button" class="tp-tab" data-act="metric" data-metric="${m.id}" aria-pressed="${m.id === metric}">${esc(m.label)}</button>`).join("");
@@ -245,8 +286,8 @@
       // Moving the select would drop its focus; only happens when the game re-renders.
       scroll.insertBefore(section, anchor);
     }
-    const list = runs();
-    const sig = () => [rawCache, loadVersion, ui.drill, ui.metric, Math.floor(Date.now() / 36e5)].join("|");
+    const list = joined();
+    const sig = () => [rawCache, analyticsRaw, loadVersion, ui.drill, ui.metric, Math.floor(Date.now() / 36e5)].join("|");
     if (sig() === signature && section.firstChild) return;
     render(list);
     // Taken after rendering: the render picks the default drill.
@@ -274,6 +315,7 @@
   }
   window.__aimWatchPage?.(schedule, { childList: true, subtree: true });
   addEventListener("aim-local-result", schedule);
+  addEventListener("aim-run-stats", schedule);
   addEventListener("storage", schedule);
   schedule();
 })();
