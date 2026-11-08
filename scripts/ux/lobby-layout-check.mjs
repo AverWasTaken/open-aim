@@ -120,6 +120,9 @@ function pageOpenDrills(keepWelcome) {
   if (!keepWelcome) {
     try { localStorage.setItem("ux-welcome-v1", "done"); } catch {}
     document.querySelector(".ux-welcome .ux-welcome-hide")?.click();
+  } else {
+    // Force it on (a profile with runs decides "done"); it still hides once all steps are done.
+    try { localStorage.setItem("ux-welcome-v1", "shown"); } catch {}
   }
   // Close any panel or dialog left open (first-run import modal, tools).
   window.__aimTools?.close?.();

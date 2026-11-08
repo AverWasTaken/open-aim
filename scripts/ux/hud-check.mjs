@@ -221,7 +221,7 @@ const HUD = `(()=>{const q=s=>document.querySelector(s);const R=e=>{if(!e)return
 const a=c=>{const m=/rgba?\\(([^)]+)\\)/.exec(c||'');if(!m)return null;const p=m[1].split(',').map(Number);return p.length>3?p[3]:1};
 const top=q('.al-hud-top'),b=q('.al-hud-chip b'),sp=q('.al-hud-chip span'),hud=q('.al-hud'),ov=q('.al-pause-layer'),card=q('.al-pause-id')||q('.al-pause-lite-body');
 const ts=top&&getComputedStyle(top),hs=hud&&getComputedStyle(hud);const os=ov&&getComputedStyle(ov);
-const tr=top&&top.getBoundingClientRect(),cr=card&&card.getBoundingClientRect();
+const tr=top&&top.getBoundingClientRect(),cr=card&&card.getBoundingClientRect();const chipR=[...document.querySelectorAll('.al-hud-top .al-hud-chip')].map(c=>c.getBoundingClientRect()).filter(r=>r.width>0&&r.height>0);const cb=chipR.length?Math.round(Math.max(...chipR.map(r=>r.bottom))):null;
 const mm=q('.al-minimap, [class*=minimap]');const cx=innerWidth/2,cy=innerHeight/2;
 return {vp:[innerWidth,innerHeight],paused:!!q('.al-stage-wrap.is-paused'),roundOn:document.documentElement.classList.contains('aim-round-on'),
 chips:[...document.querySelectorAll('.al-hud-chip')].map(c=>c.innerText.replace(/\\s+/g,' ').trim()),
@@ -230,7 +230,7 @@ top:top?{display:ts.display,visibility:ts.visibility,rect:R(top)}:null,hudZ:hs&&
 coversCenter:!!tr&&tr.left<=cx&&tr.right>=cx&&tr.top<=cy&&tr.bottom>=cy,
 minimap:mm?R(mm):null,coversMinimap:!!(tr&&mm&&(()=>{const m=mm.getBoundingClientRect();return m.width>0&&tr.left<m.right&&m.left<tr.right&&tr.top<m.bottom&&m.top<tr.bottom})()),
 layer:ov?{cls:ov.className,bg:os.backgroundColor,bgImage:os.backgroundImage.slice(0,80),alpha:a(os.backgroundColor)}:null,
-card:card?{cls:card.className,rect:R(card)}:null,topAboveCard:!!(tr&&cr)&&tr.bottom<=cr.top,
+card:card?{cls:card.className,rect:R(card)}:null,chipsBottom:cb,topBottom:tr?Math.round(tr.bottom):null,topAboveCard:cb!==null&&!!cr&&cb<=cr.top,
 meta:(q('.al-pause-meta')||{}).innerText||null,menuText:ov?ov.innerText.replace(/\\s+/g,' ').slice(0,300):null,roundHud:!!q('#aim-round-hud:not([hidden])')}})()`;
 // Loading overlay sample: shell stage text + any % shown by the workshop loader.
 const LOAD = `(()=>{const s=document.querySelector('.aim-loading-stage');const w=document.querySelector('.al-wkload');const t=w?w.innerText:'';const m=t.match(/(\\d+(?:\\.\\d+)?)\\s*%/);
@@ -276,7 +276,13 @@ async function pausedCheck(prefix) {
   const run = await ev(HUD);
   await shot(prefix + "-hud");
   await tabKey();
-  await waitFor(`!!document.querySelector('.al-stage-wrap.is-paused')||!!document.querySelector('.al-pause-layer')`, 5000, "pause");
+  const PAUSED = `!!document.querySelector('.al-stage-wrap.is-paused')||!!document.querySelector('.al-pause-layer')`;
+  if (!(await waitFor(PAUSED, 5000, "pause"))) {
+    // A Tab right after a viewport change can be dropped: one more try.
+    RESULT.notes.push(prefix + ": first Tab did not pause, pressed it again");
+    await tabKey();
+    await waitFor(PAUSED, 5000, "pause (2nd Tab)");
+  }
   await sleep(700); // card entrance animation
   const paused = await ev(HUD);
   await shot(prefix + "-tab");
@@ -305,19 +311,47 @@ async function drill(prefix, code, { loading = true, big = false } = {}) {
   D.leave = await leave();
   return D;
 }
-async function round() {
-  const D = (RESULT.checks.round = {});
-  const b = await clickText("Round \\(beta\\)", "button");
+// Round mode: open the Round panel, Start (it launches through __aimLaunchScene), then the same
+// loading / start path as a drill. Records why it stopped when the round never opens.
+const ROUND_STATE = `({panel:!!document.querySelector('.aim-round'),note:(document.querySelector('.aim-round-note')||{}).textContent||null,root:(${ROOT_OPEN}),rootInDom:!!document.querySelector('.al-aimlab-root'),loading:!!document.querySelector('section.al-wkload.is-loading'),roundOn:!!window.__aimRoundOn,round:window.__aimRound?{tick:window.__aimRound.tick,done:!!window.__aimRound.done}:null,phases:(window.__g3&&window.__g3.ph||[]).slice(-6),launchScene:typeof window.__aimLaunchScene})`;
+// Ready, or the drill closed again (Round on a cold map drops back to the lobby at ~94%: round-
+// panel.js launches with mapId:null, BOARD maps 23:22). 'gone' = back in the lobby.
+const READY_OR_GONE = `(()=>{const r=${READY};if(r)return r;return (${ROOT_OPEN})?null:'gone'})()`;
+async function roundAttempt(D, n) {
+  const A = { n };
+  const before = await ev(`window.__g3.scene`);
+  const b = await clickText("^Round( \\(beta\\))?$", "button"); // round-r5 renames it to "Round"
   D.button = b && b.t;
-  D.panel = !!(await waitFor(`!!document.querySelector('.aim-round')`, 8000, "round panel"));
-  if (!D.panel) { await shot("round-no-panel"); return D; }
-  for (const sel of [`.aim-round [data-pick="default"]`]) await clickSel(sel);
-  await clickSel(".aim-round-start");
-  D.loaded = !!(await waitFor(`window.__aimRoundOn && window.__aimRound && window.__aimRound.tick>=0`, 150000, "round state"));
-  await sleep(2000);
-  const vp = await ev(`[innerWidth,innerHeight]`);
-  await clickAt(vp[0] / 2, vp[1] / 2); // pointer lock / start
+  A.panel = !!(await waitFor(`!!document.querySelector('.aim-round')`, 8000, "round panel"));
+  if (!A.panel) { await shot("round-no-panel-" + n); return A; }
+  await clickSel(`.aim-round [data-pick="default"]`);
+  A.startClicked = await clickSel(".aim-round-start");
+  await sleep(1500);
+  A.afterStart = await ev(ROUND_STATE);
+  await shot("round-after-start-" + n);
+  // The panel waits up to 5 s for the map data on a cold cache, then launches by itself.
+  A.open = !!(await waitFor(`(${ROOT_OPEN})||window.__g3.scene>${before}`, 20000, "round drill open"));
+  if (!A.open) { A.state = await ev(ROUND_STATE); await shot("round-not-open-" + n); return A; }
+  A.ready = await waitFor(READY_OR_GONE, 150000, "round ready");
+  if (A.ready !== "cue" && A.ready !== "btn") { A.state = await ev(ROUND_STATE); await shot("round-not-ready-" + n); }
+  return A;
+}
+async function round() {
+  const D = (RESULT.checks.round = { attempts: [] });
+  let A = await roundAttempt(D, 1);
+  D.attempts.push(A);
+  if (A.ready === "gone") {
+    RESULT.notes.push("round: attempt 1 went back to the lobby while loading (cold map, known round bug); retried");
+    await sleep(2000);
+    A = await roundAttempt(D, 2);
+    D.attempts.push(A);
+  }
+  D.ready = A.ready === "cue" || A.ready === "btn";
+  if (!D.ready) return D;
+  D.start = await startDrill();
   await sleep(2500);
+  D.state = await ev(ROUND_STATE);
+  D.loaded = D.state.roundOn;
   Object.assign(D, await pausedCheck("round"));
   takeErrors("round");
   D.leave = await leave();
@@ -360,7 +394,7 @@ function summarize() {
   for (const k of ["ball", "bot", "round"]) {
     const p = RESULT.checks[k]?.paused;
     if (!p) continue;
-    S[k] = { paused: p.paused, valuePx: p.valuePx, labelPx: p.labelPx, topDisplay: p.top && p.top.display, topAboveCard: p.topAboveCard, overlayAlpha: p.layer && p.layer.alpha, layer: p.layer && p.layer.cls, coversCenter: RESULT.checks[k].running?.coversCenter, coversMinimap: RESULT.checks[k].running?.coversMinimap, meta: p.meta };
+    S[k] = { paused: p.paused, valuePx: p.valuePx, labelPx: p.labelPx, topDisplay: p.top && p.top.display, topAboveCard: p.topAboveCard, chipsBottom: p.chipsBottom, topBottom: p.topBottom, cardTop: p.card && p.card.rect && p.card.rect[1], overlayAlpha: p.layer && p.layer.alpha, layer: p.layer && p.layer.cls, coversCenter: RESULT.checks[k].running?.coversCenter, coversMinimap: RESULT.checks[k].running?.coversMinimap, meta: p.meta, roundOn: p.roundOn, roundHud: p.roundHud };
   }
   S.big = RESULT.checks.bot?.big && { vp: RESULT.checks.bot.big.vp, valuePx: RESULT.checks.bot.big.valuePx, top: RESULT.checks.bot.big.top, coversCenter: RESULT.checks.bot.big.coversCenter, coversMinimap: RESULT.checks.bot.big.coversMinimap };
   S.loading = { ball: RESULT.checks.ball?.loading?.msPerStage, bot: RESULT.checks.bot?.loading?.msPerStage };

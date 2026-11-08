@@ -517,15 +517,15 @@ html[data-aim-local]:not(#es) body :is(.al-wk-chip.al-wk-on, .al-wk-toggle.is-on
 
 html[data-aim-local]:not(#es) body .al-wk-sec-top :is(h2, h3) { font-weight: 800 !important; font-style: italic; }
 /* Short windows (up to 800px tall): a tighter toolbar and section head, so the first drill
-   card's title clears the bottom bar at 1280x720 and 1366x768 (the routines strip sits in
-   between). Nothing is hidden: the map strip, filter chips and sort keep all their parts. */
+   card's title clears the bottom bar at 1280x720 and 1366x768, also when it is a played drill
+   with its "My best" row (the routines strip sits in between). Nothing is hidden: the map strip, filter chips and sort keep all their parts. */
 @media (max-height: 800px) {
-  html[data-aim-local]:not(#es) body .al-wk-tools { padding-top: 8px !important; padding-bottom: 8px !important; }
+  html[data-aim-local]:not(#es) body .al-wk-tools { padding-top: 6px !important; padding-bottom: 6px !important; }
   html[data-aim-local]:not(#es) body .al-wk-strip { height: 80px !important; }
   html[data-aim-local]:not(#es) body .al-wk-strip-wrap { margin-bottom: 8px !important; }
   html[data-aim-local]:not(#es) body .al-wk-slice.is-all .al-wk-s-note { top: 4px !important; }
-  html[data-aim-local]:not(#es) body .hall-root .al-wk-tools :is(.al-wk-chip, .al-wk-toggle, .al-wk-sort button) { height: 34px !important; min-height: 34px !important; }
-  html[data-aim-local]:not(#es) body .al-wk-sec { margin-top: 12px !important; }
+  html[data-aim-local]:not(#es) body .hall-root .al-wk-tools :is(.al-wk-chip, .al-wk-toggle, .al-wk-sort button) { height: 32px !important; min-height: 32px !important; }
+  html[data-aim-local]:not(#es) body .al-wk-sec { margin-top: 8px !important; }
   html[data-aim-local]:not(#es) body .al-wk-sec-top { margin-bottom: 8px !important; }
   html[data-aim-local]:not(#es) body .hall-root .al-wk-card .al-wk-body { padding-top: 6px !important; }
   html[data-aim-local]:not(#es) body .hall-root .al-wk-card .al-wk-body h3 { margin-top: 4px !important; }
