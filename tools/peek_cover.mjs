@@ -15,18 +15,26 @@
 // (tools/round_terrain.mjs loadTerrain().sight).
 //
 // Cover search: both sides perpendicular to the first-sight point -> spot line, 0.25 m steps up to 3 m;
-// a candidate needs a clear walk to the spot (rays at 0.6 m and 1.2 m, centre and +-0.35 m; floor probe
-// every 0.25 m, steps/drops <= 0.5 m). Hidden from a viewpoint = no sight to head (1.86 m) and chest
-// (1.2 m) at the centre and +-0.35 m sideways. Best candidate = hidden from the first-sight point and
-// from the most route samples, then the shortest. No candidate hidden from the first-sight point (or
-// no first-sight point at all): the spot keeps today's position (path [spot, jiggles], spawner on it).
+// a candidate needs a clear walk to the spot (rays at 0.6 m and 1.2 m, centre and +-G.WALK sideways;
+// floor probe every 0.25 m, steps/drops <= 0.5 m). Hidden from a viewpoint = no sight to head (1.86 m)
+// and chest (1.2 m) at the centre and +-0.35 m sideways. Best candidate = hidden from the first-sight
+// point and from the most route samples, then the shortest. If no perpendicular candidate hides from
+// the first-sight point, the same search runs along the two axes rotated 45 deg away from the viewer
+// ("step back behind the corner"). Still none (or no first-sight point at all): the spot keeps today's
+// position (path [spot, jiggles], spawner on it).
 // Jiggles: 0.7 / -0.5 / 0.6 m sideways from the spot, toward the open side (away from the cover);
 // a jiggle whose leg is blocked is dropped. Area spawners collapse to their box centre (size 0).
+// A no-cover spot left without any jiggle must still move (never a bot standing still), in order:
+//  (a) path jiggles in another direction or shorter (+-0.3 m sideways, 45 deg, along the view line);
+//  (b) the original strafe (spawner + actor-1 exactly as in the original drill) if +-0.8 m along world
+//      X is a clear walk; (c) the original strafe with a spawner rotationY that turns the strafe axis
+//      down a clear direction (the one closest to sideways as seen from the first-sight point).
 //
 // Runs on hp (terrain is CPU heavy the first time; cached in the OS temp folder):
 //   node tools/peek_cover.mjs            rewrite the six scenario files + their spot-score entries
 //   node tools/peek_cover.mjs --check    fail if the scenario files or spot-scores.json are stale
 //   node tools/peek_cover.mjs --json     print the per-spot report as JSON
+//   node tools/peek_cover.mjs --dry [--walk-half 0.3]   report only (no writes), optional walk margin
 //   node tools/peek_cover.mjs --init <planner.json>   (re)make tools/data/peek-viewpoints.json from a
 //        planner dump (tools/peek_planner.mjs, run in a test copy of the app) and the CURRENT
 //        scenario files, which must still be the original (not yet converted) drills.
@@ -38,7 +46,14 @@ export const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..'
 export const DATA = path.join(ROOT, 'tools', 'data', 'peek-viewpoints.json');
 export const SCORES = path.join(ROOT, 'app', 'mods', 'aim-ranks', 'spot-scores.json');
 export const STEMS = ['ascent-b-retake', 'bind-a-showers', 'corrode-mid-to-a', 'haven-garage-push', 'lotus-b-attack', 'split-b-heaven-retake'].map((s) => `${s}-peekers`);
-export const G = { HEAD: 1.86, CHEST: 1.2, HALF: 0.35, STEP: 0.25, MAX: 3, RAYS: [0.6, 1.2], STEP_H: 0.5, PROBE: 0.25, SAMPLE: 2, AHEAD: 10 };
+// HALF = sideways offset of the hidden test; WALK = sideways offset of the walk-clearance rays (bot hit
+// capsules are ~0.2 m in radius). 0.25 / 0.30 / 0.35 compared in the P2 check: at 0.25 the covers that
+// only fit with < 0.30 m to spare had the bot's rifle (pointing at the player) inside or past the cover
+// wall, one of them visible to the player; 0.30 picked.
+export const G = { HEAD: 1.86, CHEST: 1.2, HALF: 0.35, WALK: 0.3, STEP: 0.25, MAX: 3, RAYS: [0.6, 1.2], STEP_H: 0.5, PROBE: 0.25, SAMPLE: 2, AHEAD: 10 };
+// Restored movement for no-cover spots without any fitting jiggle.
+export const SHORT = [0.3, -0.3, 0.3];
+export const STRAFE_ACTOR = 'actor-1';
 // Pause (s) at cover / at the spot / at each jiggle step. Pause waits are plain numbers in the game,
 // so the cover wait varies per spot instead (cover +- coverSpread, from a hash of the spawner id) and
 // bots don't all share one rhythm. Human-like bots scale each wait by 0.6-1.4 (aimBotPause).
@@ -106,7 +121,7 @@ export function viewpoints(entry, id) {
   return { first: eye(st.from), samples: routeSamples(entry.route, st.from).map(eye), from: st.from };
 }
 
-export function geometry(T) {
+export function geometry(T, walkHalf = G.WALK) {
   const floorAt = (x, y, z, up = 1, down = 3) => {
     const t = T.ray(T.pawn, [x, y + up, z], [0, -1, 0], down + up, FLOOR_NY);
     return t < 0 ? null : y + up - t;
@@ -121,7 +136,7 @@ export function geometry(T) {
     const dx = B.x - A.x, dz = B.z - A.z, L = Math.hypot(dx, dz);
     if (L < 1e-6) return null;
     const px = -dz / L, pz = dx / L;
-    for (const h of G.RAYS) for (const o of [0, G.HALF, -G.HALF]) {
+    for (const h of G.RAYS) for (const o of [0, walkHalf, -walkHalf]) {
       const dy = B.y - A.y, len = Math.hypot(L, dy);
       const t = T.ray(T.pawn, [A.x + px * o, A.y + h, A.z + pz * o], [dx / len, dy / len, dz / len], len);
       if (t >= 0 && t < len) return `wall at ${t.toFixed(2)} m (h ${h}, side ${o})`;
@@ -141,25 +156,22 @@ export function geometry(T) {
   return { floorAt, seen, walk };
 }
 
-// One pool spawner -> { spawner, actor, info }.
+// One pool spawner -> { spawner, actor (null = the original actor-1), info }.
 export function coverSpot(geo, src, actorTpl, vp) {
   const { floorAt, seen, walk } = geo;
   const box = src.size && (src.size.x || src.size.y || src.size.z) ? { ...src.size } : null;
   const fy = floorAt(src.position.x, src.position.y, src.position.z);
   const spot = { x: src.position.x, y: fy ?? src.position.y, z: src.position.z };
-  const info = { id: src.id, area: box, spotSeen: null, cover: null, hiddenFirst: false, samples: 0, hiddenSamples: 0, dropped: [], why: null };
-  let best = null, axis = { x: 1, z: 0 };
-  if (!vp) info.why = 'planner never sees this spot';
-  else {
-    info.samples = vp.samples.length;
-    info.spotSeen = seen(vp.first, spot);
-    const dx = spot.x - vp.first[0], dz = spot.z - vp.first[2], l = Math.hypot(dx, dz) || 1;
-    axis = { x: -dz / l, z: dx / l };
-    info.sides = {};
+  const info = { id: src.id, area: box, spotSeen: null, cover: null, hiddenFirst: false, samples: 0, hiddenSamples: 0, dropped: [], why: null, restored: null };
+  let best = null, axis = { x: 1, z: 0 }, away = { x: 0, z: 1 };
+  // Cover candidates along dirOf(side) (unit vectors), 0.25 m steps up to 3 m; notes per side.
+  const search = (dirOf, notes) => {
+    let top = null;
     for (const side of [1, -1]) {
+      const u = dirOf(side);
       let note = `seen from the first-sight point up to ${G.MAX} m`;
       for (let k = 1; k * G.STEP <= G.MAX + 1e-9; k++) {
-        const d = k * G.STEP, cx = spot.x + axis.x * side * d, cz = spot.z + axis.z * side * d;
+        const d = k * G.STEP, cx = spot.x + u.x * d, cz = spot.z + u.z * d;
         const cy = floorAt(cx, spot.y, cz, 0.6, 1.2);
         if (cy === null) { if (note !== 'ok') note = `no floor at ${d} m`; break; }
         const C = { x: cx, y: cy, z: cz };
@@ -168,49 +180,119 @@ export function coverSpot(geo, src, actorTpl, vp) {
         if (seen(vp.first, C)) continue;
         note = 'ok';
         const hid = vp.samples.filter((e) => !seen(e, C)).length;
-        if (!best || hid > best.hid || (hid === best.hid && d < best.d)) best = { C, d, side, hid };
+        if (!top || hid > top.hid || (hid === top.hid && d < top.d)) top = { C, d, side, hid };
       }
-      info.sides[side > 0 ? 'L' : 'R'] = note;
+      notes[side > 0 ? 'L' : 'R'] = note;
     }
-    if (best) Object.assign(info, { cover: { side: best.side, d: best.d }, hiddenFirst: true, hiddenSamples: best.hid });
+    return top;
+  };
+  if (!vp) info.why = 'planner never sees this spot';
+  else {
+    info.samples = vp.samples.length;
+    info.spotSeen = seen(vp.first, spot);
+    const dx = spot.x - vp.first[0], dz = spot.z - vp.first[2], l = Math.hypot(dx, dz) || 1;
+    axis = { x: -dz / l, z: dx / l };
+    away = { x: dx / l, z: dz / l };
+    info.sides = {};
+    best = search((s) => ({ x: axis.x * s, z: axis.z * s }), info.sides);
+    if (best) best.dir = 'side';
+    else {
+      // Step back behind the corner: the sideways axis turned 45 deg away from the viewer.
+      info.diag = {};
+      best = search((s) => ({ x: (axis.x * s + away.x) * Math.SQRT1_2, z: (axis.z * s + away.z) * Math.SQRT1_2 }), info.diag);
+      if (best) best.dir = 'diag45';
+    }
+    if (best) Object.assign(info, { cover: { side: best.side, d: best.d, dir: best.dir }, hiddenFirst: true, hiddenSamples: best.hid });
     else info.why = 'no cover hides it from the first-sight point';
   }
-  const open = best ? { x: -axis.x * best.side, z: -axis.z * best.side } : axis;
   const home = best ? best.C : spot;
-  const pts = best ? [home, spot] : [spot];
-  const tags = pts.map(() => null);
-  RHYTHM.jiggles.forEach((m, i) => {
-    const x = spot.x + open.x * m, z = spot.z + open.z * m, y = floorAt(x, spot.y, z, 0.6, 1.2);
-    const J = { x, y: y ?? spot.y, z };
-    const why = y === null ? 'no floor' : walk(pts[pts.length - 1], J);
-    if (why) info.dropped.push(`j${i + 1} (${why})`);
-    else { pts.push(J); tags.push(`j${i + 1}`); }
-  });
-  // Closing leg of the loop back to the start.
-  while (pts.length > (best ? 2 : 1)) {
-    const why = walk(pts[pts.length - 1], home);
-    if (!why) break;
-    pts.pop();
-    info.dropped.push(`${tags.pop()} (loop back: ${why})`);
+  // Path from home: [home, spot] (cover) or [spot], then jiggles spot + dir * m; a blocked leg drops
+  // that jiggle, then the closing leg back to home must be clear too.
+  const jiggle = (dir, amps) => {
+    const pts = best ? [home, spot] : [spot], tags = pts.map(() => null), dropped = [];
+    amps.forEach((m, i) => {
+      const x = spot.x + dir.x * m, z = spot.z + dir.z * m, y = floorAt(x, spot.y, z, 0.6, 1.2);
+      const J = { x, y: y ?? spot.y, z };
+      const why = y === null ? 'no floor' : walk(pts[pts.length - 1], J);
+      if (why) dropped.push(`j${i + 1} (${why})`);
+      else { pts.push(J); tags.push(`j${i + 1}`); }
+    });
+    while (pts.length > (best ? 2 : 1)) {
+      const why = walk(pts[pts.length - 1], home);
+      if (!why) break;
+      pts.pop();
+      dropped.push(`${tags.pop()} (loop back: ${why})`);
+    }
+    return { pts, dropped };
+  };
+  const open = best ? { x: -axis.x * best.side, z: -axis.z * best.side } : axis;
+  let jig = jiggle(open, RHYTHM.jiggles);
+  info.dropped = jig.dropped;
+  if (!best && jig.pts.length < 2) {
+    // (a) any other jiggle that fits, most sideways (as the player sees it) first: shorter sideways,
+    // 45 deg (full, then short), then along the view line.
+    const c = Math.SQRT1_2, dA = { x: (axis.x + away.x) * c, z: (axis.z + away.z) * c }, dB = { x: (axis.x - away.x) * c, z: (axis.z - away.z) * c };
+    const alts = [
+      ['sideways +-0.3 m', axis, SHORT], ['45 deg', dA, RHYTHM.jiggles], ['-45 deg', dB, RHYTHM.jiggles],
+      ['45 deg +-0.3 m', dA, SHORT], ['-45 deg +-0.3 m', dB, SHORT], ['view line', away, RHYTHM.jiggles], ['view line +-0.3 m', away, SHORT],
+    ];
+    for (const [how, dir, amps] of alts) {
+      const t = jiggle(dir, amps);
+      if (t.pts.length >= 2) { jig = t; info.restored = { kind: 'a', how }; break; }
+    }
+    if (!info.restored) {
+      // (b) / (c): the original strafe. Stock strafe axis = (cos r, -sin r) for spawner rotationY r
+      // (world X when unset); each leg ends <= max(travel)/2 from home; x/z only, no wall collision.
+      const strafe = actorTpl.behaviors.find((b) => b.kind === 'strafe');
+      const reach = strafe ? Math.max(...strafe.travel) / 2 : 0;
+      const clear = (r) => {
+        for (const sg of [1, -1]) {
+          const x = spot.x + Math.cos(r) * reach * sg, z = spot.z - Math.sin(r) * reach * sg, y = floorAt(x, spot.y, z, 0.6, 1.2);
+          if (y === null || walk(spot, { x, y, z })) return false;
+        }
+        return true;
+      };
+      if (strafe && clear(0)) info.restored = { kind: 'b', how: 'strafe along world X' };
+      else if (strafe) {
+        // 5 deg steps (the axis is two-way, so 5..175), closest to sideways from the first-sight point first.
+        const want = Math.atan2(-axis.z, axis.x);
+        const off = (r) => { const d = (((r - want) % Math.PI) + Math.PI) % Math.PI; return Math.min(d, Math.PI - d); };
+        const tries = [];
+        for (let k = 1; k < 36; k++) tries.push((k * 5 * Math.PI) / 180);
+        tries.sort((a, b) => off(a) - off(b) || a - b);
+        const r = tries.find(clear);
+        if (r !== undefined) {
+          const rotationY = Math.round(r * 1000) / 1000;
+          info.restored = { kind: 'c', how: `strafe, rotationY ${rotationY}`, rotationY };
+        }
+      }
+      if (info.restored) {
+        // The exact original spawner + the original actor-1 (the drill as it was before the cover change).
+        const spawner = structuredClone(src);
+        if (info.restored.kind === 'c') spawner.rotationY = info.restored.rotationY;
+        return { spawner, actor: null, info };
+      }
+      info.why += '; NO movement fits: stands still';
+    }
   }
+  const pts = jig.pts;
   const waits = pts.map((_, i) => (best && i === 0 ? coverWait(src.id) : (best ? i === 1 : i === 0) ? RHYTHM.spot : RHYTHM.jiggle));
-  const actorId = `peek-${src.id}`;
   const shooter = actorTpl.behaviors.find((b) => b.kind === 'shooter');
   const actor = {
-    ...structuredClone(actorTpl), id: actorId,
+    ...structuredClone(actorTpl), id: `peek-${src.id}`,
     behaviors: [
       { kind: 'path', waypoints: pts.map(P3), loop: true, speed: RHYTHM.speed, counterStrafe: true, pauses: waits.map((wait, at) => ({ at, wait })) },
       structuredClone(shooter),
     ],
   };
   const spawner = { ...structuredClone(src) };
-  Object.assign(spawner, { kind: 'area', actorTemplateId: actorId, position: P3({ x: home.x, y: home.y + 0.3, z: home.z }), size: { x: 0, y: 0, z: 0 } });
+  Object.assign(spawner, { kind: 'area', actorTemplateId: actor.id, position: P3({ x: home.x, y: home.y + 0.3, z: home.z }), size: { x: 0, y: 0, z: 0 } });
   return { spawner, actor, info };
 }
 
 // Original drill (from the data file) + current file -> converted doc + report.
-export function convert(entry, current, T) {
-  const geo = geometry(T);
+export function convert(entry, current, T, walkHalf = G.WALK) {
+  const geo = geometry(T, walkHalf);
   const doc = structuredClone(current);
   const pool = new Set(doc.rules.spawnerPick.pool);
   if (JSON.stringify(doc.rules.spawnerPick.pool) !== JSON.stringify(entry.source.pool)) throw new Error('pool changed since the viewpoints were captured: rerun --init');
@@ -223,10 +305,12 @@ export function convert(entry, current, T) {
     const src = srcBy.get(s.id);
     if (!src) throw new Error(`${s.id}: not in the captured source`);
     const r = coverSpot(geo, src, actorBy.get(src.actorTemplateId), viewpoints(entry, s.id));
-    made.push(r.actor); infos.push(r.info);
+    if (r.actor) made.push(r.actor);
+    infos.push(r.info);
     return r.spawner;
   });
-  const used = new Set(doc.spawners.filter((s) => !pool.has(s.id)).map((s) => s.actorTemplateId));
+  // Original actors still in use (non-pool spawners, restored strafe spots), then the per-spot actors.
+  const used = new Set(doc.spawners.map((s) => s.actorTemplateId));
   doc.actors = [...entry.source.actors.filter((a) => used.has(a.id)), ...made];
   return { doc, infos };
 }
@@ -237,7 +321,7 @@ export async function terrainLoader(root = ROOT, log = () => {}) {
   return async (map) => { if (!cache.has(map)) cache.set(map, await loadTerrain(map, { root, log })); return cache.get(map); };
 }
 
-export async function generate({ root = ROOT, stems = STEMS, log = () => {}, terrain = null } = {}) {
+export async function generate({ root = ROOT, stems = STEMS, log = () => {}, terrain = null, walkHalf = G.WALK } = {}) {
   const loadTerrain = terrain ?? (await terrainLoader(root, log));
   const data = readData(root);
   const key = aimSpotKeyFn(root);
@@ -247,7 +331,7 @@ export async function generate({ root = ROOT, stems = STEMS, log = () => {}, ter
     if (!entry) throw new Error(`${stem}: not in tools/data/peek-viewpoints.json`);
     const cur = readScenario(stem, root);
     const T = await loadTerrain(cur.doc.environment.map);
-    const { doc, infos } = convert(entry, cur.doc, T);
+    const { doc, infos } = convert(entry, cur.doc, T, walkHalf);
     const text = JSON.stringify(doc);
     const next = structuredClone(cur.data);
     next.scene.doc = text;
@@ -301,14 +385,29 @@ async function main() {
   const argv = process.argv.slice(2);
   const i = argv.indexOf('--init');
   if (i >= 0) return initData(argv[i + 1]);
-  const check = argv.includes('--check'), json = argv.includes('--json');
-  const res = await generate({ log: (m) => console.error(m) });
+  const check = argv.includes('--check'), json = argv.includes('--json'), dry = argv.includes('--dry');
+  const wi = argv.indexOf('--walk-half'), walkHalf = wi >= 0 ? Number(argv[wi + 1]) : G.WALK;
+  if (!(walkHalf >= 0 && walkHalf < 1)) throw new Error('--walk-half: metres, e.g. 0.3');
+  if (walkHalf !== G.WALK && !dry) throw new Error('--walk-half only with --dry (the files are made with G.WALK)');
+  if (dry && check) throw new Error('--dry and --check do not go together');
+  const res = await generate({ log: (m) => console.error(m), walkHalf });
   const rows = [];
   for (const r of res) {
-    for (const f of r.infos) rows.push({ drill: r.stem.replace('-peekers', ''), id: f.id, area: f.area ? `${f.area.x}x${f.area.z}` : '', seen: f.spotSeen, cover: f.cover ? `${f.cover.side > 0 ? 'L' : 'R'} ${f.cover.d}` : 'NONE', hidden: f.cover ? `${f.hiddenSamples + 1}/${f.samples + 1}` : '', dropped: f.dropped.join('; '), why: f.why ? `${f.why} [L: ${f.sides?.L ?? '-'}; R: ${f.sides?.R ?? '-'}]` : '' });
+    for (const f of r.infos) rows.push({ drill: r.stem.replace('-peekers', ''), id: f.id, area: f.area ? `${f.area.x}x${f.area.z}` : '', seen: f.spotSeen, cover: f.cover ? `${f.cover.side > 0 ? 'L' : 'R'} ${f.cover.d}${f.cover.dir === 'diag45' ? ' 45deg' : ''}` : 'NONE', hidden: f.cover ? `${f.hiddenSamples + 1}/${f.samples + 1}` : '', restored: f.restored ? `${f.restored.kind}: ${f.restored.how}` : '', dropped: f.dropped.join('; '), why: f.why ? `${f.why} [L: ${f.sides?.L ?? '-'}; R: ${f.sides?.R ?? '-'}]` : '' });
   }
   if (json) console.log(JSON.stringify(res.map((r) => ({ stem: r.stem, key: r.key, infos: r.infos }))));
   else console.table(rows);
+  // Per drill: hidden from all viewpoints / partly / of those via the 45 deg search / no cover (restored a, b, c).
+  for (const r of res) {
+    const c = { all: 0, partial: 0, diag: 0, none: 0, a: 0, b: 0, c: 0, still: 0 };
+    for (const f of r.infos) {
+      if (f.cover) { c[f.hiddenSamples === f.samples ? 'all' : 'partial']++; if (f.cover.dir === 'diag45') c.diag++; } else c.none++;
+      if (f.restored) c[f.restored.kind]++;
+      if (f.why?.includes('stands still')) c.still++;
+    }
+    console.error(`${r.stem} (walk +-${walkHalf} m): cover all ${c.all}, partial ${c.partial} (45 deg ${c.diag}), no cover ${c.none} (restored a ${c.a}, b ${c.b}, c ${c.c}; still ${c.still})`);
+  }
+  if (dry) return;
   const sc = scoresText(res);
   const scoresStale = sc.text.replace(/\r\n/g, '\n') !== sc.old.replace(/\r\n/g, '\n');
   if (check) {

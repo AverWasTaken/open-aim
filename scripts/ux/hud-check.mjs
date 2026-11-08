@@ -116,10 +116,22 @@ addEventListener('aim-round-phase',e=>g.ph.push(e.detail&&e.detail.phase));
 addEventListener('aim-local-scene',()=>{g.scene++});
 addEventListener('aim-local-result',e=>{const d=e.detail||{};g.results.push({source:d.source,eligible:d.eligible,code:d.record&&d.record.shareCode,score:d.record&&d.record.score})});
 const wrap=()=>{const o=window.__aimTick;if(typeof o!=='function'||o.__g3)return;const w=function(s){g.tick=s;return o.apply(this,arguments)};w.__g3=1;window.__aimTick=w};wrap();g.wrapTimer=setInterval(wrap,1000);return 1})()`;
-const LOBBY_READY = `!document.querySelector('.es-startup') && !!document.querySelector('.hall-root') && typeof window.__aimLaunchWorkshop==='function' && typeof window.__aimLeaveTraining==='function' && !document.querySelector('.al-aimlab-root')`;
+// A drill is open when its root is on screen (the node can stay mounted but hidden in the lobby).
+const ROOT_OPEN = `(()=>{const e=document.querySelector('.al-aimlab-root');if(!e)return false;const r=e.getBoundingClientRect();const cs=getComputedStyle(e);return r.width>0&&r.height>0&&cs.display!=='none'&&cs.visibility!=='hidden'})()`;
+const LOBBY_PARTS = `({noStartup:!document.querySelector('.es-startup'),hallRoot:!!document.querySelector('.hall-root'),launchHook:typeof window.__aimLaunchWorkshop==='function',leaveHook:typeof window.__aimLeaveTraining==='function',noDrill:!(${ROOT_OPEN}),rootInDom:!!document.querySelector('.al-aimlab-root'),result:!!document.querySelector('.al-result-overlay'),url:location.href.slice(0,120)})`;
+const LOBBY_READY = `(()=>{const p=${LOBBY_PARTS};return p.noStartup&&p.hallRoot&&p.launchHook&&p.leaveHook&&p.noDrill})()`;
 async function waitLobby(ms = 60000) {
+  // A drill or result card left open by an earlier check in the same session: close it first.
+  try {
+    if (await ev(`typeof window.__aimLeaveTraining==='function' && (${ROOT_OPEN})`)) {
+      RESULT.notes.push("a drill was still open at start: left it");
+      await ev(`window.__aimLeaveTraining()`);
+      await sleep(1500);
+    }
+  } catch (e) { if (!sessionAlive) throw e; }
   const ok = await waitFor(LOBBY_READY, ms, "lobby ready");
   if (ok) await ev(HOOKS);
+  else { try { RESULT.lobbyParts = await ev(LOBBY_PARTS); log("lobby parts", JSON.stringify(RESULT.lobbyParts)); } catch {} }
   return !!ok;
 }
 async function viewport() {
@@ -129,25 +141,25 @@ async function viewport() {
 // Launch via the hook, handle the rank picker (one retry), wait for 'aim-local-scene'.
 async function launch(code, pick = "gold") {
   const before = await ev(`window.__g3.scene`);
-  const r = { code, hook: await ev(`window.__aimLaunchWorkshop(${JSON.stringify(code)})`), picker: false, sceneEvent: false };
+  const r = { code, hook: await ev(`(window.__aimLaunchByCode?window.__aimLaunchByCode(${JSON.stringify(code)}):window.__aimLaunchWorkshop(${JSON.stringify(code)}))`), picker: false, sceneEvent: false };
   for (let attempt = 0; attempt < 2 && r.hook; attempt++) {
-    const st = await waitFor(`document.querySelector('.aim-pick-shade .aim-pick')?'picker':(window.__g3.scene>${before}?'scene':(document.querySelector('.al-aimlab-root')?'root':null))`, 15000, "picker or scene");
+    const st = await waitFor(`document.querySelector('.aim-pick-shade .aim-pick')?'picker':(window.__g3.scene>${before}?'scene':((${ROOT_OPEN})?'root':null))`, 15000, "picker or scene");
     if (st === "picker") {
       r.picker = true;
       await sleep(300);
       const ok = (await clickSel(`.aim-pick-tile[data-pick=${pick}]`)) || (await clickSel(`.aim-pick-tile[data-pick=default]`));
       r.pickClicked = ok;
     }
-    const s = await waitFor(`window.__g3.scene>${before}||!!document.querySelector('.al-aimlab-root')`, 20000, "scene or drill root");
+    const s = await waitFor(`window.__g3.scene>${before}||(${ROOT_OPEN})`, 20000, "scene or drill root");
     if (s) break;
     // the picker can drop a launch: retry once when nothing is open
-    if (attempt === 0 && !(await ev(`!!document.querySelector('.al-aimlab-root')`))) {
+    if (attempt === 0 && !(await ev(`(${ROOT_OPEN})`))) {
       r.retried = true;
-      r.hook2 = await ev(`window.__aimLaunchWorkshop(${JSON.stringify(code)})`);
+      r.hook2 = await ev(`(window.__aimLaunchByCode?window.__aimLaunchByCode(${JSON.stringify(code)}):window.__aimLaunchWorkshop(${JSON.stringify(code)}))`);
       if (!r.hook2) break;
     } else break;
   }
-  r.root = await ev(`!!document.querySelector('.al-aimlab-root')`);
+  r.root = await ev(`(${ROOT_OPEN})`);
   r.before = before;
   return r;
 }
@@ -175,7 +187,7 @@ async function startDrill() {
 
 async function leave() {
   const r = await ev(`window.__aimLeaveTraining()`);
-  const back = await waitFor(`!document.querySelector('.al-aimlab-root') && !!document.querySelector('.hall-topnav')`, 30000, "back in lobby");
+  const back = await waitFor(`!(${ROOT_OPEN}) && !!document.querySelector('.hall-topnav')`, 30000, "back in lobby");
   return { leaveReturned: r, lobby: !!back };
 }
 function takeErrors(label) {
@@ -209,7 +221,7 @@ const HUD = `(()=>{const q=s=>document.querySelector(s);const R=e=>{if(!e)return
 const a=c=>{const m=/rgba?\\(([^)]+)\\)/.exec(c||'');if(!m)return null;const p=m[1].split(',').map(Number);return p.length>3?p[3]:1};
 const top=q('.al-hud-top'),b=q('.al-hud-chip b'),sp=q('.al-hud-chip span'),hud=q('.al-hud'),ov=q('.al-pause-layer'),card=q('.al-pause-id')||q('.al-pause-lite-body');
 const ts=top&&getComputedStyle(top),hs=hud&&getComputedStyle(hud);const os=ov&&getComputedStyle(ov);
-const tr=top&&top.getBoundingClientRect(),cr=card&&card.getBoundingClientRect();
+const tr=top&&top.getBoundingClientRect(),cr=card&&card.getBoundingClientRect();const chipR=[...document.querySelectorAll('.al-hud-top .al-hud-chip')].map(c=>c.getBoundingClientRect()).filter(r=>r.width>0&&r.height>0);const cb=chipR.length?Math.round(Math.max(...chipR.map(r=>r.bottom))):null;
 const mm=q('.al-minimap, [class*=minimap]');const cx=innerWidth/2,cy=innerHeight/2;
 return {vp:[innerWidth,innerHeight],paused:!!q('.al-stage-wrap.is-paused'),roundOn:document.documentElement.classList.contains('aim-round-on'),
 chips:[...document.querySelectorAll('.al-hud-chip')].map(c=>c.innerText.replace(/\\s+/g,' ').trim()),
@@ -218,7 +230,7 @@ top:top?{display:ts.display,visibility:ts.visibility,rect:R(top)}:null,hudZ:hs&&
 coversCenter:!!tr&&tr.left<=cx&&tr.right>=cx&&tr.top<=cy&&tr.bottom>=cy,
 minimap:mm?R(mm):null,coversMinimap:!!(tr&&mm&&(()=>{const m=mm.getBoundingClientRect();return m.width>0&&tr.left<m.right&&m.left<tr.right&&tr.top<m.bottom&&m.top<tr.bottom})()),
 layer:ov?{cls:ov.className,bg:os.backgroundColor,bgImage:os.backgroundImage.slice(0,80),alpha:a(os.backgroundColor)}:null,
-card:card?{cls:card.className,rect:R(card)}:null,topAboveCard:!!(tr&&cr)&&tr.bottom<=cr.top,
+card:card?{cls:card.className,rect:R(card)}:null,chipsBottom:cb,topBottom:tr?Math.round(tr.bottom):null,topAboveCard:cb===null?null:(!!cr&&cb<=cr.top),
 meta:(q('.al-pause-meta')||{}).innerText||null,menuText:ov?ov.innerText.replace(/\\s+/g,' ').slice(0,300):null,roundHud:!!q('#aim-round-hud:not([hidden])')}})()`;
 // Loading overlay sample: shell stage text + any % shown by the workshop loader.
 const LOAD = `(()=>{const s=document.querySelector('.aim-loading-stage');const w=document.querySelector('.al-wkload');const t=w?w.innerText:'';const m=t.match(/(\\d+(?:\\.\\d+)?)\\s*%/);
@@ -264,7 +276,13 @@ async function pausedCheck(prefix) {
   const run = await ev(HUD);
   await shot(prefix + "-hud");
   await tabKey();
-  await waitFor(`!!document.querySelector('.al-stage-wrap.is-paused')||!!document.querySelector('.al-pause-layer')`, 5000, "pause");
+  const PAUSED = `!!document.querySelector('.al-stage-wrap.is-paused')||!!document.querySelector('.al-pause-layer')`;
+  if (!(await waitFor(PAUSED, 5000, "pause"))) {
+    // A Tab right after a viewport change can be dropped: one more try.
+    RESULT.notes.push(prefix + ": first Tab did not pause, pressed it again");
+    await tabKey();
+    await waitFor(PAUSED, 5000, "pause (2nd Tab)");
+  }
   await sleep(700); // card entrance animation
   const paused = await ev(HUD);
   await shot(prefix + "-tab");
@@ -286,6 +304,9 @@ async function drill(prefix, code, { loading = true, big = false } = {}) {
       D.big = await ev(HUD);
       await shot(prefix + "-hud-2560");
     } finally { try { await viewport(); } catch {} await sleep(1500); }
+    // The resize can drop key focus (Tab then does nothing): one click in the drill restores it.
+    try { const vp = await ev(`[innerWidth,innerHeight]`); await clickAt(vp[0] / 2, vp[1] / 2); } catch {}
+    await sleep(800);
   }
   Object.assign(D, await pausedCheck(prefix));
   if (!D.paused?.paused) RESULT.notes.push(prefix + ": Tab did not pause the drill (pointer lock: " + (D.start && D.start.lock) + ")");
@@ -293,19 +314,49 @@ async function drill(prefix, code, { loading = true, big = false } = {}) {
   D.leave = await leave();
   return D;
 }
-async function round() {
-  const D = (RESULT.checks.round = {});
-  const b = await clickText("Round \\(beta\\)", "button");
+// Round mode: open the Round panel, Start (it launches through __aimLaunchScene), then the same
+// loading / start path as a drill. Records why it stopped when the round never opens.
+const ROUND_STATE = `({panel:!!document.querySelector('.aim-round'),note:(document.querySelector('.aim-round-note')||{}).textContent||null,root:(${ROOT_OPEN}),rootInDom:!!document.querySelector('.al-aimlab-root'),loading:!!document.querySelector('section.al-wkload.is-loading'),roundOn:!!window.__aimRoundOn,round:window.__aimRound?{tick:window.__aimRound.tick,done:!!window.__aimRound.done}:null,phases:(window.__g3&&window.__g3.ph||[]).slice(-6),launchScene:typeof window.__aimLaunchScene})`;
+// Ready, or the drill closed again (Round on a cold map drops back to the lobby at ~94%: round-
+// panel.js launches with mapId:null, BOARD maps 23:22). 'gone' = back in the lobby.
+const READY_OR_GONE = `(()=>{const r=${READY};if(r)return r;return (!(${ROOT_OPEN})&&!!document.querySelector('.hall-topnav'))?'gone':null})()`;
+async function roundAttempt(D, n) {
+  const A = { n };
+  const before = await ev(`window.__g3.scene`);
+  const b = await clickText("^Round( \\(beta\\))?$", "button"); // round-r5 renames it to "Round"
   D.button = b && b.t;
-  D.panel = !!(await waitFor(`!!document.querySelector('.aim-round')`, 8000, "round panel"));
-  if (!D.panel) { await shot("round-no-panel"); return D; }
-  for (const sel of [`.aim-round [data-pick="default"]`]) await clickSel(sel);
-  await clickSel(".aim-round-start");
-  D.loaded = !!(await waitFor(`window.__aimRoundOn && window.__aimRound && window.__aimRound.tick>=0`, 150000, "round state"));
-  await sleep(2000);
-  const vp = await ev(`[innerWidth,innerHeight]`);
-  await clickAt(vp[0] / 2, vp[1] / 2); // pointer lock / start
+  A.panel = !!(await waitFor(`!!document.querySelector('.aim-round')`, 8000, "round panel"));
+  if (!A.panel) { await shot("round-no-panel-" + n); return A; }
+  await clickSel(`.aim-round [data-pick="default"]`);
+  A.startClicked = await clickSel(".aim-round-start");
+  await sleep(1500);
+  A.afterStart = await ev(ROUND_STATE);
+  await shot("round-after-start-" + n);
+  // The panel waits up to 5 s for the map data on a cold cache, then launches by itself.
+  A.open = !!(await waitFor(`(${ROOT_OPEN})||window.__g3.scene>${before}`, 20000, "round drill open"));
+  if (!A.open) { A.state = await ev(ROUND_STATE); await shot("round-not-open-" + n); return A; }
+  A.ready = await waitFor(READY_OR_GONE, 150000, "round ready");
+  // 'gone' must hold on a second look (a scene swap can hide the root for a moment).
+  if (A.ready === "gone") { await sleep(1500); const again = await ev(READY_OR_GONE); if (again !== "gone") A.ready = again || (await waitFor(READY_OR_GONE, 150000, "round ready")); }
+  if (A.ready !== "cue" && A.ready !== "btn") { A.state = await ev(ROUND_STATE); await shot("round-not-ready-" + n); }
+  return A;
+}
+async function round() {
+  const D = (RESULT.checks.round = { attempts: [] });
+  let A = await roundAttempt(D, 1);
+  D.attempts.push(A);
+  if (A.ready === "gone") {
+    RESULT.notes.push("round: attempt 1 went back to the lobby while loading (cold map, known round bug); retried");
+    await sleep(2000);
+    A = await roundAttempt(D, 2);
+    D.attempts.push(A);
+  }
+  D.ready = A.ready === "cue" || A.ready === "btn";
+  if (!D.ready) return D;
+  D.start = await startDrill();
   await sleep(2500);
+  D.state = await ev(ROUND_STATE);
+  D.loaded = D.state.roundOn;
   Object.assign(D, await pausedCheck("round"));
   takeErrors("round");
   D.leave = await leave();
@@ -330,7 +381,7 @@ await finish(async () => {
     }
   }
   if (!lobby) throw new Error("lobby never ready");
-  await ev(`(()=>{localStorage.setItem('aim-valorant-import-hide-startup-v1','1');return 1})()`);
+  await ev(`(()=>{localStorage.setItem('aim-valorant-import-hide-startup-v1','1');localStorage.setItem('ux-welcome-v1','done');return 1})()`);
   RESULT.viewport = await viewport();
   log("viewport", RESULT.viewport);
   await sleep(2000);
@@ -348,7 +399,7 @@ function summarize() {
   for (const k of ["ball", "bot", "round"]) {
     const p = RESULT.checks[k]?.paused;
     if (!p) continue;
-    S[k] = { paused: p.paused, valuePx: p.valuePx, labelPx: p.labelPx, topDisplay: p.top && p.top.display, topAboveCard: p.topAboveCard, overlayAlpha: p.layer && p.layer.alpha, layer: p.layer && p.layer.cls, coversCenter: RESULT.checks[k].running?.coversCenter, coversMinimap: RESULT.checks[k].running?.coversMinimap, meta: p.meta };
+    S[k] = { paused: p.paused, valuePx: p.valuePx, labelPx: p.labelPx, topDisplay: p.top && p.top.display, topAboveCard: p.topAboveCard, chipsBottom: p.chipsBottom, topBottom: p.topBottom, cardTop: p.card && p.card.rect && p.card.rect[1], overlayAlpha: p.layer && p.layer.alpha, layer: p.layer && p.layer.cls, coversCenter: RESULT.checks[k].running?.coversCenter, coversMinimap: RESULT.checks[k].running?.coversMinimap, meta: p.meta, roundOn: p.roundOn, roundHud: p.roundHud };
   }
   S.big = RESULT.checks.bot?.big && { vp: RESULT.checks.bot.big.vp, valuePx: RESULT.checks.bot.big.valuePx, top: RESULT.checks.bot.big.top, coversCenter: RESULT.checks.bot.big.coversCenter, coversMinimap: RESULT.checks.bot.big.coversMinimap };
   S.loading = { ball: RESULT.checks.ball?.loading?.msPerStage, bot: RESULT.checks.bot?.loading?.msPerStage };

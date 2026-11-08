@@ -8,6 +8,7 @@ import { parseRoundNav, writeRoundNav, reverseEdges } from "../app/mods/aim-roun
 import { terrainSources, loadTerrain } from "../tools/round_terrain.mjs";
 import { TYPES, nodeIndex, nodesNear, nearestNode, flood, dijkstra, viaPath, barrierMask, edgeCutBy } from "../tools/round_navlib.mjs";
 import { inputsHash, inPoly, polyEdgeDist, attackEntryTimes, navContext, barrierSamples } from "../tools/round_navdata.mjs";
+import { LOOK } from "./round-look.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ROUNDS = path.join(root, "app", "mods", "aim-rounds");
@@ -20,8 +21,13 @@ const ROUNDS = path.join(root, "app", "mods", "aim-rounds");
 //   the attacker barriers (R4 setup rules); Ascent predates the rules
 //   minTris: lower bounds for the real collision's pawn / projectile triangle counts
 //   ropes: rope links in the seal check (maps with a <map>.ropes.json, Split)
+//   look: { site, points: {name: [x, z]} (scripts/round-look.mjs: the attacker's way into the site, snapped
+//   to the nav), minSeen }: at least minSeen of the site's pre-round setups (push spots don't count) are
+//   seen from those points (real sight rays): the user's
+//   "the star was the ONLY enemy I saw" on Ascent B (old spots sat in the sunken site, facing the lane)
 const EXPECT = {
-  ascent: { count: 21746, edgeCount: 161371, notWalk: ["B site front"], routes: { A: ["A Main", "Mid Cubby"], B: ["B Main", "Mid Market"] }, setupTiming: false, minTris: [1e6, 1e6] },
+  ascent: { count: 21746, edgeCount: 161371, notWalk: [], routes: { A: ["A Main", "Mid Cubby"], B: ["B Main", "Mid Market"] }, setupTiming: false, minTris: [1e6, 1e6],
+    look: { site: "B", points: LOOK.ascent.B, minSeen: 9 } },
   rook: { count: 21693, edgeCount: 162053, notWalk: [], routes: { A: ["A Main", "A Link"], B: ["B Main", "B Link"] }, setupTiming: true, minTris: [1e6, 1e6] },
   bonsai: { count: 17913, edgeCount: 131407, notWalk: [], routes: { A: ["A Main", "A Ramps"], B: ["B Garage", "Mid Mail"] }, setupTiming: true, minTris: [1e6, 1e6], ropes: 7 },
 };
@@ -153,6 +159,8 @@ for (const MAP of MAPS) {
     }
   });
 
+  let pushC = null;
+  const pushCtx = () => (pushC ??= navContext(nav, data));
   test(`${T_} setups: groups, splits, facing, walk reachability, enough walkable spots for every split`, () => {
     const hs = nav.header.setups, deg = Math.PI / 180;
     const groups = Object.keys(data.setups.defense);
@@ -168,11 +176,34 @@ for (const MAP of MAPS) {
     for (const [group, list] of Object.entries(data.setups.defense)) for (const s of list) {
       const h = hs[s.name];
       assert.equal(h.group, group);
+      assert.equal(h.clear === false, s.clear === false, `${s.name} header clear flag matches the json`);
       if ((E.notWalk ?? []).includes(s.name)) { assert.equal(h.walk, false, `${s.name} known not walkable`); continue; }
+      if (s.push === true) {
+        // After-barrier spot: past the defender barriers (walk:false with them up), reachable once they
+        // drop (round-bots wait mode: the bot waits behind its barrier, walks on at the drop), never a
+        // clear spot for attackers, and clear of the attacker barriers (>= 8 m).
+        assert.equal(h.push, true, `${s.name} header push flag`);
+        assert.equal(h.walk, false, `${s.name} push spot is past a defender barrier`);
+        assert.equal(s.clear, false, `${s.name} push spot is clear:false`);
+        assert.ok(h.node >= 0 && Math.hypot(nav.x[h.node] - s.x, nav.z[h.node] - s.z) <= 0.5 && Math.abs(nav.y[h.node] - s.y) <= 0.3, `${s.name} node near the spot`);
+        assert.notEqual(pushCtx().defWalk[h.node], -2, `${s.name} reachable from the defender spawn once the barriers drop`);
+        for (const b of data.barriers.filter((w) => w.team === "attack")) {
+          const ax = b.a.x, az = b.a.z, dx = b.b.x - ax, dz = b.b.z - az, L = dx * dx + dz * dz;
+          const t = L > 0 ? Math.max(0, Math.min(1, ((s.x - ax) * dx + (s.z - az) * dz) / L)) : 0;
+          assert.ok(Math.hypot(s.x - ax - t * dx, s.z - az - t * dz) >= 8, `${s.name} within 8 m of attacker barrier ${b.id}`);
+        }
+        assert.ok(Number.isFinite(h.face), `${s.name} face`);
+        continue;
+      }
+      assert.equal(h.push, undefined, `${s.name} header push flag only on push spots`);
       assert.ok(h.walk, `${s.name} walkable from the defender spawn inside the defender barriers`);
       assert.ok(h.node >= 0 && h.node < nav.count, `${s.name} node`);
       assert.ok(Math.hypot(nav.x[h.node] - s.x, nav.z[h.node] - s.z) <= 0.5 && Math.abs(nav.y[h.node] - s.y) <= 0.3, `${s.name} node near the spot`);
       assert.ok(Number.isFinite(h.face) && Math.abs(h.face) <= Math.PI, `${s.name} face`);
+      if (Number.isFinite(s.faceHint)) { // json faceHint: face within 35 deg of it
+        let d = Math.abs(h.face - s.faceHint * deg) % (2 * Math.PI); if (d > Math.PI) d = 2 * Math.PI - d;
+        assert.ok(d <= 35 * deg + 1e-3, `${s.name} face ${(h.face / deg).toFixed(0)} deg, hint ${s.faceHint}`);
+      }
       if (h.face2 !== null) {
         let d = Math.abs(h.face2 - h.face) % (2 * Math.PI); if (d > Math.PI) d = 2 * Math.PI - d;
         assert.ok(d >= 40 * deg - 1e-3, `${s.name} face2 at least 40 deg from face`);
@@ -195,7 +226,7 @@ for (const MAP of MAPS) {
     const C = navContext(nav, data);
     for (const [group, list] of Object.entries(data.setups.defense)) for (const s of list) {
       const h = nav.header.setups[s.name];
-      if (h.node < 0 || (E.notWalk ?? []).includes(s.name)) continue; // known not walkable (Ascent's B site front)
+      if (h.node < 0 || (E.notWalk ?? []).includes(s.name)) continue; // known not walkable (none on the shipped maps)
       const ok = group === "mid" ? Object.values(C.sites).some((S) => Number.isFinite(S.field.dist[h.node])) : Number.isFinite(C.sites[group].field.dist[h.node]);
       assert.ok(ok, `${s.name} (${group}) can't walk to its site goal`);
     }
@@ -404,6 +435,23 @@ for (const MAP of MAPS) {
     }
     t.diagnostic(`${MAP}: setup hidden-from-attacker-barrier check: ${rays} rays`);
     console.log(`${MAP}: setup hidden-from-attacker-barrier check: ${rays} rays`);
+  });
+
+  // E.look (real sight rays, the bots' own sight test): from the attacker's way into the site (eye
+  // 1.6 m) at least minSeen of the site's setups are visible (body 1.0 or head 1.6 m above the spot).
+  if (E.look) test(`${T_} ${E.look.site} setups an attacker sees on the way in (real collision sight rays)`, { skip: !HAVE_SITE && "no game files in site/" }, async (t) => {
+    const T = await warm(), H = nodeIndex(nav);
+    const eyes = Object.entries(E.look.points).map(([name, [x, z]]) => {
+      const k = nearestNode(nav, H, x, z, 2);
+      assert.ok(k >= 0, `look point ${name} on the nav`);
+      return [nav.x[k], nav.y[k] + 1.6, nav.z[k]];
+    });
+    const list = data.setups.defense[E.look.site].filter((p) => p.push !== true);
+    const seen = list.filter((p) => eyes.some((e) => T.sight(e, [p.x, p.y + 1.0, p.z]) || T.sight(e, [p.x, p.y + 1.6, p.z])));
+    const msg = `${MAP} ${E.look.site}: ${seen.length}/${list.length} setups seen on the way in; hidden: ${list.filter((p) => !seen.includes(p)).map((p) => p.name).join(", ") || "none"}`;
+    assert.ok(seen.length >= E.look.minSeen, msg);
+    t.diagnostic(msg);
+    console.log(msg);
   });
 
   // The sight half of the post-plant data, re-run against the real projectile collision (the bots' own

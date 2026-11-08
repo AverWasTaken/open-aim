@@ -145,6 +145,8 @@ off 45 seconds after the plant (it beeps faster near the end).
 **Attack** (you plant):
 - The 5 defenders walk from their spawn to setup spots near both sites and mid (a different setup
   every round). After a plant they come back to the site and one of them defuses.
+- On Ascent B they hold the spots players really use: CT, the boat, the B Main door, the market door,
+  the link and the site box. Some rounds one of them pushes into B Main when the barriers drop.
 - Walk into a site and **hold 4** for 4 seconds to plant (stand still or walk; running, jumping or
   letting go starts it over). You can't shoot while planting.
 - **You win** when the spike goes off or every defender is dead. **You lose** when you die before

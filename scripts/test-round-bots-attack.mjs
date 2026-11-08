@@ -88,6 +88,10 @@ test('R3 init: every attacker on the nav with its plan route; staging slots dist
       for (const [k, v] of Object.entries(s)) assert.ok(typeof v === 'number' || typeof v === 'boolean', `${tag}: flat state ${k}`);
       assert.ok(Math.hypot(g.x[s.spawn] - a.position.x, g.z[s.spawn] - a.position.z) < 1.5, 'no teleport');
     }
+    // Clear spots stay on / around the plan site (Ascent B: the site-area setups; clear:false keeps the
+    // CT, link, market door, B Main, boat side and back corner spots out), within 14 m of the site centre.
+    const sc = ASCENT.sites.find((x) => x.id === plan.site).center;
+    for (const k of A.clear) assert.ok(Math.hypot(g.x[k] - sc.x, g.z[k] - sc.z) <= 14, `seed ${seed}: clear node ${k} ${Math.hypot(g.x[k] - sc.x, g.z[k] - sc.z).toFixed(1)} m from site ${plan.site}`);
     for (const [ri, list] of byRoute) for (const p of list) for (const q of list) if (p !== q) {
       assert.ok(Math.hypot(g.x[p.goal] - g.x[q.goal], g.z[p.goal] - g.z[q.goal]) >= 1.2 - 1e-9, `seed ${seed} route ${ri}: staging slots >= 1.2 m apart`);
       assert.ok(Math.hypot(g.x[p.wait] - g.x[q.wait], g.z[p.wait] - g.z[q.wait]) >= 1.2 - 1e-9, `seed ${seed} route ${ri}: wait slots >= 1.2 m apart`);

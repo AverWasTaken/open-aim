@@ -738,12 +738,13 @@ const defDoc = (attackData = null) => {
   else delete d.rules.round.attackData; // buildDoc adds the map's attack data on the defense side (R3 S3)
   return d;
 };
-// sha256 (first 16 hex) of JSON.stringify(roundPrepare(doc, seed)), seeds 1..20, computed on 1d040e8
-// (before R3): the attack doc of round-ascent-attack-vandal-20, and the defense doc (buildDoc) with
-// rules.round.attack and rules.round.attackData deleted.
+// sha256 (first 16 hex) of JSON.stringify(roundPrepare(doc, seed)), seeds 1..20: the attack doc of
+// round-ascent-attack-vandal-20 (re-frozen after the B spot edits on ceo/round-fixes: the B group went from
+// 5 to 13 spawners, so the B shuffle draws more and later draws shift; round runs record no replay), and the defense doc (buildDoc) with
+// rules.round.attack and rules.round.attackData deleted (computed on 1d040e8, before R3).
 const FROZEN_PREPARE = {
-  attack: ['0a7382415e8b8a27', '326759ed4bd2eb0a', '5a2c67e679348198', 'c030352a142aea93', '4a06ddaff7f86fc0', '5fefcbe7368622cc', '8b24c23f07728e9b', 'ddcd183327472202', '7bba2c922402d7b8', '516b69d97a093379',
-    'efa2ea8a29bc972b', '6c2a5ea308e9b3ea', 'afd8212ffdda8975', 'd158e63b3d4d4271', 'c82104713f0e0502', '634b7ccfbe80a8f3', 'eeb122c2822d1afd', 'd2dbfd1bba6e01fe', '7c4792e5510d9027', '931406121cac768e'],
+  attack: ['84207f459c941813', '5bce515bede52d69', '4022b2b4126b045d', '02893873c760a35e', '4dd3d8f47b91882e', '3c25e3e57378caca', '8f197b6a63d52624', '04fc15c4bea1e36d', '80dcf155018e4e6f', '4c6497e7aa5ab106',
+    '680b526758519c17', 'f5338ef4a951d308', '6ee62ed7a97fa742', 'b5c819f94a4d0b1e', '959880076b35fb0c', '5937f59abc10fe3d', '1db08714ee8db23f', '5a94e130e7dcf0d5', '65513195e0f8271c', '9053596e9b36ab64'],
   defense: ['238952ef37dc2568', '44410f22d07cab0c', 'c4ec0a789ce91868', 'f4e2722f52eb70fe', 'f4e2722f52eb70fe', '7c3bbebd448b44af', 'c4ec0a789ce91868', '44410f22d07cab0c', '44410f22d07cab0c', '7c3bbebd448b44af',
     'f4e2722f52eb70fe', '7c3bbebd448b44af', '44410f22d07cab0c', '238952ef37dc2568', '7c3bbebd448b44af', '7c3bbebd448b44af', 'f4e2722f52eb70fe', '238952ef37dc2568', 'f4e2722f52eb70fe', '44410f22d07cab0c'],
 };

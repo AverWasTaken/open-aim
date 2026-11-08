@@ -236,3 +236,45 @@ test("R5 stats: shooting a bot dead counts in round.kills (the play page's kill 
   assert.equal(r.enemiesAlive, 5 - kills);
   assert.ok(ev.some((e) => e.kind === 'shot' && e.hitActorId !== null && typeof e.hitPart === 'string'), 'shot events carry hitActorId / hitPart (round-hud counts HS from them)');
 });
+
+// The user's "I can't take my knife out in Round mode": the knife key (equipMelee, Digit3) reaches the
+// sim as requestSwitch('melee') while the play page phase is "running" (OkAdunfX takeEquipPress), and
+// round runs patch nothing in that path. In-app on hp (fresh profile, current branch and a606988) the
+// knife came out in the barrier phase and after the drop. This test runs the switch on the REAL Round
+// scene docs (app/round-scene.js, every map / side, every weapon on Ascent attack), not the hand-made
+// flatDoc above, in the barrier phase and (Ascent, both sides) after the drop, with the plant key held.
+test('knife in the real Round scenes: requestSwitch(melee) works in the barrier phase and live, for every map, side and weapon; primary comes back', { skip }, async () => {
+  const { createRequire } = await import('node:module');
+  const { roundScene } = createRequire(import.meta.url)(path.join(root, 'app', 'round-scene.js'));
+  const MODS = path.join(root, 'app', 'mods');
+  const maps = fs.readdirSync(path.join(MODS, 'aim-rounds')).filter((f) => /^[a-z0-9]+\.json$/.test(f)).map((f) => f.slice(0, -5)).sort();
+  assert.ok(maps.includes('ascent'));
+  const weapons = ['vandal', 'phantom', 'sheriff', 'operator', 'spectre', 'guardian', 'marshal', 'outlaw', 'odin', 'bulldog', 'ghost', 'classic'];
+  const cases = [];
+  for (const map of maps) for (const side of ['attack', 'defense']) for (const w of map === 'ascent' && side === 'attack' ? weapons : ['vandal']) cases.push({ map, side, w, live: map === 'ascent' && w === 'vandal' });
+  const knifeOut = (s, label) => {
+    assert.ok(s.requestSwitch('melee'), `${label}: requestSwitch(melee) accepted`);
+    play(s, 64);
+    assert.equal(s.snapshot().player.knife, 1, `${label}: knife out`);
+    assert.ok(s.requestSwitch('primary'), `${label}: requestSwitch(primary) accepted`);
+    play(s, 64);
+    assert.notEqual(s.snapshot().player.knife, 1, `${label}: gun back`);
+  };
+  for (const { map, side, w, live } of cases) {
+    const env = roundScene(MODS, `round-${map}-${side}-${w}-10`);
+    assert.ok(env, `round-${map}-${side}-${w}-10 scene`);
+    const s = createSim(JSON.parse(env.doc), 11);
+    play(s, 16);
+    assert.equal(s.snapshot().round.phase, 'barrier');
+    knifeOut(s, `${map} ${side} ${w} barrier`);
+    if (!live) continue;
+    play(s, TPS * 10);
+    assert.notEqual(s.snapshot().round.phase, 'barrier', `${map} ${side}: barriers dropped`);
+    knifeOut(s, `${map} ${side} ${w} live`);
+    if (side === 'attack') { // with the plant key held (outside a site: no plant starts) the knife still comes out
+      s.setRoundHold({ plant: true });
+      knifeOut(s, `${map} ${side} ${w} live, plant key held`);
+      s.setRoundHold({ plant: false });
+    }
+  }
+});

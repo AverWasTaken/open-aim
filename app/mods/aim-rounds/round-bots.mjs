@@ -85,7 +85,7 @@
 // ---------------------------------------------------------------- B2: movement
 // Nav mode (st.nav = 1) is chosen in init when the nav parses, the bot's spawn point has a node
 // and its setup (header setups[name].node, else the nearest node) can be reached from that node on
-// walk+drop edges. A setup node that can't be reached (Ascent "B site front", walk:false) is
+// walk+drop edges. A setup node that can't be reached (walk:false, not a push spot; none on the shipped maps) is
 // replaced by the nearest reachable node within 2.5 m xz and |dy| <= 0.5; the bot holds there with
 // the setup's facing. Otherwise the bot falls back to the v0 static bot (setup spot, faces the
 // player). Nav mode never teleports.
@@ -175,7 +175,7 @@
 // Only when cfg.side === 'defense' (the player defends) and roundPrepare's plan cfg.attack = { site,
 // carrierSpawner, routeBySpawner, lurker, gatherSec } exists (B3 retake / rotation stay off there).
 // Data: nav header attack.staging[site] (routes: entry + staging nodes), attack.plant[site] (plant
-// spots), attack.postPlant[site][plant name], header setups of group site (walk:true, reachable from
+// spots), attack.postPlant[site][plant name], header setups of group site (walk:true, not clear:false, reachable from
 // the attacker spawns) as clear spots. No nav, no plan site or no data for it -> the fallback (static
 // at its spawn, faces the player, never plants).
 //   Init (no setup): route = cfg.attack.routeBySpawner[spawnerId] (unknown -> the site's first route);
@@ -595,7 +595,7 @@ function spikeData(N, cfg, sp) {
 // The plan's site on this nav (per scene cfg): routes [{name, entry, staging: [nodes]}] (header
 // attack.staging[site]), plant [{name, node}] (header attack.plant[site]), post [[nodes] per plant
 // spot] (header attack.postPlant[site][plant name]), clear [nodes] (header setups of group site,
-// walk:true, reachable from the attacker spawns, header key order), center {x, z} (the site's
+// walk:true, not clear:false, reachable from the attacker spawns, header key order), center {x, z} (the site's
 // centre, else its first plant spot). null without a plan site, routes or plant spots.
 function atkData(N, cfg) {
   const c = perCfg(N, cfg);
@@ -611,7 +611,7 @@ function atkData(N, cfg) {
     const plant = (Array.isArray(ha.plant?.[site]) ? ha.plant[site] : []).filter((p) => p && typeof p.name === 'string' && reached(p.node)).map((p) => ({ name: p.name, node: p.node }));
     const post = plant.map((p) => (Array.isArray(ha.postPlant?.[site]?.[p.name]) ? ha.postPlant[site][p.name] : []).map((e) => e?.node).filter(reached));
     const hs = N.header.setups && typeof N.header.setups === 'object' ? N.header.setups : {};
-    const clear = Object.keys(hs).filter((n) => hs[n]?.group === site && hs[n].walk === true && reached(hs[n].node)).map((n) => hs[n].node);
+    const clear = Object.keys(hs).filter((n) => hs[n]?.group === site && hs[n].walk === true && hs[n].clear !== false && reached(hs[n].node)).map((n) => hs[n].node);
     const sc = (cfg.sites ?? []).find((s) => s && s.id === site)?.center;
     if (routes.length && plant.length) out = { site, routes, plant, post, clear, center: sc && finite(sc.x) && finite(sc.z) ? { x: sc.x, z: sc.z } : { x: g.x[plant[0].node], z: g.z[plant[0].node] } };
   }
@@ -1135,7 +1135,7 @@ function attackTick(N, actor, ctx, st, cfg, rs, barrier, mask) {
     }
     return { F: stageF, stopT: st.stopT, kind: GK.astage, fk: 6e8 + st.goal * 2 };
   };
-  // No clear spots on the site (never on Ascent: A 7, B 4): null -> the bot's staging slot.
+  // No clear spots on the site (never on Ascent: A 7, B 4 site-area spots): null -> the bot's staging slot.
   const clearGoal = () => (st.ci >= 0 ? { F: fieldFor(N, st.ci, null, 1), stopT: 0, kind: GK.clear, fk: 9e8 + st.ci } : null);
   const plantGoal = () => {
     if (st.pi < 0) { let bt = Infinity; A.plant.forEach((pl, j) => { const t = fieldFor(N, pl.node, null, 1).dist[st.cur]; if (t < bt) { bt = t; st.pi = j; } }); }

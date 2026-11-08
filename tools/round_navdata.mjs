@@ -55,7 +55,7 @@ import { reverseEdges } from '../app/mods/aim-rounds/round-nav.mjs';
 import { TYPES, nodeIndex, nodesNear, nearestNode, flood, dijkstra, barrierMask, viaPath } from './round_navlib.mjs';
 import { Img } from './round_png.mjs';
 
-export const EYE = 1.6, BODY = 1.0, FACE_RANGE = 30, FACE2_MIN_DEG = 40;
+export const EYE = 1.6, BODY = 1.0, FACE_RANGE = 30, FACE2_MIN_DEG = 40, FACE_HINT_DEG = 35;
 export const DEFUSE_R = 1.6, DEFUSE_DY = 2;
 export const ATTACKER_TYPES = [0, 1, 2]; // walk, drop, jump up (no 2-cell gap hops)
 const r2 = (v) => Math.round(v * 100) / 100, r4 = (v) => Math.round(v * 1e4) / 1e4;
@@ -119,6 +119,15 @@ export function deriveHeader(g, T, data) {
     const cands = nodesNear(g, H, s.x, s.z, FACE_RANGE).filter((i) => Number.isFinite(atkT[i]) && Math.hypot(g.x[i] - s.x, g.z[i] - s.z) >= 1)
       .sort((p, q) => atkT[p] - atkT[q] || p - q);
     let face = null, face2 = null;
+    // Optional json faceHint (degrees, sim convention): face = the first visible candidate within
+    // FACE_HINT_DEG of it (the entrance the spot holds); none visible there -> the automatic pick.
+    if (Number.isFinite(s.faceHint)) {
+      const h = s.faceHint * Math.PI / 180;
+      for (const i of cands) {
+        const a = Math.atan2(g.x[i] - s.x, g.z[i] - s.z);
+        if (angDiff(a, h) <= FACE_HINT_DEG * Math.PI / 180 && T.sight(eye, [g.x[i], g.y[i] + BODY, g.z[i]])) { face = { a, i }; break; }
+      }
+    }
     for (const i of cands) {
       const a = Math.atan2(g.x[i] - s.x, g.z[i] - s.z);
       if (face && angDiff(a, face.a) < FACE2_MIN_DEG * Math.PI / 180) continue;
@@ -132,6 +141,8 @@ export function deriveHeader(g, T, data) {
       faceNode: face ? face.i : -1, face2Node: face2 ? face2.i : -1,
       faceT: face ? r2(atkT[face.i]) : null,
       spawnT: node >= 0 && walk ? r2(Math.max(...spawnFields.map((f) => f[node]))) : null,
+      // json flags, copied only when set (headers of maps without them stay byte-identical)
+      ...(s.push === true ? { push: true } : {}), ...(s.clear === false ? { clear: false } : {}),
     };
   }
   const siteGoals = {}, staging = {}, zones = {};

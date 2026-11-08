@@ -19,7 +19,7 @@ Run them from the repository root with Python 3.
 | `spot_scores.mjs` | Writes `app/mods/aim-ranks/spot-scores.json`: an off-angle score per spot of every shipped drill with a random spot pool, from the game's own bot-order planner. Runs against a test copy of the app (rerun steps below). |
 | `spotvary_patch.py` | Spot variation: in Human-like bot mode the static bots of the shipped pre-aim drills stand on one of their checked alternative positions (`spot_alts.mjs`), a new one each round (from the round seed; saved in the replay meta as `spotPos`). Edits the mods `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details in the script's docstring. |
 | `spot_alts.mjs` | Writes `app/mods/aim-ranks/spot-alts.json`: up to 5 checked alternative positions per static spot of every shipped pre-aim drill, and a sideways movement lane per position (ground, ledges, walls, sight lines and spacing tested with the game's own collision and sight test). `--check` re-tests the stored file. Runs against a test copy of the app (rerun steps below). |
-| `peek_cover.mjs` | Cover starts for the six `*-peekers` map drills: each pool spot gets a cover point next to it, hidden from where the player comes from (game planner route, saved in `tools/data/peek-viewpoints.json`); the bot starts there and walks a `path` loop cover -> spot -> jiggles -> cover. Rewrites the scenario files and their flat spot-score entries; `--check` fails when they are stale. Node only (runs on the real map collision). |
+| `peek_cover.mjs` | Cover starts for the six `*-peekers` map drills: each pool spot gets a cover point next to it, hidden from where the player comes from (game planner route, saved in `tools/data/peek-viewpoints.json`); the bot starts there and walks a `path` loop cover -> spot -> jiggles -> cover (no-cover spots: jiggles in place, or the original strafe). Rewrites the scenario files and their flat spot-score entries; `--check` fails when they are stale. Node only (runs on the real map collision). |
 | `peekmove_patch.py` | Pre-aim bots react and move: with Human-like bots and an explicit enemy rank, the static shooting bots of the shipped pre-aim drills walk ADAD along their checked lane once they see you, by rank (`aimPeekRanks` next to `aimBotRanks`; saved in the replay meta as `peekMove` and `spotLane`). Edits the mods `BiMsX6Xn.js`, `CnrSARj_.js`, `OkAdunfX.js` and `C_VPDXvn.js` (both copies). Details and the rank table in the script's docstring. |
 | `round_patch.py` | Round mode: the round controller in the sim (barrier phase, spike plant / defuse, outcomes, save/restore), the play page side (held keys, no replay, round end, result text, barrier and spike visuals) and `window.__aimLaunchScene` for the lobby panel. Edits the mods `CnrSARj_.js`, `OkAdunfX.js`, `ChJ6FlD4.js` and `Hwnlm6zD.js` (both copies). Only acts on scenes with `rules.round`. Details in the script's docstring. |
 | `round_bots_patch.py` | Round mode bots: the `roundBot` behaviour hook (logic in `app/mods/aim-rounds/round-bots.mjs`, whose header is the contract). Adds `roundBot` to the bot behaviours (its update also gets the game's mover `il`), to the movers list `dA` and to the sim's ground movers; the behaviour ctx gets `round:{cfg,state,bots}` in round runs only (a start-of-tick bot list) and the round tick gets `io.bots` (bot defuse); the shooter neither fires nor stops-to-shoot while `actor.roundDefusing===1` and re-rolls its reaction time while `actor.roundHoldFire===1` (barrier phase); the scene validator accepts the kind. Edits the mods `BiMsX6Xn.js`, `CnrSARj_.js` and `D_iGclxB.js` (both copies). `--print-pairs` dumps its (old, new) pairs for the A/B parity test (`scripts/test-round-bots-parity.mjs`). Details in the script's docstring. |
@@ -265,11 +265,15 @@ Bots of the six `scenarios/*-peekers.json` drills start on a cover point next to
 out (`tools/peek_cover.mjs`, header has the rules). Input: `tools/data/peek-viewpoints.json` = the game's
 bot-order planner run once on the ORIGINAL drills (route + where each spot is first seen) plus the
 original pool spawners and actors. These drills get flat 0.5 spot scores (`spot_scores.mjs` keeps them
-flat), since their spawners now sit on hidden cover points. After changing the tool or its rules:
+flat), since their spawners now sit on hidden cover points. Spots with no cover keep their position and
+jiggle there; if no jiggle fits, a shorter or other-direction jiggle, else the original strafe (original
+spawner + `actor-1`), so no bot ever stands still. The walk-clearance side rays sit at +-0.30 m
+(`G.WALK`). After changing the tool or its rules:
 
 ```bash
 node tools/peek_cover.mjs          # rewrites the 6 scenario files + their spot-scores.json entries
 node tools/peek_cover.mjs --check  # what scripts/test-training-peekers.mjs (npm run test:peekers) checks
+node tools/peek_cover.mjs --dry --walk-half 0.3   # report only, with another walk margin
 ```
 
 The first run decodes the map collision (CPU heavy, cached in the OS temp folder). To redo the
@@ -295,7 +299,10 @@ with `app/mods/aim-rounds/round-core.mjs` (tests: `npm run test:round` in `app/`
   // plant zone polygon (x, z) and the feet height range inside it
   "setups": { "defense": { "A": [{ "name": "...", "x": 0, "y": 5, "z": 0 }], "mid": [...], "B": [...] },
               "splits": [[2, 1, 2], ...] },
-  // defender spots by group; a round keeps 5 bots, split [A, mid, B] picked from the run seed
+  // defender spots by group; a round keeps 5 bots, split [A, mid, B] picked from the run seed.
+  // Optional per spot (only when set): "push": true = past the defender barriers (the bot waits behind
+  // its barrier, walks there at the drop); "clear": false = the Defense side's attackers never use it
+  // as a clear spot; "faceHint": degrees = the entrance it holds (see "Setup spots" below)
   "retake": { "A": [{ "name": "A heaven", "x": 0, "y": 8.09, "z": 0 }, ...2], "B": [...2] },
   // retake staging points: defender bots group here before retaking a planted site
   "attack": {
@@ -327,6 +334,51 @@ heights), and a flood fill over the real nav graph (`<map>.nav.bin`, below) chec
 barriers close off every callout outside its side, over walk edges only and over all edges.
 `--check` reads the committed nav.bin and needs no collision bake. A new map needs its own entry in `MAPS` at the top of the script (callout names, label and
 mark pixels from a reference picture, setup spots) and then the same two commands.
+
+### Setup spots (defender positions) from marks on the minimap
+
+The canonical place for setup spots is `MAPS.<map>.SETUPS` in `round_author.mjs`: rows
+`[x, y, z, 'name', flags?]` per group (A, mid, B). round_author snaps y to the real floor and writes
+the json; `round_nav.mjs --reuse` (header only, 1-2 min) derives per spot the nav node, `walk`
+(reachable inside the defender barriers), the facing `face` / `face2` (the visible nav node within
+30 m that attackers reach first, then one >= 40 deg away; the bot switches between them every 4-8 s)
+and `spawnT`. Flags (5th element, all optional):
+- `{ push: true }`: a spot past the defender barriers (Ascent's B Main pocket / alcove). walk:false in
+  the header; the bot waits behind its barrier (round-bots wait mode) and walks there at the drop.
+  Tests: >= 8 m from every attacker barrier, reachable once the barriers drop, also `clear: false`.
+- `{ clear: false }`: the Defense side's attackers don't use it as a clear spot. They take their clear
+  spots from the site group's walkable rows in table order, so keep the site-area rows first.
+- `{ faceHint: deg }`: sim yaw (atan2(dx, dz), degrees) toward the entrance the spot holds; face is
+  then the first visible attacker node within 35 deg of it (else the automatic pick).
+
+Ascent B (Nov 2026) came from the user's own marks on a crop of the in-game minimap
+(`open-aim-hq/shots/round/user/ascent-B-defender-spots.png`, plot with old/new spots:
+`open-aim-hq/shots/round/ascent-B-new-spots.png`). The crop was the game minimap
+(`site/aim-maps/ascent.minimap.png`) turned 90 deg clockwise and scaled 1.91x; matching the B site
+fill and the room next to it in both pictures gives crop pixel (ux, uy) -> minimap pixel
+px = (uy + 182.9) / 1.901, py = (1890.6 - ux) / 1.917 -> world x = (px / 1024 - offsetU) / scaleU,
+z = (py / 1024 - offsetV) / scaleV (`ascent.minimap.json` transform). A new crop needs its own two
+matches (any wall corners seen in both). Then per mark: the nav floor there, a reachable spot where a
+player stands (not a railing top, not past a barrier unless it is a push spot), and the steps:
+
+```bash
+node tools/round_author.mjs && node tools/round_nav.mjs --reuse && node tools/round_author.mjs --check
+node scripts/round-defense-spread.mjs --seeds 50 --look B   # where the 5 bots stand, what an attacker sees
+```
+
+`scripts/round-setup-check.mjs [--group B] [--spots rows.json]` (hp; ~20 s) prints per spot (rows in the
+SETUPS format, or the group's current spots) the nav node and floor, walk, spawnT, the facing the
+header will get, and which of the attacker's look points (`scripts/round-look.mjs`) see it: run it on
+new marks before writing them into SETUPS.
+
+`scripts/round-defense-spread.mjs` (hp only; ~1 s per seed) runs the real sim + nav + collision: per
+seed the kept setups, each bot's mode / position at the drop and 20 s later, bots off their spot,
+stuck or within 3 m; `--look B` adds how many B bots are visible from the attacker's way in (B Main,
+the B Main door, the approach, the site-front lane; `scripts/round-look.mjs`) 10 s after the drop; `--set "a,b"`
+forces setups, `--data <dir>` reads another copy of the map data (old vs new). With the old Ascent B
+spots 12 of 50 rounds showed no B bot before the site-front lane ("B default" was visible from none
+of those points); with the new ones 0 of 50. scripts/test-round-nav.mjs keeps it: at least 9 of
+Ascent's 11 pre-round B spots are visible from B Main / the door / the approach (real sight rays).
 
 ### Other maps (Corrode = `rook`)
 
