@@ -11,7 +11,10 @@
 //   for codes left out of that list (Easy twins and older copies merged into one card,
 //   app/drill-variants.js): the twin's own item when its code matches, else the card's item.
 //   Both lists are cached for the page session; a code missing from the cache refetches them
-//   once. extra: { name, description } replace the item's only when given (not null/undefined).
+//   once. extra: { name, description } replace the item's only when given (not null/undefined;
+//   description '' gives a type-only brief subtitle like a lobby click on a non-ball card).
+//   For a drill with bots the rank picker still decides what runs (Easy or Hard twin, the
+//   server's own item, so extra is dropped then), exactly like a card click.
 //   Resolves false (never throws) when: no code, the code is unknown, a fetch fails, the hook is
 //   missing, or the hook refuses (a drill is open or loading). true = the launch started; with the
 //   rank picker the player can still cancel, so wait for the 'aim-local-scene' event.
@@ -30,11 +33,12 @@
 
   function load() {
     if (!cache) {
-      cache = Promise.all([getJson(LIST), getJson(VARIANTS)]).then(([list, v]) => ({
+      const p = Promise.all([getJson(LIST), getJson(VARIANTS)]).then(([list, v]) => ({
         list: Array.isArray(list?.data) ? list.data : [],
         variants: v && typeof v.variants === 'object' && v.variants ? v.variants : {},
       }));
-      cache.catch(() => { cache = null; });
+      cache = p;
+      p.catch(() => { if (cache === p) cache = null; });
     }
     return cache;
   }
