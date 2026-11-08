@@ -422,7 +422,7 @@ export function roundStep(cfg, state, io) {
     else if (state.phase === 'live' && t - state.liveTick >= T(cfg, 'roundSec', ts)) { winner = 'defense'; reason = 'timeout'; }
   }
   if (winner) {
-    state.phase = 'ended'; state.endTick = t; state.winner = winner; state.reason = reason; state.holding = null;
+    state.phase = 'ended'; state.endTick = t; state.winner = winner; state.reason = reason; state.holding = null; state.plantCue = null;
     ev.push({ kind: 'roundEnd', winner, reason, win: winner === own });
   }
   state.events += ev.length;

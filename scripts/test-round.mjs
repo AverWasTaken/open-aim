@@ -967,6 +967,17 @@ test('S4 plantCue: never on the attack side, never in the barrier phase, cleared
   r.step(bots);
   assert.equal(r.st.phase, 'planted');
   assert.equal(dview(r).plantCue, null, 'cleared on the plant tick');
+  // The round timer runs out while a bot plant counts: the end tick carries no cue.
+  const q = makeDefense({ seed: SEED }), qc = carrierId(q);
+  Object.assign(q.player, { x: PLANT_A.x + 3, y: PLANT_A.y, z: PLANT_A.z });
+  q.toLive(atkBots(q.cfg));
+  const qb = atkBots(q.cfg, { [qc]: { ...at(PLANT_A), planting: 1 } });
+  q.run(sec(1), qb);
+  assert.ok(dview(q).plantCue);
+  q.st.liveTick = q.tick + 1 - sec(100);
+  q.step(qb);
+  assert.equal(q.st.reason, 'timeout');
+  assert.equal(dview(q).plantCue, null, 'no cue on the end tick');
 });
 
 test('R3 carrier death drops the spike at its io.bots position and resets the plant; a missing carrier drops at carrierAt', () => {

@@ -138,7 +138,7 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
   // loud as round-core's plantCue says ({pan -1..1, gain 0.1..1}, quantised, null when nobody
   // plants within 30 m). Silent while paused or when the round isn't live. One looping voice:
   // triangle 540 Hz -> pulse gain (a 5 Hz square LFO) -> level -> StereoPanner (if any) -> out().
-  let cue = null;
+  let cue = null, renderedAt = 0; // renderedAt: last render (s), for the stall check in the poll below
   function cueSet(c) {
     try {
       if (!cue) {
@@ -169,6 +169,7 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
     try {
       const t = c.ctx.currentTime;
       c.lvl.gain.setTargetAtTime(0, t, 0.015);
+      c.osc.onended = () => { try { c.lvl.disconnect(); c.pan?.disconnect(); } catch {} };
       c.osc.stop(t + 0.08); c.lfo.stop(t + 0.08);
     } catch {}
   }
@@ -288,6 +289,7 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
     // An enemy is planting nearby (defense side): the panned pulsing tone.
     const pc = defense && r.phase === "live" && !paused && r.plantCue && Number.isFinite(r.plantCue.pan) && Number.isFinite(r.plantCue.gain) ? r.plantCue : null;
     if (pc) cueSet(pc); else cueStop();
+    renderedAt = now;
     last = { phase: r.phase };
   }
 
@@ -305,6 +307,8 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
   // Cheap check for a round starting; the frame loop only runs during a round.
   setInterval(() => {
     setOnClass(window.__aimRoundOn);
+    // No frame for a while (frame loop stopped, e.g. a hidden window): don't leave the tone looping.
+    if (cue && performance.now() / 1000 - renderedAt > 0.5) cueStop();
     if (!raf && window.__aimRoundOn && window.__aimRound && !window.__aimRound.done) raf = requestAnimationFrame(frame);
   }, 250);
 })();
