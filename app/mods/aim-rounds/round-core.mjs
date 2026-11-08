@@ -26,6 +26,34 @@
 // defuser, or no defuser, drops the progress to the checkpoint (if reached) or 0, as when the
 // player lets go; a new defuser's tick then counts. Bots never set state.holding (the player can
 // still shoot them). A defuser killed on its finishing tick is dead in io.bots: no defuse.
+//
+// Bot carrier and bot plant (defense side: the attacking bots carry and plant the spike; R3). io.bots
+// entries then also carry spawnerId (string) and planting (0|1; a missing field = 0 = never plants).
+// Bot ids are numbers, so a bot carrier never clashes with 'player'. Everything below happens only
+// on the defense side and only when io.bots is an array; the attack side ignores spawnerId and
+// planting. Order inside roundStep (after the barrier -> live switch):
+//   1. carrier check: a carrier bot that is alive in io.bots refreshes state.carrierAt {x,y,z}; one
+//      that is dead (or missing) drops the spike at its io.bots position (dead entries keep their
+//      last position), or at carrierAt when it is missing; carrier -> null, botPlant -> 0. The spike
+//      lies where the bot was: one killed mid-drop leaves it in the air (as the player's drop does).
+//   2. pickup: a dropped spike goes to the lowest-id living bot within pickupRadius (xz) and
+//      |dy| < 2 of it (a bot killed this tick is dead in io.bots and can't pick it up). A pickup on
+//      the drop tick is allowed. The bots' fetch target must be within 1.0 m of the spike; a spike
+//      no bot can reach stays where it is (the attackers can then only win by eliminating).
+//   3. election: no carrier, nothing dropped or planted -> the living bot whose spawnerId is
+//      cfg.attack.carrierSpawner (roundPrepare's plan); without it (dead, not spawned yet, no plan)
+//      the lowest living id, but only once every bot has spawned (io.bots.length >= enemyCount) or
+//      the round is live, so a late-spawning planned carrier is not passed over.
+//   4. (after the player's plant / defuse) bot plant: while live, the carrier bot alive in io.bots,
+//      planting = 1 and standing in a plant zone (roundZoneAt at its position): botPlant += 1, else
+//      botPlant = 0 (only death or leaving the zone / letting go stops it; being shot doesn't). A
+//      carrier that got the spike this tick (pickup or election) starts counting next tick. At
+//      plantSec ticks: planted = {bot position, site}, carrier -> null, roundPlant event (bot: true).
+//      A plant that completes on the round timer's last tick counts (planted beats timeout); a
+//      planter killed on its finishing tick is dead in io.bots: no plant. The player's defuse can
+//      start on the next tick.
+// state.botPlant is separate from the player's state.plant; the view shows only botPlanting
+// (botPlant > 0) and never which bot carries the spike (view.spike.carrier is 'player' or null).
 
 export const ROUND_DEFAULTS = {
   barrierSec: 20, roundSec: 100, plantSec: 4, spikeSec: 45, defuseSec: 7, defuseCheckpointSec: 3.5,
@@ -50,6 +78,36 @@ function shuffle(list, r) { const a = list.slice(); for (let i = a.length - 1; i
 // shuffle of cfg.spawns[enemy side], given out in kept order; round-robin if there are fewer points
 // than bots); the roundBot behaviour walks them to their setup (cfg.setupBySpawner). These draws
 // come after the M1 ones, so the player spawn and the kept setups are the same as without it.
+// cfg.side === 'defense': the attacker bots' plan, cfg.attack = { site, carrierSpawner,
+// routeBySpawner, lurker, gatherSec } (attackPlan below), drawn after all of the above, so the player
+// spawn and the kept spawners don't change. The attack side's output is unchanged (no cfg.attack).
+export const ATTACK_LURK_P = 0.3, ATTACK_GATHER_SEC = [5, 20];
+// Always exactly 6 draws (site, carrier, main route, lurk roll, lurker, gather), with or without
+// cfg.attackData, so adding the map's attack data never changes the site / carrier of a seed.
+// cfg.attackData = { routes: { <site>: [{ name, entry, staging: […] }] }, plant: { <site>: […] } }
+// (the map json's `attack` block). kept = the kept spawner ids (sorted here).
+//   site           one of cfg.sites' ids (sorted), or null
+//   carrierSpawner one of the kept spawners, or null when none are kept
+//   routeBySpawner { <spawnerId>: route name | null }: every bot takes the main route, the lurker
+//                  the next one (when the site has 2+ routes); null without attackData
+//   lurker         with probability ATTACK_LURK_P one kept non-carrier spawner, else null
+//   gatherSec      how long after the barriers drop the group waits at staging at most (s)
+function attackPlan(cfg, kept, r) {
+  const u = { site: r(), carrier: r(), route: r(), lurk: r(), lurker: r(), gather: r() };
+  const ids = kept.slice().sort();
+  const sites = (cfg.sites ?? []).map((s) => s?.id).filter((id) => typeof id === 'string').sort();
+  const site = sites.length ? sites[Math.floor(u.site * sites.length)] : null;
+  const carrierSpawner = ids.length ? ids[Math.floor(u.carrier * ids.length)] : null;
+  const others = ids.filter((id) => id !== carrierSpawner);
+  const lurker = u.lurk < ATTACK_LURK_P && others.length ? others[Math.floor(u.lurker * others.length)] : null;
+  const routes = site && Array.isArray(cfg.attackData?.routes?.[site]) ? cfg.attackData.routes[site] : [];
+  const names = routes.map((rt) => rt?.name).filter((n) => typeof n === 'string');
+  const main = names.length ? Math.floor(u.route * names.length) : -1;
+  const routeBySpawner = {};
+  for (const id of ids) routeBySpawner[id] = main < 0 ? null : names[id === lurker ? (main + 1) % names.length : main];
+  const [g0, g1] = ATTACK_GATHER_SEC;
+  return { site, carrierSpawner, routeBySpawner, lurker, gatherSec: Math.round((g0 + u.gather * (g1 - g0)) * 10) / 10 };
+}
 export function roundPrepare(doc, seed) {
   const cfg = doc?.rules?.round;
   if (!cfg || typeof cfg !== 'object' || cfg.prepared) return doc; // prepared docs pass through
@@ -61,7 +119,7 @@ export function roundPrepare(doc, seed) {
     playerSpawn = { position: { x: p.x, y: p.y, z: p.z }, yaw: p.yaw };
   }
   const groups = cfg.setups?.groups;
-  let spawners = doc.spawners;
+  let spawners = doc.spawners, kept = [];
   if (groups && typeof groups === 'object') {
     const names = Object.keys(groups);
     const count = Math.max(0, Math.floor(num(cfg.setups.count, 5)));
@@ -83,6 +141,11 @@ export function roundPrepare(doc, seed) {
       [...keep].forEach((id, i) => at.set(id, order[i % order.length]));
       spawners = spawners.map((s) => { const p = at.get(s.id); return p ? { ...s, position: { x: p.x, y: p.y, z: p.z } } : s; });
     }
+    kept = [...keep];
+  }
+  if (cfg.side === 'defense') {
+    const attack = attackPlan(cfg, kept, r);
+    return { ...doc, playerSpawn, spawners, rules: { ...doc.rules, round: { ...cfg, prepared: true, attack } } };
   }
   return { ...doc, playerSpawn, spawners, rules: { ...doc.rules, round: { ...cfg, prepared: true } } };
 }
@@ -94,6 +157,7 @@ export function roundCreate(cfg, tickSec) {
     side, playerAlive: true, enemiesDead: 0,
     spike: { carrier: side === 'attack' ? 'player' : null, dropped: null, planted: null },
     plant: 0, defuse: 0, checkpoint: false, holding: null, zone: null, near: false, defuser: null,
+    botPlant: 0, carrierAt: null,
     winner: null, reason: null, events: 0,
   };
 }
@@ -180,8 +244,42 @@ function electDefuser(cfg, state, bots) {
   return best;
 }
 
+const finiteXYZ = (b) => finiteNum(b.x) && finiteNum(b.y) && finiteNum(b.z);
+const liveBot = (b) => !!b && b.alive === true && finiteNum(b.id) && finiteXYZ(b);
+// Defense side: carrier check, drop, pickup, election (steps 1-3 in the top comment). Returns true
+// when a bot got the spike this tick (its plant starts counting next tick).
+function botCarrier(cfg, state, bots, enemyCount) {
+  const sp = state.spike;
+  if (finiteNum(sp.carrier)) {
+    const b = bots.find((q) => q && q.id === sp.carrier);
+    if (liveBot(b)) state.carrierAt = { x: b.x, y: b.y, z: b.z };
+    else {
+      const at = b && finiteXYZ(b) ? { x: b.x, y: b.y, z: b.z } : state.carrierAt;
+      sp.carrier = null; state.carrierAt = null; state.botPlant = 0;
+      sp.dropped = at ? { x: at.x, y: at.y, z: at.z } : null;
+    }
+  }
+  if (sp.dropped && !sp.planted) {
+    const d = sp.dropped, r = num(cfg?.pickupRadius, ROUND_DEFAULTS.pickupRadius);
+    let best = null;
+    for (const b of bots) {
+      if (!liveBot(b) || Math.hypot(b.x - d.x, b.z - d.z) > r || Math.abs(b.y - d.y) >= 2) continue;
+      if (best === null || b.id < best.id) best = b;
+    }
+    if (best) { sp.carrier = best.id; sp.dropped = null; state.carrierAt = { x: best.x, y: best.y, z: best.z }; return true; }
+  }
+  if (sp.carrier === null && !sp.dropped && !sp.planted) {
+    const want = cfg?.attack?.carrierSpawner;
+    let pick = null;
+    for (const b of bots) if (liveBot(b) && want != null && b.spawnerId === want && (pick === null || b.id < pick.id)) pick = b;
+    if (!pick && (bots.length >= enemyCount || state.phase !== 'barrier')) for (const b of bots) if (liveBot(b) && (pick === null || b.id < pick.id)) pick = b;
+    if (pick) { sp.carrier = pick.id; state.carrierAt = { x: pick.x, y: pick.y, z: pick.z }; return true; }
+  }
+  return false;
+}
+
 // One sim tick. io = { tick, tickSec, player:{x,y,z,yaw,speed,grounded,health,knife}, kills, hold:{plant,use},
-// bots:[{id,alive,x,y,z,defusing}] (optional; bot defuse) }.
+// bots:[{id,alive,x,y,z,defusing,spawnerId,planting}] (optional; bot defuse, bot carrier / plant) }.
 // knife: the melee weapon is out (switching to it cancels a plant / defuse).
 // Returns events for this tick ({kind:'roundPhase'|'roundPlant'|'roundDefuse'|'roundEnd', …}).
 export function roundStep(cfg, state, io) {
@@ -218,6 +316,8 @@ export function roundStep(cfg, state, io) {
       state.spike.carrier = 'player'; state.spike.dropped = null;
     }
   }
+  // Bot carrier, drop, pickup, election (defense side; see the top comment).
+  const fresh = state.side === 'defense' && Array.isArray(io.bots) ? botCarrier(cfg, state, io.bots, enemyCount) : false;
 
   const steady = state.playerAlive && p.grounded !== false && !p.knife && (p.speed ?? 0) <= num(cfg?.holdMaxSpeed, ROUND_DEFAULTS.holdMaxSpeed);
   state.zone = state.playerAlive ? roundZoneAt(cfg, p.x, p.y, p.z) : null;
@@ -268,6 +368,22 @@ export function roundStep(cfg, state, io) {
   }
   if (!bot) state.defuser = null;
 
+  // Bot plant (defense side, step 4 in the top comment). Separate from the player's state.plant.
+  if (state.side === 'defense') {
+    const c = state.spike.carrier;
+    const b = state.phase === 'live' && !fresh && finiteNum(c) && Array.isArray(io.bots) ? io.bots.find((q) => q && q.id === c) : null;
+    const site = liveBot(b) && b.planting === 1 ? roundZoneAt(cfg, b.x, b.y, b.z) : null;
+    if (site) {
+      state.botPlant = (state.botPlant | 0) + 1;
+      if (state.botPlant >= T(cfg, 'plantSec', ts)) {
+        state.phase = 'planted'; state.plantTick = t; state.botPlant = 0;
+        state.spike.carrier = null; state.carrierAt = null;
+        state.spike.planted = { x: b.x, y: b.y, z: b.z, site };
+        ev.push({ kind: 'roundPlant', site, bot: true });
+      }
+    } else state.botPlant = 0;
+  }
+
   // Outcomes, in precedence order.
   const attackAlive = state.side === 'attack' ? (state.playerAlive ? 1 : 0) : enemiesAlive;
   const defenseAlive = state.side === 'defense' ? (state.playerAlive ? 1 : 0) : enemiesAlive;
@@ -305,7 +421,10 @@ export function roundView(cfg, state, tickSec) {
     plant: state.plant / T(cfg, 'plantSec', ts), defuse: state.defuse / T(cfg, 'defuseSec', ts),
     checkpoint: state.checkpoint, holding: state.holding, zone: state.zone, near: state.near,
     botDefusing: state.phase === 'planted' && state.defuser != null, defuser: state.defuser ?? null,
-    carrying: state.spike.carrier === 'player', spike: state.spike,
+    botPlanting: state.phase === 'live' && (state.botPlant | 0) > 0,
+    // never which bot carries it (defense side): carrier is 'player' or null
+    carrying: state.spike.carrier === 'player',
+    spike: { carrier: state.spike.carrier === 'player' ? 'player' : null, dropped: state.spike.dropped, planted: state.spike.planted },
     enemiesAlive: Math.max(0, enemyCount - state.enemiesDead), enemyCount, playerAlive: state.playerAlive,
     winner: state.winner, reason: state.reason, win: state.winner ? state.winner === state.side : null,
     done: state.done, tick: t,
