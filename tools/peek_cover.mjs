@@ -227,11 +227,12 @@ export function coverSpot(geo, src, actorTpl, vp) {
   let jig = jiggle(open, RHYTHM.jiggles);
   info.dropped = jig.dropped;
   if (!best && jig.pts.length < 2) {
-    // (a) any other jiggle that fits: shorter sideways, along the view line, 45 deg (full, then short).
+    // (a) any other jiggle that fits, most sideways (as the player sees it) first: shorter sideways,
+    // 45 deg (full, then short), then along the view line.
     const c = Math.SQRT1_2, dA = { x: (axis.x + away.x) * c, z: (axis.z + away.z) * c }, dB = { x: (axis.x - away.x) * c, z: (axis.z - away.z) * c };
     const alts = [
-      ['sideways +-0.3 m', axis, SHORT], ['view line', away, RHYTHM.jiggles], ['view line +-0.3 m', away, SHORT],
-      ['45 deg', dA, RHYTHM.jiggles], ['-45 deg', dB, RHYTHM.jiggles], ['45 deg +-0.3 m', dA, SHORT], ['-45 deg +-0.3 m', dB, SHORT],
+      ['sideways +-0.3 m', axis, SHORT], ['45 deg', dA, RHYTHM.jiggles], ['-45 deg', dB, RHYTHM.jiggles],
+      ['45 deg +-0.3 m', dA, SHORT], ['-45 deg +-0.3 m', dB, SHORT], ['view line', away, RHYTHM.jiggles], ['view line +-0.3 m', away, SHORT],
     ];
     for (const [how, dir, amps] of alts) {
       const t = jiggle(dir, amps);
@@ -386,6 +387,7 @@ async function main() {
   const wi = argv.indexOf('--walk-half'), walkHalf = wi >= 0 ? Number(argv[wi + 1]) : G.WALK;
   if (!(walkHalf >= 0 && walkHalf < 1)) throw new Error('--walk-half: metres, e.g. 0.3');
   if (walkHalf !== G.WALK && !dry) throw new Error('--walk-half only with --dry (the files are made with G.WALK)');
+  if (dry && check) throw new Error('--dry and --check do not go together');
   const res = await generate({ log: (m) => console.error(m), walkHalf });
   const rows = [];
   for (const r of res) {
