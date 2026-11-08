@@ -38,6 +38,7 @@ Run them from the repository root with Python 3.
 | `graphics_fx_patch.py` | Combat feedback effects (render only): wall impact sparks + dust, bot hit sparks, kill burst, optional enemy muzzle flash. Hooks the play page `Jy` in the mods `OkAdunfX.js` (both copies) into `app/mods/aim-fx/fx.mjs` (loaded with a dynamic import; until it loads every call is a no-op). See [Graphics effects](#graphics). |
 | `graphics_holes_patch.py` | Bullet holes from a fixed pool of 64 meshes (same look, no new mesh/material per hole). Edits `l1` in the mods `OkAdunfX.js` (both copies). Run after `graphics_fx_patch.py`. |
 | `graphics_botfx_patch.py` | Bot hit flash and death animation (render side only): a short white hit pulse on humanoid bots (stronger and longer on a headshot) and a short "drop" when a humanoid dies (sinks, squashes and glows white-hot, gone after 220 ms). Spheres (grid dots) are left exactly as before. Edits the actor renderer `Uf` in the mods `CnrSARj_.js` (both copies), so the game and the replay player both get it. No sim change. See [Graphics](#graphics). |
+| `map_sky_patch.py` | Daytime sky per map: map scenes take their sky (background) colour from one per-map table instead of each scene's own `skyColor` (white or night navy on most maps before). Edits the mods `BiMsX6Xn.js` (both copies); render only. Details in the script's docstring and below. |
 | `fetch_rank_icons.py` | Downloads the rank icons into `app/mods/aim-ranks/` (run once; the PNGs are committed). |
 | `make_training_set.py` | Generated the original 25 scenarios. New scenarios go straight into `scenarios/` instead. |
 
@@ -97,6 +98,23 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 22. `graphics_fx_patch.py` (after `round_patch.py`; applied after 20 and 21 in the shipped files; refuses to run twice: it looks for `__aimFxBoot`)
 23. `graphics_holes_patch.py` (needs `graphics_fx_patch.py`; refuses to run twice: it looks for `__aimHoleFree`)
 24. `graphics_botfx_patch.py` (after `graphics_holes_patch.py`; refuses to run twice: it looks for `/* graphics-botfx */`). It keeps each copy's own line ends.
+25. `map_sky_patch.py` (BiMsX6Xn only; independent of the others, run after `graphics_look_patch.py`; refuses to run twice: it looks for `/* maps-sky */`; keeps each copy's own line ends). See below.
+
+## Map sky (map_sky_patch.py)
+
+The sky colour (`scene.background`) used to come from each scene's `environment.skyColor`, so a
+map looked different per drill: white horizon on Corrode, Bind and Juliett scenes, night navy over
+midday light on Infinity, Plummet, Bonsai and Ascent. Now any scene on a known map uses that map's
+colour from the `aimSky` table (set in `SKY` in the script), whether a drill, a practice area or a
+round loaded it. Range drills and Studio arenas without a map keep their own sky; a Studio drill
+on a map gets the map's sky. Fog keeps the scene colour (fog is off in every shipped scene). No
+sim, replay or scene hash change.
+
+Tuning: `window.__aimMapSky = { rook: "#4a80c0" }` (dev tools or CDP) overrides a map's colour
+the next time a drill on it loads; a value that isn't `#rrggbb` falls back to the scene's own sky.
+To change the table for good, edit `SKY` in the script and the same `t:{...}` text after
+`/* maps-sky */` in both `BiMsX6Xn.js` copies (the test checks that they match). Test:
+`npm run test:map-sky` (in `app/`).
 
 ## Range drill floor (graphics_look_patch.py)
 
