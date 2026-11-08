@@ -206,7 +206,10 @@
       const code = `round-${cur.map}-${cur.side}-${cur.weapon}-${cur.barrier}`;
       close();
       // Inside the click handler, so the game's fullscreen request counts as a user action.
-      window.__aimLaunchScene({ shareCode: code, name: `Round · ${map ? map.name : cur.map}`, subtitle: sideOf(cur.side).subtitle, mapId: null });
+      // mapId = the round's map: the loader then waits for the map collision before it prepares the
+      // drill. With mapId null the first launch after app start loaded the map during preparation,
+      // which restarted the scene and cancelled the preparation (silent AbortError -> back to lobby).
+      window.__aimLaunchScene({ shareCode: code, name: `Round · ${map ? map.name : cur.map}`, subtitle: sideOf(cur.side).subtitle, mapId: cur.map });
     };
     shade.querySelector(".aim-round-start").addEventListener("click", (e) => { e.stopPropagation(); start(); });
     for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) shade.addEventListener(type, (e) => e.stopPropagation());
