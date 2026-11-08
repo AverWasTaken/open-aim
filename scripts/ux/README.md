@@ -19,17 +19,19 @@ node scripts/ux/settings-layout-check.mjs <cdpPort> [--sizes 1280x720,1920x1080,
 - On the Video tab it waits for the shell lighting row (`[data-setting="mapLighting"]`) before measuring.
 - Fails on:
   - a description or stat label cut off with "…" (`.st-list .hall-field-text small`, `.st-list .al-number-hint`, `.st-tele dt/dd`);
-  - horizontal scroll inside `.st-view`, `.st-main` or `.st-list`;
+  - horizontal scroll inside `.st-view`, `.st-main`, `.st-list` or `.st-side`, or part of the preview (its corner marks) sticking out past the left edge of `.st-side`;
   - the live preview showing on the Control or Audio tab;
   - at 1920 wide and up: the settings column outside 480-880px, or the preview wider than 1.4x the settings column;
-  - the preview stack running past the bottom of its column;
+  - the preview stack running past the bottom of its column while the column does not scroll (running past is fine when `.st-side` scrolls, so the stats can still be reached);
+  - at 3000 wide and up: the page not centred (`.st-main` left and right gaps, and on preview tabs the settings column's left gap and the preview's right gap, more than 40px apart);
   - a search on the Audio tab not bringing the preview back, or clearing it not hiding it again.
+- Each tab line also shows `rest` (stack height minus the preview frame, what the `--st-rest` reserve in the CSS has to cover), the stat count and columns, and `fits` or `scrolls N px`. Use these to tune `--st-rest`.
 - `--shots <dir>` saves `settings-<size>-<tab>.png` per tab.
 - Exit code: 0 pass, 1 a check failed, 2 could not run.
 
 ## lobby-layout-check.mjs
 
-Checks the lobby top bar, the feedback link, the keyboard path and the drill cards at eight window sizes.
+Checks the lobby top bar, the keyboard path and the drill cards at eight window sizes.
 
 1. Start a hidden test copy with a CDP port. In the open-aim push this only happens on the
    hp server: `bash hp.sh app-start <name> <AIM_PORT> <cdpPort>` (never the real profile or
@@ -48,9 +50,7 @@ It sets each size with `Emulation.setDeviceMetricsOverride` (1280x720, 1366x768,
 - bar labels show from 1660px wide and are hidden below (the breakpoint in
   theme-esports.css); below it every button shows an icon; every button has a title
   tooltip either way;
-- Quick start, the Sens box and the feedback link are fully on screen and not covered;
-- the feedback link sits in the bottom bar and does not overlap the search box, drill cards
-  or sort buttons, and an open panel's dim layer covers it;
+- Quick start and the Sens box are fully on screen and not covered;
 - every top-bar button has an aria-label, the FPS button has aria-pressed;
 - the Sens arrows are 24x16 and not tab stops, the hidden file input is not a tab stop;
 - a 25-step Tab walk starts at "Skip to drills" and every focused element is on screen.

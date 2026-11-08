@@ -308,8 +308,33 @@ html[data-aim-local]:not(#es) body .hall-topnav > .es-skip[hidden] { display: no
 html[data-aim-local]:not(#es) body .hall-root .st-view .st-list :is(.hall-field-text small, .al-number-field .al-number-hint) { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: break-word; font-size: 13px; line-height: 1.45; }
 /* Settings column grows on wide screens (600px at 1280, about 45% up to 880px); the preview is capped at 1.4x the 880px column. */
 html[data-aim-local]:not(#es) body .hall-root .st-view .st-main:not(.is-wide) { grid-template-columns: minmax(460px, clamp(600px, 45%, 880px)) minmax(0, 1fr); }
-html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack { width: min(100cqw, (100cqh - 236px) * 16 / 9, 1232px); }
-html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack.is-cross { width: min(100cqw, (100cqh - 196px) * 16 / 9, 1232px); }
+/* Wide screens: the page (header + settings + preview) is centred, at most 880px column + 28px gap + 1248px preview column + 8px padding wide. No effect up to about 2200px wide. */
+html[data-aim-local]:not(#es) body .hall-root .st-view > :is(.st-head, .st-main) { box-sizing: border-box; width: 100%; max-width: 2164px; margin-inline: auto; }
+/* Preview column: 8px side padding keeps the preview's corner marks (7px outside the frame) inside it,
+   and it scrolls if the preview, help box and stats are still taller than the column. */
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-main > .st-side { container: st-side / size; padding-inline: 8px; overflow: hidden auto; scrollbar-width: thin; }
+/* Preview width = what is left of the column height after the header, help box and stats (--st-rest), as 16:9.
+   --st-rest is the measured height of everything but the preview; it grows with the number of stat rows. */
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack { --st-rest: 236px; width: min(100cqw, (100cqh - var(--st-rest)) * 16 / 9, 1232px); }
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack.is-cross { --st-rest: 196px; }
+/* Medium heights (preview 620-980px wide): the stats can take 3 columns, so 4-6 of them make 2 rows. */
+@container st-side (max-height: 779px) {
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele > :nth-child(4)) { --st-rest: 274px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele > :nth-child(7)) { --st-rest: 330px; }
+}
+/* Short columns (1280x720 and similar): no hint line above the preview (the help box below says the same),
+   tighter stats, 2 stat columns, and a preview at least 240px wide (the column scrolls if that is still too tall). */
+@container st-side (max-height: 600px) {
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack { --st-rest: 160px; width: min(100cqw, max(240px, (100cqh - var(--st-rest)) * 16 / 9), 1232px); }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele) { --st-rest: 204px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele > :nth-child(3)) { --st-rest: 250px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele > :nth-child(5)) { --st-rest: 296px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele > :nth-child(7)) { --st-rest: 342px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack.is-cross { --st-rest: 204px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-bar p { display: none; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-tele { margin-top: 8px; padding-top: 8px; row-gap: 8px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-tele dd { margin-top: 3px; font-size: 18px; }
+}
 /* Audio tab: the preview shows nothing related, so hide it. Not while searching (data-tab is stale then; .st-brief is only set when not searching). */
 html[data-aim-local]:not(#es) body .hall-root .st-view[data-tab="audio"] .st-main:has(> .st-list.st-brief) { grid-template-columns: minmax(0, 1fr); }
 html[data-aim-local]:not(#es) body .hall-root .st-view[data-tab="audio"] .st-main:has(> .st-list.st-brief) > .st-side { display: none; }
