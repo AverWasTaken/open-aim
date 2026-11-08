@@ -348,6 +348,18 @@ test("launcher: app dir not .../open-aim-wt/<name>/app -> refused before any sta
   assert.equal(f.stops(), 0);
 });
 
+test("launcher: another copy from our worktree running -> busy, nothing started or stopped", linuxOnly, async () => {
+  const f = fakeHp();
+  fs.writeFileSync(f.cfg.lockFor(2), `4242\nopen-aim x port 8271 cdp 9471 app ${FAKE_APP}\n`);
+  const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard, appDir: FAKE_APP });
+  assert.match(h.busy || "", /another copy from this hp worktree/);
+  assert.equal(h.started, false);
+  await stopApp(h, quiet);
+  assert.equal(f.stops(), 0);
+  assert.equal(fs.existsSync(f.cfg.lockFile), false, "nothing started in slot 1");
+  assert.ok(fs.existsSync(f.cfg.lockFor(2)), "other copy's lock untouched");
+});
+
 test("launcher: lock not ours -> no stopper call; copy stopped by someone else -> preempted", linuxOnly, async () => {
   const f = fakeHp();
   const h = await startLauncher({ cfg: f.cfg, port: PORT, cdp: PORT + 1, outDir: f.outDir, log: quiet, guardScript: noGuard, appDir: FAKE_APP });

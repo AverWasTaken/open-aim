@@ -61,7 +61,7 @@ export async function guardLauncher(c, { pollMs = 1000 } = {}) {
       if (ours()) {
         const r = await runStopper(c.stopper, c.stopName);
         log(`stopper exit ${r.code}: ${r.out}`);
-        if (r.code === 0 && safeLauncherProfile(c.profile)) {
+        if (r.code === 0 && !/^stopped 0\b/m.test(r.out) && safeLauncherProfile(c.profile)) {
           try {
             fs.rmSync(c.profile, { recursive: true, force: true });
           } catch {}

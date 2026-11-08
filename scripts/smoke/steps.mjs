@@ -65,7 +65,7 @@ export const PAGE_LIB = String.raw`(() => {
     hits: qa.hits, kills: qa.kills, shots: qa.shots.length, ticks: qa.ticks, alive: qa.last ? (qa.last.actors || []).filter((a) => a.alive).length : null,
     aimErr: qa.aim.err == null ? null : +qa.aim.err.toFixed(4), hookFail: qa.hookFail,
   });
-  qa.resetCounters = () => { qa.shots = []; qa.hits = 0; qa.kills = 0; qa.hitIds = new Map(); qa.phases = []; };
+  qa.resetCounters = () => { qa.shots = []; qa.hits = 0; qa.kills = 0; qa.hitIds = new Map(); qa.phases = []; qa.prevBorn = null; qa.curBorn = null; };
   // Kills: a hit actor that is dead, or respawned (new bornTick), in a later frame. A target
   // that respawns at once can die and come back between two frames when frames are slow
   // (hidden copy under load: 1-8 fps), so the bornTick check is what catches those.
@@ -110,11 +110,13 @@ export const PAGE_LIB = String.raw`(() => {
   qa.bodies = {};
   qa.loadBodies = async (code) => {
     qa.bodies = {};
+    qa.sceneMap = null;
     try {
       const j = await (await fetch('/prod-api/api/v1/public/val/aimlab/scenes/' + code)).json();
       const doc = typeof j.data.doc === 'string' ? JSON.parse(j.data.doc) : j.data.doc;
       for (const t of doc.actors || []) qa.bodies[t.id] = t.body || {};
-    } catch (err) { return 'no scene doc: ' + err; }
+      qa.sceneMap = (doc.environment && doc.environment.map) || null;
+    } catch (err) { qa.sceneMap = null; return 'no scene doc: ' + err; }
     return Object.keys(qa.bodies).length;
   };
   qa.aimPoint = (a) => {
@@ -147,8 +149,18 @@ export const PAGE_LIB = String.raw`(() => {
       const k = 0.07 * sens * Math.PI / 180;
       const list = (s.actors || []).filter((a) => a.alive && a.visible !== false && a.position);
       if (!list.length) { A.target = null; A.err = null; return; }
+      // Moving bots: lead by their speed over the last snapshots, a few ticks ahead (one frame
+      // plus the click's round trip); the head is only 0.12 m wide.
+      A.vel = A.vel || new Map();
+      for (const a of list) {
+        const pt = qa.aimPoint(a), v0 = A.vel.get(a.id);
+        const dt = v0 ? s.tick - v0.tick : 0;
+        A.vel.set(a.id, { tick: s.tick, p: pt, v: dt > 0 && dt < 64 ? { x: (pt.x - v0.p.x) / dt, y: (pt.y - v0.p.y) / dt, z: (pt.z - v0.p.z) / dt } : (v0 && v0.v) || { x: 0, y: 0, z: 0 } });
+      }
+      const LEAD = 6; // ticks (~47 ms)
       const ang = (a) => {
-        const t = qa.aimPoint(a);
+        const t0 = qa.aimPoint(a), vv = (A.vel.get(a.id) || {}).v || { x: 0, y: 0, z: 0 };
+        const t = { x: t0.x + vv.x * LEAD, y: t0.y + vv.y * LEAD, z: t0.z + vv.z * LEAD };
         const dx = t.x - ex, dy = t.y - ey, dz = t.z - ez;
         let dyaw = Math.atan2(-dx, -dz) - p.yaw;
         dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
@@ -349,7 +361,11 @@ async function launchDrill(ctx, d, via) {
     if (!have) throw new Error(`pinned drill ${d.code} (${d.name}) missing from the lobby - update scripts/smoke/drills.json`);
     await clickSel(ctx, `${sel} .al-wk-split-go, ${sel} .al-wk-go`);
   } else {
-    const ok = await ctx.cdp.evaluate(`window.__aimLaunchScene(${J({ shareCode: d.code, name: d.name })})`);
+    // Pass the drill's map like a card click does (ChJ6FlD4: yt.begin({...mapId: R.mapId})):
+    // without it the loader prepares the drill before the map is in, and the map load that
+    // follows rebuilds the scene mid-preparation (the "fell back to the lobby" case).
+    const mapId = await ctx.cdp.evaluate("__qa.sceneMap");
+    const ok = await ctx.cdp.evaluate(`window.__aimLaunchScene(${J({ shareCode: d.code, name: d.name, mapId: mapId || null })})`);
     if (!ok) throw new Error(`__aimLaunchScene(${d.code}) returned ${ok}`);
   }
 }
@@ -426,9 +442,11 @@ async function shootFor(ctx, { seconds = 10, enough = 3, offY = 0, minSeconds = 
   const t0 = Date.now();
   let st = null;
   let lastCheck = 0;
+  let midShot = false;
   await sleep(600); // let the aim settle on the first target
   while (Date.now() - t0 < seconds * 1000) {
     ctx.check();
+    if (!midShot && Date.now() - t0 > seconds * 500) { midShot = true; await ctx.shot?.("shooting"); } // what the aim sees
     // Fire only once the aim sits on a target (no target up = no shot; spaced single taps
     // keep first-shot accuracy). Fires anyway after 1.5 s so a drill can't stall here.
     const settled = await waitFor(ctx, "__qa.aim.err != null && __qa.aim.err < (__qa.aim.tol || 0.003)", { timeout: 1500, every: 60 }).catch(() => false);
@@ -606,9 +624,10 @@ const probe = {
         const b = await sample();
         const wall = (b.t - a.t) / 1000;
         const simRate = a.tick != null && b.tick != null ? (b.tick - a.tick) / 128 / wall : null;
-        const fps = (b.frames - a.frames) / wall;
+        const tickCalls = (b.frames - a.frames) / wall;
+        const fps = await ctx.cdp.evaluate("__qa.fps(2000)");
         const k = await shootFor(ctx, { seconds: 8, enough: 99 });
-        const line = `${d.name} ${rep}: load ${(s.loadMs / 1000).toFixed(1)} s, start ${(s.startMs / 1000).toFixed(1)} s, hp load ${os.loadavg().map((x) => x.toFixed(1)).join("/")} (${os.cpus().length} cpus), sim ${simRate == null ? "?" : simRate.toFixed(2)} s/s, ${fps.toFixed(1)} frames/s, CDP rtt ${rtt} ms, kills ${k.kills} in ${k.secs} s`;
+        const line = `${d.name} ${rep}: load ${(s.loadMs / 1000).toFixed(1)} s, start ${(s.startMs / 1000).toFixed(1)} s, hp load ${os.loadavg().map((x) => x.toFixed(1)).join("/")} (${os.cpus().length} cpus), sim ${simRate == null ? "?" : simRate.toFixed(2)} s/s, page ${fps} fps (requestAnimationFrame), __aimTick ${tickCalls.toFixed(0)}/s, CDP rtt ${rtt} ms, kills ${k.kills} in ${k.secs} s`;
         ctx.note(line);
         ctx.log(line);
         ctx.data(`${d.code}-${rep}`, { loadMs: s.loadMs, startMs: s.startMs, load: os.loadavg(), simRate, fps, rtt, kills: k.kills, secs: k.secs });

@@ -84,6 +84,16 @@ export async function startApp(o) {
   return cfg ? startLauncher({ ...o, cfg }) : startDirect(o);
 }
 
+// A slot lock (other than `except`) whose copy runs from our app dir.
+function sameWorktreeLock(lockFiles, appDir, except = null) {
+  for (const f of lockFiles) {
+    if (f === except) continue;
+    const l = readLock(f);
+    if (l && l.app && l.app.replace(/\/+$/, "") === String(appDir).replace(/\/+$/, "")) return l;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------- launcher mode
 // Returns a handle. h.busy is set (and nothing was started) when hp is busy.
 export async function startLauncher({ cfg, port, cdp, outDir, log = console.log, onLine = () => {}, onMainLine = () => {}, maxMinutes = 20, appDir = APP_DIR, cdpWaitMs = 90000, guardScript = GUARD }) {
@@ -99,6 +109,15 @@ export async function startLauncher({ cfg, port, cdp, outDir, log = console.log,
     const e = new Error(`app dir ${appDir} is not .../open-aim-wt/<name>/app: openaim-stop.sh could not stop only our copy`);
     e.exitCode = EXIT.badArgs;
     throw e;
+  }
+
+  // The stopper stops every copy started from our hp worktree: with another one up (e.g. the
+  // team's own hp.sh app-start copy) our stop would kill it too, so don't start (busy, exit 4).
+  const twin = sameWorktreeLock(cfg.lockFiles, appDir);
+  if (twin) {
+    h.busy = `another copy from this hp worktree is running (pid ${twin.pid}, port ${twin.port}); the stop would hit it too`;
+    log(`launcher: not started: ${h.busy}`);
+    return h;
   }
 
   // Fresh profile (R8): only when no copy's lock (or half-started slot) names our port and
@@ -213,6 +232,8 @@ async function stopLauncher(h, log) {
       if (!lockIsOurs(lock, h.pid, h.port)) h.preempted = true;
     }
     if (lockIsOurs(lock, h.pid, h.port)) {
+      const twin = sameWorktreeLock(h.cfg.lockFiles, h.appDir, h.lockFile);
+      if (twin) log(`WARNING: another copy from this hp worktree started meanwhile (pid ${twin.pid}, port ${twin.port}); openaim-stop.sh ${h.stopName} stops it too`);
       log(`stopping copy pid ${h.pid} with ${h.cfg.stopper} ${h.stopName}`);
       const r = await runClosed(h.cfg.stopper, [h.stopName], { timeout: 30000 });
       stopped = r.code === 0 && !/^stopped 0\b/m.test(r.stdout);
