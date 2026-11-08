@@ -10,6 +10,8 @@ const studio = require("./studio-store");
 const guard = require("./local-guard");
 const variants = require("./drill-variants");
 const rounds = require("./round-scene");
+const shellLog = require("./shell-log");
+const shellEnv = require("./shell-env");
 
 // Testing only: AIM_PROFILE=<folder> keeps all player data and backups in that folder,
 // so test runs never touch the real save.
@@ -18,8 +20,68 @@ if (process.env.AIM_PROFILE) {
   app.setPath("userData", path.join(process.env.AIM_PROFILE, "AimTrainer"));
 }
 
-// Testing only: AIM_PORT lets a test copy run while the real app is open.
-const PORT = Number(process.env.AIM_PORT) || 8000;
+// Testing only: AIM_HEADLESS=1 renders off screen (see below).
+const HEADLESS = process.env.AIM_HEADLESS === "1";
+
+// Log file: <userData>/logs/main.log (shell-log.js). Set up first, so even a startup error
+// (a missing shell file below) is written down. A headless copy without AIM_PROFILE (refused
+// below) logs to the temp folder, never into the real save's folder.
+const LOG = shellLog.createLog(HEADLESS && !process.env.AIM_PROFILE
+  ? path.join(require("os").tmpdir(), "AimTrainer-headless-logs")
+  : path.join(app.getPath("userData"), "logs"));
+LOG.hookConsole();
+LOG.watchApp(app);
+let booted = false; // true once the window is open
+let quitting = false;
+app.on("before-quit", () => { quitting = true; });
+
+// Exits now, before or after the ready event (app.exit before ready ends the process directly).
+function exitNow(code) {
+  try {
+    app.exit(code);
+  } catch {
+    process.exit(code);
+  }
+}
+
+// The app can't start: one message box (none in headless test copies, which must never show
+// anything), then exit.
+let failing = false;
+function startupFailed(message, code = 1) {
+  if (failing) return;
+  failing = true;
+  console.error(`STARTUP FAILED: ${message}`);
+  if (!HEADLESS) {
+    try {
+      dialog.showErrorBox("AimTrainer", `AimTrainer could not start.\n\n${message}\n\nDetails are in ${LOG.file}`);
+    } catch {}
+  }
+  exitNow(code);
+}
+
+// An error nothing caught. While starting it's fatal; once the window is open it is only
+// logged and the app keeps running. (A listener here also replaces Electron's own error box.)
+let inUncaught = false;
+process.on("uncaughtException", (err) => {
+  if (inUncaught) return;
+  inUncaught = true;
+  try {
+    if (err && err.code === "EPIPE") LOG.error("UNCAUGHT ERROR (output pipe closed):", err.message);
+    else if (!booted) startupFailed(err && err.stack ? err.stack : String(err));
+    else console.error("UNCAUGHT ERROR:", err);
+  } catch {}
+  inUncaught = false;
+});
+process.on("unhandledRejection", (reason) => {
+  try { console.error("UNHANDLED REJECTION:", reason); } catch {}
+});
+
+// Testing only: AIM_PORT lets a test copy run while the real app is open. A bad value stops
+// here instead of falling back to 8000 (the real app's port); see shell-env.js.
+const TEST_ENV = shellEnv.readTestEnv(process.env);
+if (TEST_ENV.error) startupFailed(TEST_ENV.error);
+const PORT = TEST_ENV.port;
+console.log(`START: AimTrainer ${app.getVersion()} (Electron ${process.versions.electron}) packaged=${app.isPackaged} headless=${HEADLESS} port=${PORT} pid=${process.pid}`);
 
 // Off-screen pages can't take real pointer lock, so headless test copies get a stand-in:
 // requestPointerLock "locks" (pointerLockElement + pointerlockchange) without grabbing the
@@ -36,7 +98,6 @@ const FAKE_POINTER_LOCK = `(() => {
 // Testing only: AIM_HEADLESS=1 renders off screen. No window appears, nothing takes the
 // mouse or goes fullscreen, its sound is muted, and the process runs at below-normal priority so test copies
 // don't slow the desktop down. Drive it through --remote-debugging-port (CDP screenshots work).
-const HEADLESS = process.env.AIM_HEADLESS === "1";
 if (HEADLESS) {
   try {
     require("os").setPriority(0, require("os").constants.priority.PRIORITY_BELOW_NORMAL);
@@ -220,6 +281,7 @@ function sendJson(req, res, value) {
 
 // Single instance only: a second launch just focuses the first window.
 if (!app.requestSingleInstanceLock()) {
+  console.log("SECOND LAUNCH: AimTrainer is already running with this data folder, exiting");
   app.quit();
   process.exit(0);
 }
@@ -552,11 +614,20 @@ function createWindow(url) {
     ]).catch(() => {}).finally(show);
     win.webContents.executeJavaScript(UI_SCRIPT_BATCH).catch((err) => console.log(`UI SCRIPTS: ${err}`));
   });
+  // Log crashes, hangs and page errors; a crashed page reloads the lobby (shell-log.js).
+  LOG.attachWindow(win, { url: ORIGIN + START_PATH, isQuitting: () => quitting, onGiveUp: pageKeepsCrashing });
 
   win.webContents.on("before-input-event", (event, input) => {
     if (input.type !== "keyDown") return;
-    if (input.key === "F11" && !HEADLESS) {
+    // Headless test copies: no fullscreen and no DevTools window (it would appear on screen).
+    if (HEADLESS && (input.key === "F11" || input.key === "F12")) {
+      console.log(`${input.key} ignored (headless)`);
+      event.preventDefault();
+      return;
+    }
+    if (input.key === "F11") {
       const on = !win.isFullScreen();
+      f11Windowed = !on;
       win.setFullScreen(on);
       shellSettings.fullscreen = on;
       try {
@@ -577,14 +648,14 @@ function createWindow(url) {
     if (isLocal(target)) {
       setImmediate(() => win.loadURL(target));
     } else if (/^https?:/i.test(target)) {
-      shell.openExternal(target);
+      openOutside(target);
     }
     return { action: "deny" };
   });
   win.webContents.on("will-navigate", (event, target) => {
     if (!isLocal(target)) {
       event.preventDefault();
-      if (/^https?:/i.test(target)) shell.openExternal(target);
+      if (/^https?:/i.test(target)) openOutside(target);
     }
   });
 
@@ -592,9 +663,28 @@ function createWindow(url) {
   return win;
 }
 
-// Game fullscreen requests (from preload.js) become window fullscreen; F11 leaves it.
+// Off-site links open in the normal browser (not from headless test copies).
+function openOutside(url) {
+  if (HEADLESS) return console.log(`openExternal ignored (headless): ${url.slice(0, 120)}`);
+  shell.openExternal(url);
+}
+
+// The page crashed again and again (shell-log.js stopped reloading it).
+function pageKeepsCrashing() {
+  if (HEADLESS) {
+    console.error("STOPPED: the page keeps crashing");
+    exitNow(2);
+    return;
+  }
+  dialog.showErrorBox("AimTrainer", `AimTrainer stopped working. Your data is safe.\n\nRestart the app. Details are in ${LOG.file}`);
+  app.quit();
+}
+
+// Game fullscreen requests (from preload.js) become window fullscreen; F11 leaves it,
+// and drill starts then leave the window as it is for the rest of the session.
+let f11Windowed = false;
 ipcMain.on("aim:fullscreen", (event) => {
-  if (HEADLESS) return; // test copies stay 1280x720 off screen
+  if (HEADLESS || f11Windowed) return;
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win && !win.isFullScreen()) win.setFullScreen(true);
 });
@@ -627,7 +717,10 @@ ipcMain.on("aim:shell:vsync", (_event, on) => {
 // The portable build runs from a temporary copy, so relaunch the .exe itself. Settings
 // saved in the page's localStorage just before (map culling) are flushed first, since
 // app.exit skips Chromium's normal shutdown.
+// Headless test copies never restart themselves: the new process would be one the test
+// harness didn't start and can't stop.
 ipcMain.on("aim:shell:restart", () => {
+  if (HEADLESS) return console.log("RESTART: skipped (headless)");
   const exe = process.env.PORTABLE_EXECUTABLE_FILE;
   session.defaultSession.flushStorageData();
   app.relaunch(exe ? { execPath: exe } : undefined);
@@ -635,15 +728,16 @@ ipcMain.on("aim:shell:restart", () => {
 });
 
 app.on("second-instance", () => {
+  if (HEADLESS) return console.log("SECOND LAUNCH: ignored (headless)");
   if (!mainWindow) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.focus();
 });
 
 // Player data backups (backups.js): restore a scheduled backup, then back up, before the window opens.
-backups.register(ipcMain, () => mainWindow, fromGame);
+backups.register(ipcMain, () => mainWindow, fromGame, { headless: HEADLESS });
 // The import's VSync change: a failed write is passed on, so the import rolls back.
-require("./valorant-import-ipc").register(() => mainWindow, on => {
+require("./valorant-import-ipc").register(() => mainWindow, (on) => {
   const next = { ...shellSettings, vsync: on };
   try {
     saveShellSettings(next);
@@ -652,10 +746,10 @@ require("./valorant-import-ipc").register(() => mainWindow, on => {
     throw err;
   }
   shellSettings.vsync = on;
-});
+}, { headless: HEADLESS });
 studio.register(ipcMain, fromGame);
 
-app.whenReady().then(async () => {
+async function boot() {
   backups.onStartup();
   Menu.setApplicationMenu(null);
   session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
@@ -673,8 +767,7 @@ app.whenReady().then(async () => {
     meta = {};
   }
   if (!isDir(OUT)) {
-    dialog.showErrorBox("AimTrainer", `The game files are missing:\n${OUT}`);
-    app.quit();
+    showStartupError(`The game files are missing:\n${OUT}`);
     return;
   }
   try {
@@ -683,12 +776,24 @@ app.whenReady().then(async () => {
     const msg = err && err.code === "EADDRINUSE"
       ? `Port ${PORT} is already in use by another program.\n\nClose it (for example another AimTrainer copy) and start AimTrainer again.`
       : `Could not start the local game server on port ${PORT}:\n${err && err.message}`;
-    dialog.showErrorBox("AimTrainer", msg);
-    app.quit();
+    showStartupError(msg);
     return;
   }
   mainWindow = createWindow(ORIGIN + START_PATH);
   mainWindow.on("closed", () => app.quit());
-});
+  booted = true;
+}
+
+// Missing game files or a busy port: a message box, then quit. Headless test copies print
+// the message (stderr and the log) and exit with code 1 instead: a box would appear on screen
+// and wait for a click.
+function showStartupError(msg) {
+  console.error(`STARTUP FAILED: ${msg}`);
+  if (HEADLESS) return exitNow(1);
+  dialog.showErrorBox("AimTrainer", msg);
+  app.quit();
+}
+
+app.whenReady().then(boot).catch((err) => startupFailed(err && err.stack ? err.stack : String(err)));
 
 app.on("window-all-closed", () => app.quit());
