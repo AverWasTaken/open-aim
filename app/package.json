@@ -34,7 +34,8 @@
     "test:graphics-look": "node --test ../scripts/test-graphics-look.mjs",
     "test:stats": "node --test ../scripts/test-training-stats.mjs",
     "test:progress": "node --test ../scripts/test-training-progress.cjs",
-    "test:practice": "node --test ../scripts/test-practice.mjs"
+    "test:practice": "node --test ../scripts/test-practice.mjs",
+    "test:routines": "node --test ../scripts/test-training-routines.cjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
@@ -96,7 +97,10 @@
       "training-analytics.js",
       "training-progress-core.js",
       "training-progress.js",
-      "training-progress.css"
+      "training-progress.css",
+      "training-routines-core.js",
+      "training-routines.js",
+      "training-routines.css"
     ],
     "extraResources": [
       {

@@ -187,6 +187,10 @@ const VALORANT_IMPORT_CSS = fs.readFileSync(path.join(__dirname, "valorant-impor
 const TRAINING_PROGRESS_JS = ["training-progress-core.js", "training-progress.js"]
   .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
 const TRAINING_PROGRESS_CSS = fs.readFileSync(path.join(__dirname, "training-progress.css"), "utf-8");
+// Routines: chained drills with a summary (training-routines-core.js holds the logic and data).
+const TRAINING_ROUTINES_JS = ["training-routines-core.js", "training-routines.js"]
+  .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
+const TRAINING_ROUTINES_CSS = fs.readFileSync(path.join(__dirname, "training-routines.css"), "utf-8");
 
 // Aim analytics per saved run (data only): stores the game's end-of-run "aim-run-stats" event
 // (tools/training_stats_patch.py) in aim-training-analytics-v1. The core (pure math) is loaded first.
@@ -237,6 +241,7 @@ const UI_SCRIPTS = [
   ["VALORANT IMPORT", VALORANT_IMPORT_JS],
   ["TRAINING PROGRESS", TRAINING_PROGRESS_JS],
   ["TRAINING ANALYTICS", TRAINING_ANALYTICS_JS],
+  ["TRAINING ROUTINES", TRAINING_ROUTINES_JS],
 ];
 // The startup screen goes in on its own, straight away (see createWindow).
 const STARTUP_SCREEN_RUN = `try {
@@ -636,6 +641,7 @@ function createWindow(url) {
       win.webContents.insertCSS(OFFLINE_CSS),
       win.webContents.insertCSS(VALORANT_IMPORT_CSS),
       win.webContents.insertCSS(TRAINING_PROGRESS_CSS),
+      win.webContents.insertCSS(TRAINING_ROUTINES_CSS),
       win.webContents.mainFrame.executeJavaScript(STARTUP_SCREEN_RUN).catch((err) => console.log(`STARTUP SCREEN: ${err}`)),
     ]).catch(() => {}).finally(show);
     win.webContents.executeJavaScript(UI_SCRIPT_BATCH).catch((err) => console.log(`UI SCRIPTS: ${err}`));
