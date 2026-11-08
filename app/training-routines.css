@@ -129,6 +129,10 @@
 /* ---------- compact strip: one line on short windows (ux keeps the first drill row visible at
    1280x720). Same markup; the blurb, drill list and last-done line drop (both stay in the card's
    title). With a routine in progress only the resume row shows. ---------- */
+/* Right-edge fade while the compact chip row can still scroll right (scroll-driven: no fade when
+   the row fits, since an inactive scroll timeline leaves --tr-fade at 0). */
+@property --tr-fade { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@keyframes tr-rows-fade { 0%, 96% { --tr-fade: 32px; } 100% { --tr-fade: 0px; } }
 @media (max-height: 800px) {
   .tr-strip { display: flex; align-items: center; gap: 12px; margin: 2px 0 6px; }
   .tr-strip-head { flex: 0 1 auto; flex-wrap: nowrap; gap: 12px; min-width: 0; margin: 0; }
@@ -136,12 +140,15 @@
   .tr-strip-head p, .tr-blurb, .tr-drills, .tr-last { display: none; }
   /* built-in chips and custom chips continue one line that scrolls sideways; the 4 px under the
      chips holds the scrollbar so the strip never gets taller */
-  .tr-rows { display: flex; flex: 1 1 0; flex-wrap: nowrap; align-items: flex-start; gap: 8px; min-width: 0; height: 38px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; }
+  .tr-rows { display: flex; flex: 1 1 0; flex-wrap: nowrap; align-items: flex-start; gap: 8px; min-width: 0; height: 38px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--tr-fade)), transparent); mask-image: linear-gradient(to right, #000 calc(100% - var(--tr-fade)), transparent);
+    animation: tr-rows-fade linear both; animation-timeline: scroll(self inline); }
   .tr-cards, .tr-custom { display: contents; }
   /* no corner cut here: on a 34 px chip it would clip the Start button */
-  /* chips shrink to their min width first, then the row scrolls; with custom chips the drill
-     counts drop (they stay in the titles) so the names keep their room */
-  .tr-card { flex: 1 1 180px; min-width: 170px; box-sizing: border-box; height: 34px; flex-direction: row; align-items: center; gap: 8px; padding: 2px 2px 2px 10px; border-top-width: 1px; border-left: 3px solid var(--es-line-2); clip-path: none; }
+  /* built-in cards never shrink below their full name (they grow to fill spare room); when the
+     row runs out it scrolls sideways. With custom chips the drill counts drop (they stay in the
+     titles) so the names keep their room */
+  .tr-card { flex: 1 0 auto; min-width: 170px; max-width: 320px; box-sizing: border-box; height: 34px; flex-direction: row; align-items: center; gap: 8px; padding: 2px 2px 2px 10px; border-top-width: 1px; border-left: 3px solid var(--es-line-2); clip-path: none; }
   .tr-card:hover { border-left-color: var(--es-red); }
   .tr-card-head { flex: 1 1 auto; min-width: 0; gap: 6px; }
   .tr-card-head h3 { min-width: 0; font-size: 13px; }

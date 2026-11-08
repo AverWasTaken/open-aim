@@ -406,6 +406,10 @@ test('compact strip: same markup and state at every window size; CSS keeps every
       assert.ok(['.tr-strip-head p', '.tr-blurb', '.tr-drills', '.tr-last', '.tr-strip.has-run .tr-rows', '.tr-strip:has(.tr-chip) .tr-rows .tr-meta', '.tr-meta-min'].includes(sel), 'hidden in compact: ' + sel);
     }
   }
+  // Built-in compact cards never shrink (full names stay readable); the row scrolls instead and
+  // fades at the right edge while it can still scroll.
+  assert.match(block, /\.tr-card \{[^}]*flex: 1 0 auto/);
+  assert.match(block, /\.tr-rows \{[^}]*animation-timeline: scroll\(self inline\)/);
 });
 
 // ---------- I1: custom routines ----------
