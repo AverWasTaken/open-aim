@@ -24,6 +24,7 @@
   --es-red-d: #c42f3c;
   --es-red-wash: rgba(255, 70, 85, 0.14);
   --es-green: #4ade80;
+  --es-warn: #ffd166;
   --es-head: "Bahnschrift", "Segoe UI", sans-serif;
   --es-slant: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
   --es-slant-sm: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
@@ -74,6 +75,10 @@ html[data-aim-local]:not(#es) body .aim-loading-title { flex: 1 !important; min-
 html[data-aim-local]:not(#es) body .aim-loading-title small { color: var(--es-red) !important; font: 800 11px var(--es-head) !important; letter-spacing: .14em !important; text-transform: uppercase !important; }
 html[data-aim-local]:not(#es) body .aim-loading-name { font: italic 900 22px/1.1 var(--es-head) !important; text-transform: uppercase !important; letter-spacing: .01em !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
 html[data-aim-local]:not(#es) body .aim-loading-name:empty::before { content: "Getting ready" !important; }
+/* ui-polish.css labels the difficulty chips in Vietnamese ("Độ khó"); CSS text never reaches the translator. */
+html[data-aim-local]:not(#es) body .pw-dchips::before { content: "Difficulty" !important; }
+/* Community Workshop subtitle (vi.css): drop "No VPN required", which means nothing in this offline app. */
+html[data-aim-local][lang="en"]:not(#es) { --aim-local-community: "Local community library\A Pick a drill below to start."; }
 html[data-aim-local]:not(#es) body .aim-loading-time { flex: none !important; color: var(--es-muted) !important; font: 700 14px var(--es-head) !important; font-variant-numeric: tabular-nums !important; }
 html[data-aim-local]:not(#es) body .aim-loading-integrated { margin-top: 12px !important; }
 html[data-aim-local]:not(#es) body .aim-loading-integrated:not(.is-failed) :is(.aim-loading-stage, .aim-loading-track) { display: none !important; }
@@ -132,7 +137,7 @@ html[data-aim-local]:not(#es) body .al-wkload-track > i { background: var(--es-r
   --aim-radius-md: 0px;
   --aim-radius-lg: 2px;
   --aim-focus: var(--es-red-2);
-  --aim-difficulty: #ffd23f;
+  --aim-difficulty: var(--es-warn);
 }
 html[data-aim-local]:not(#es) body :is(.hall-root, .hall-portal, .al-studio-shell),
 html[data-aim-local]:not(#es) body :is(.hall-root, .hall-portal).hall-light {
@@ -247,7 +252,33 @@ html[data-aim-local]:not(#es) body .es-bar-quick {
   font-style: italic;
 }
 html[data-aim-local]:not(#es) body .es-bar-quick:hover { background: var(--es-red-2) !important; }
-html[data-aim-local]:not(#es) body .es-bar-fps.is-on { color: #fff !important; border-bottom-color: var(--es-red) !important; }
+/* FPS is an on/off switch, not a page: no tab underline, a small light that is lit when on */
+html[data-aim-local]:not(#es) body .es-bar-fps.is-on { color: var(--es-soft) !important; border-bottom-color: transparent !important; }
+html[data-aim-local]:not(#es) body .es-bar-fps.is-on:hover { color: #fff !important; }
+html[data-aim-local]:not(#es) body .es-bar-dot { display: block; flex: none; width: 6px; height: 6px; box-shadow: inset 0 0 0 1px var(--es-dim); }
+html[data-aim-local]:not(#es) body .es-bar-fps.is-on .es-bar-dot { background: var(--es-green); box-shadow: 0 0 6px rgba(74, 222, 128, .6); }
+/* Sens box arrows: two 24x16 hit areas filling the box height; not tab stops (lobby-bar.js),
+   the number box's own arrow keys change the value */
+html[data-aim-local]:not(#es) body .hall-topnav .hall-sens .hall-sens-stepper { width: 24px; gap: 0; }
+html[data-aim-local]:not(#es) body .hall-topnav .hall-sens .hall-sens-stepper button { width: 24px; height: 16px; font-size: 8px; }
+/* "Skip to drills" (lobby-bar.js): first Tab stop in the lobby, shown only while focused */
+html[data-aim-local]:not(#es) body .hall-topnav > .es-skip {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 5;
+  padding: 10px 16px;
+  color: #fff;
+  background: var(--es-red);
+  font: 800 13px/1 var(--es-head);
+  font-stretch: 75%;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+html[data-aim-local]:not(#es) body .hall-topnav > .es-skip:focus { transform: none; }
+html[data-aim-local]:not(#es) body .hall-topnav > .es-skip[hidden] { display: none; }
 
 /* Video controls inherit the native choice/button styles and scoped attributes. */
 .aim-video-panel > [data-setting="frameMode"],
@@ -271,6 +302,58 @@ html[data-aim-local]:not(#es) body .es-bar-fps.is-on { color: #fff !important; b
 .aim-frame-notice { margin-top: 5px; color: #e7b16d; }
 .aim-video-local { margin: -3px 0 10px; }
 .aim-frame-controls button:focus-visible, .aim-meter-choice button:focus-visible { outline: 2px solid #ff4655 !important; outline-offset: 2px; }
+
+/* settings page layout (ux): lobby SETTINGS page only (.hall-root .st-view), not the in-game dialog (.hall-portal) */
+/* Full setting descriptions: wrap instead of one line cut off with "...". Also covers shell-injected rows. */
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-list :is(.hall-field-text small, .al-number-field .al-number-hint) { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: break-word; font-size: 13px; line-height: 1.45; }
+/* Settings column grows on wide screens (600px at 1280, about 45% up to 880px); the preview is capped at 1.4x the 880px column. */
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-main:not(.is-wide) { grid-template-columns: minmax(460px, clamp(600px, 45%, 880px)) minmax(0, 1fr); }
+/* Wide screens: the page (header + settings + preview) is centred, at most 880px column + 28px gap + 1248px preview column + 8px padding wide. No effect up to about 2200px wide. */
+html[data-aim-local]:not(#es) body .hall-root .st-view > :is(.st-head, .st-main) { box-sizing: border-box; width: 100%; max-width: 2164px; margin-inline: auto; }
+/* Preview column: 8px side padding keeps the preview's corner marks (7px outside the frame) inside it,
+   and it scrolls if the preview, help box and stats are still taller than the column. */
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-main > .st-side { container: st-side / size; padding-inline: 8px; overflow: hidden auto; scrollbar-width: thin; }
+/* Preview width = what is left of the column height after the header, help box and stats (--st-rest), as 16:9.
+   --st-rest is the measured height of everything but the preview; it grows with the number of stat rows. */
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack { --st-rest: 236px; width: min(100cqw, (100cqh - var(--st-rest)) * 16 / 9, 1232px); }
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack.is-cross { --st-rest: 196px; }
+/* Medium heights (preview about 650-980px wide): 6+ stats (.is-dense) take 3 columns there, so 2 or more rows;
+   in a column 620px or narrower every stat count takes 3 columns, so 4-5 stats make 2 rows too. */
+@container st-side (600px < height < 780px) {
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele.is-dense) { --st-rest: 274px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele.is-dense > :nth-child(7)) { --st-rest: 330px; }
+}
+@container st-side (600px < height < 780px) and (width <= 620px) {
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele > :nth-child(4)) { --st-rest: 274px; }
+}
+/* Short columns (1280x720 and similar): no hint line above the scene preview (the help box below says the same),
+   the crosshair note on its own line under the title, tighter stats, 2 stat columns, and a preview at least
+   240px wide (the column scrolls if that is still too tall). */
+@container st-side (height <= 600px) {
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack { --st-rest: 160px; width: min(100cqw, max(216px, (100cqh - var(--st-rest)) * 16 / 9), 1232px); }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele) { --st-rest: 204px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele > :nth-child(3)) { --st-rest: 250px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele > :nth-child(5)) { --st-rest: 314px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele > :nth-child(7)) { --st-rest: 342px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack.is-cross { --st-rest: 236px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:not(.is-cross) .st-bar p { display: none; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack.is-cross .st-bar { flex-wrap: wrap; row-gap: 2px; padding-bottom: 6px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack.is-cross .st-bar p { flex: 1 0 100%; margin: 0; text-align: left; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-tele { margin-top: 8px; padding-top: 8px; row-gap: 8px; }
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-tele dd { margin-top: 3px; font-size: 18px; }
+}
+/* Audio tab: the preview shows nothing related, so hide it. Not while searching (data-tab is stale then; .st-brief is only set when not searching). */
+html[data-aim-local]:not(#es) body .hall-root .st-view[data-tab="audio"] .st-main:has(> .st-list.st-brief) { grid-template-columns: minmax(0, 1fr); }
+html[data-aim-local]:not(#es) body .hall-root .st-view[data-tab="audio"] .st-main:has(> .st-list.st-brief) > .st-side { display: none; }
+html[data-aim-local]:not(#es) body .hall-root .st-view[data-tab="audio"] .st-main > .st-list.st-brief { max-width: 880px; }
+/* Preview header and stat strip: no cut-off labels in a narrow preview. */
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-bar { height: auto; min-height: 40px; }
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-bar h2 { flex: none; white-space: nowrap; }
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-bar p { white-space: normal; overflow: visible; text-overflow: clip; text-align: right; line-height: 1.35; }
+html[data-aim-local]:not(#es) body .hall-root .st-view .st-tele dt { white-space: normal; overflow: visible; text-overflow: clip; }
+@container (max-width: 560px) {
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-tele { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 /* Single game-render counter: updated four times per second, no glass blur. */
 .aim-frame-meter { display:none;position:fixed;left:16px;top:64px;z-index:2147483000;pointer-events:none;min-width:165px;max-width:calc(100vw - 32px);padding:0;border:0;background:transparent;color:#f2f3f5;text-shadow:0 1px 3px #000,0 0 2px #000;font-family:"Bahnschrift","Segoe UI",sans-serif;font-variant-numeric:tabular-nums; }
@@ -362,11 +445,26 @@ body.al-training-active .aim-frame-meter { display:block; }
 .es-shotgraph-sum.is-moment .es-shotgraph-sum-split { margin-bottom: 6px; }
 .es-shotgraph-sum-line { margin: 2px 0 0; color: #b9bfca; }
 .es-shotgraph-sum-line b { display: inline-block; min-width: 58px; font-weight: 700; }
-/* narrower windows: icons only (names stay in the tooltip) */
-@media (max-width: 1700px) {
-  html[data-aim-local]:not(#es) body .es-bar-btn span { display: none; }
-  html[data-aim-local]:not(#es) body .es-bar-btn { padding: 0 9px !important; }
+.es-shotgraph-sum:not(.is-moment) .es-shotgraph-sum-line.is-stop { margin-top: 10px; }
+.es-shotgraph-sum-line small { display: block; margin-top: 2px; color: var(--es-muted); font-size: 12px; }
+/* Top bar widths, measured in Bahnschrift: brand + full tabs + labelled bar + Sens ~1820px,
+   with compact tabs ~1610px, compact tabs + icon-only bar ~1250px.
+   Below 1860px: compact tabs and no brand subtitle. Below 1660px: bar icons only
+   (the name stays in the title tooltip and aria-label). */
+@media (max-width: 1859px) {
+  html[data-aim-local]:not(#es) body .hall-tab { padding-inline: 12px !important; font-size: 13px !important; }
+  html[data-aim-local]:not(#es) body .hall-topnav .hall-tabs { gap: 4px; }
+  html[data-aim-local]:not(#es) body .hall-topnav .hall-brand { padding: 0 16px !important; }
+  html[data-aim-local]:not(#es) body .hall-topnav .hall-brand small { display: none !important; }
 }
+@media (max-width: 1659px) {
+  html[data-aim-local]:not(#es) body .es-bar-btn span { display: none; }
+  html[data-aim-local]:not(#es) body .es-bar-btn { padding: 0 8px !important; }
+  html[data-aim-local]:not(#es) body .es-bar-quick { padding: 0 14px !important; }
+}
+/* Safety net (other fonts, extra bar items): the tab row shrinks and scrolls inside
+   itself instead of pushing Quick start and the Sens box off the page. */
+html[data-aim-local]:not(#es) body .hall-topnav .hall-tabs { min-width: 0; overflow: auto hidden; scrollbar-width: none; }
 
 /* ---------- hero ---------- */
 html[data-aim-local]:not(#es) body .al-wk-hero-art { border-radius: 0 !important; }
@@ -380,6 +478,24 @@ html[data-aim-local]:not(#es) body .al-wk-feat {
   clip-path: var(--es-cut) !important;
 }
 html[data-aim-local]:not(#es) body .al-wk-feat-why { color: var(--es-red-2) !important; font-weight: 700 !important; text-transform: uppercase; letter-spacing: 0.06em; }
+/* Short windows (1280x720 up to 800px tall): a compact hero, so the first row of drill cards
+   shows without scrolling. No line under the heading, no featured description or tags; the
+   featured drill's name and its Play button share one row. */
+@media (max-height: 800px) {
+  html[data-aim-local]:not(#es) body .al-wk-hero-copy { padding-top: 14px !important; padding-bottom: 12px !important; }
+  html[data-aim-local]:not(#es) body .al-wk-hero-copy h1 { font-size: 24px !important; line-height: 1.2 !important; }
+  html[data-aim-local]:not(#es) body :is(.al-wk-hero-sub, .al-wk-feat-desc, .al-wk-feat-tags) { display: none !important; }
+  html[data-aim-local]:not(#es) body .al-wk-feat {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    align-items: center !important;
+    gap: 0 16px !important;
+    margin-top: 8px !important;
+    padding: 10px 16px 12px !important;
+  }
+  html[data-aim-local]:not(#es) body .al-wk-feat.is-carousel { padding-bottom: 22px !important; }
+  html[data-aim-local]:not(#es) body .al-wk-feat h2 { margin-top: 2px !important; font-size: 20px !important; line-height: 1.2 !important; white-space: nowrap !important; }
+  html[data-aim-local]:not(#es) body .al-wk-feat .al-wk-go { margin: 0 !important; }
+}
 
 /* ---------- toolbar: map strip, filters, sort ---------- */
 html[data-aim-local]:not(#es) body .al-wk-tools { border-radius: 0 !important; border: none !important; border-top: 2px solid var(--es-red) !important; background: var(--es-panel) !important; }
@@ -436,7 +552,8 @@ html[data-aim-local]:not(#es) body .al-wk-dock .al-wk-dchips .al-wk-chip { paddi
 }
 html[data-aim-local]:not(#es) body .al-wk-card :is(.al-wk-art, img) { border-radius: 0 !important; }
 html[data-aim-local]:not(#es) body .al-wk-card h3 { font-size: 19px !important; font-weight: 800 !important; line-height: 1.1 !important; font-stretch: 75%; text-transform: uppercase; }
-html[data-aim-local]:not(#es) body .al-wk-card-no { font-weight: 700 !important; letter-spacing: 0.08em; color: #fff !important; }
+/* The "NO.D5A855" share code means nothing to players: hidden on both card faces. */
+html[data-aim-local]:not(#es) body :is(.al-wk-card-no, .al-wkb-no) { display: none !important; }
 html[data-aim-local]:not(#es) body .al-wk-tag { background: var(--es-red) !important; clip-path: var(--es-slant-sm) !important; padding-inline: 10px !important; border-radius: 0 !important; }
 html[data-aim-local]:not(#es) body .al-wk-tag * { color: #fff !important; }
 html[data-aim-local]:not(#es) body .al-wk-fav { border-radius: 0 !important; }
@@ -449,8 +566,12 @@ html[data-aim-local]:not(#es) body .aim-rank-chip {
   display: inline-flex; align-items: center; gap: 6px; height: 26px; margin: 8px 0 0; padding: 0 12px 0 8px;
   font: 700 12px "Bahnschrift", "Segoe UI", sans-serif; font-stretch: 75%; letter-spacing: 0.06em; text-transform: uppercase;
   color: #fff; background: color-mix(in srgb, var(--rank-tone, #9aa1ae) 22%, rgba(14, 17, 23, 0.82));
-  border-left: 2px solid var(--rank-tone, #9aa1ae); clip-path: var(--es-slant-sm);
+  border: none; border-left: 2px solid var(--rank-tone, #9aa1ae); clip-path: var(--es-slant-sm); cursor: pointer;
 }
+/* The chip is a button (opens the rank picker for this drill): brighter on hover, and an inset
+   focus ring because the slant clip would cut an outside one off. */
+html[data-aim-local]:not(#es) body .aim-rank-chip:hover { color: #fff; background: color-mix(in srgb, var(--rank-tone, #9aa1ae) 38%, rgba(14, 17, 23, 0.9)); }
+html[data-aim-local]:not(#es) body .aim-rank-chip:focus-visible { outline-offset: -2px !important; }
 html[data-aim-local]:not(#es) body .aim-rank-chip :is(img, svg) { width: 19px; height: 19px; object-fit: contain; flex: none; }
 html[data-aim-local]:not(#es) body .aim-rank-chip[data-key="pick"] { padding-left: 10px; color: #c9ced6; }
 html[data-aim-local]:not(#es) body .aim-rank-chip[data-key="none"] { --rank-tone: #6b7280; }
@@ -479,6 +600,30 @@ html[data-aim-local]:not(#es) body :is(.al-wk-go, .al-wk-split-go) {
 }
 html[data-aim-local]:not(#es) body :is(.al-wk-go, .al-wk-split-go):hover { background: var(--es-red-2) !important; }
 html[data-aim-local]:not(#es) body :is(.al-wk-go, .al-wk-split-go) * { color: #fff !important; }
+/* Card play buttons sit in a narrow cell: with the 22px side padding the label was cut off and
+   the icon squashed to a dot. Less padding and a fixed icon size. The single play button
+   (cards without a second button) gets the same look, in the same place. */
+html[data-aim-local]:not(#es) body .al-wk-card :is(.al-wk-split-go, .al-wk-play) { min-width: 0; gap: 8px !important; padding-inline: 10px !important; }
+html[data-aim-local]:not(#es) body .al-wk-card :is(.al-wk-split-go, .al-wk-play) svg { flex: none; width: 14px; height: 14px; }
+html[data-aim-local]:not(#es) body .al-wk-card .al-wk-play {
+  position: static !important;
+  flex: none;
+  height: 38px !important;
+  margin: 0 12px 12px;
+  transform: none !important;
+  background: var(--es-red) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 0 !important;
+  clip-path: var(--es-slant) !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  font-stretch: 75%;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+html[data-aim-local]:not(#es) body .al-wk-card .al-wk-play:hover { background: var(--es-red-2) !important; }
 
 /* ---------- every panel, row and control: square corners ---------- */
 html[data-aim-local]:not(#es) body :is(.hall-root, .hall-portal, .al-studio-shell, .pw, .rov, .al-tn, .al-stage-wrap, [class*="al-wk"]) :is(kbd,button, input, select, textarea, summary, .el-button, .el-input__wrapper, .el-select__wrapper,
@@ -524,8 +669,8 @@ html[data-aim-local]:not(#es) body .al-hud-chip {
   border-radius: 0 !important;
   box-shadow: none !important;
 }
-html[data-aim-local]:not(#es) body .al-hud-chip :is(b, strong) { font-weight: 700 !important; font-size: 1.15em; letter-spacing: 0.02em; }
-html[data-aim-local]:not(#es) body .al-hud-chip :is(span, small, em) { text-transform: uppercase; font-stretch: 75%; letter-spacing: 0.06em; color: var(--es-muted) !important; }
+html[data-aim-local]:not(#es) body .al-hud-chip :is(b, strong) { font-weight: 700 !important; font-size: 26px; line-height: 1.05; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+html[data-aim-local]:not(#es) body .al-hud-chip :is(span, small, em) { font-size: 11px; text-transform: uppercase; font-stretch: 75%; letter-spacing: 0.06em; color: var(--es-muted) !important; }
 html[data-aim-local]:not(#es) body .al-scene-start-cue :is(h1, h2, strong, b) { font-stretch: 75% !important; text-transform: uppercase !important; font-weight: 800 !important; font-style: italic; letter-spacing: 0.03em; }
 html[data-aim-local]:not(#es) body .al-scene-start-cue :is(button, [class*="chip"], [class*="pill"]) { border-radius: 0 !important; }
 
@@ -657,6 +802,51 @@ html[data-aim-local]:not(#es) body :is(.al-primary-btn, .al-secondary-btn) {
 html[data-aim-local]:not(#es) body .al-primary-btn { background: var(--es-red) !important; color: #fff !important; border: none !important; font-style: italic; }
 html[data-aim-local]:not(#es) body .al-primary-btn:hover { background: var(--es-red-2) !important; }
 html[data-aim-local]:not(#es) body .al-secondary-btn { background: var(--es-raised-2) !important; border: none !important; }
+/* result screen key hints (app/ux-keys.js: R = play again, Esc = back). ::before because
+   .al-primary-btn::after is the hover shine. */
+html[data-aim-local]:not(#es) body .al-result-overlay :is(.al-run-actions .al-primary-btn, .al-run-actions .al-secondary-btn, .al-mr-btn[data-action=retry], .al-mr-btn[data-action=exit])::before {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 5px;
+  border: 1px solid var(--es-line-2);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--es-muted);
+  font-size: 11px;
+  font-weight: 700;
+  font-style: normal;
+  letter-spacing: 0.06em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}
+html[data-aim-local]:not(#es) body .al-result-overlay :is(.al-run-actions .al-primary-btn, .al-mr-btn[data-action=retry])::before { content: "R"; color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.45); background: rgba(0, 0, 0, 0.18); }
+html[data-aim-local]:not(#es) body .al-result-overlay :is(.al-run-actions .al-secondary-btn, .al-mr-btn[data-action=exit])::before { content: "Esc"; }
+/* result card colours and shapes (the run report: score delta, best-score bar, chart legend,
+   stat strip, verdict badge, replay button, bot list). The game's own colours are teal, amber
+   and a too-dark grey; these map them to the shell tokens. Backgrounds and --run-line stay. */
+html[data-aim-local]:not(#es) body .al-run-body { --run-good: var(--es-green); --run-signal: var(--es-warn); --run-bad: var(--es-red); --run-dim: var(--es-muted); --run-muted: var(--es-muted); }
+html[data-aim-local]:not(#es) body .al-run-legend > span:not(.is-acc)::before { border-top-color: var(--es-red); }
+html[data-aim-local]:not(#es) body .al-run-tier.is-good { color: var(--es-soft); }
+html[data-aim-local]:not(#es) body :is(.al-run-delta b, .al-run-pb-track, .al-run-pb-track i, .al-bots-card-map, .al-bots-card-list li.is-killer b) { border-radius: 0; }
+html[data-aim-local]:not(#es) body .al-run-pb-track i { background: var(--es-warn); }
+html[data-aim-local]:not(#es) body .al-result-verdict { --verdict: var(--es-muted); }
+html[data-aim-local]:not(#es) body .al-result-verdict.is-cleared { --verdict: var(--es-green); }
+html[data-aim-local]:not(#es) body .al-result-verdict.is-time { --verdict: var(--es-warn); }
+html[data-aim-local]:not(#es) body .al-result-verdict.is-died { --verdict: var(--es-red); }
+html[data-aim-local]:not(#es) body .al-result-head .al-result-paused { color: var(--es-warn); border-left-color: var(--es-warn); }
+html[data-aim-local]:not(#es) body .al-result-dirty-note { color: var(--es-warn); }
+html[data-aim-local]:not(#es) body .al-run-ranked:is(.is-rejected, .is-failed) { color: var(--es-warn); }
+html[data-aim-local]:not(#es) body .al-result-head .al-run-ranked:is(.is-rejected, .is-failed) { background: rgba(255, 209, 102, 0.08); border-left-color: var(--es-warn); }
+html[data-aim-local]:not(#es) body .al-result-guide-btn { border: none; border-left: 3px solid transparent; border-radius: 0; background: var(--es-raised-2); text-transform: uppercase; font-weight: 700; font-stretch: 75%; }
+html[data-aim-local]:not(#es) body .al-result-guide-btn:hover { color: var(--es-text); border-left-color: var(--es-red); }
+html[data-aim-local]:not(#es) body :is(.al-run-strip span, .al-run-pb-label, .al-run-chart-top) { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--es-muted); }
+html[data-aim-local]:not(#es) body .al-run-strip b { font-variant-numeric: tabular-nums; }
+html[data-aim-local]:not(#es) body .al-bots-card.is-side h3 b { color: var(--es-text); }
+/* result card container (app/ux-result.js): other teams put their result rows in here.
+   Hidden while empty (no whitespace goes in, so :empty works). */
+html[data-aim-local]:not(#es) body .ux-result-extra { display: flex; flex-direction: column; gap: 8px; padding: 12px 26px; }
+html[data-aim-local]:not(#es) body .ux-result-extra:empty { display: none; }
 html[data-aim-local]:not(#es) body :is(.al-wk-new, .al-wk-s-new) { background: var(--es-red) !important; color: #fff !important; border-radius: 0 !important; clip-path: var(--es-slant-sm) !important; padding-inline: 8px !important; }
 
 /* ---------- studio top bar ---------- */
@@ -815,7 +1005,7 @@ html[data-aim-local]:not(#es) body .al-result-modal { animation: es-result-in 0.
 html[data-aim-local]:not(#es) body .al-result-modal.has-verdict-splash { animation: es-result-in 0.42s var(--es-spring) 1.15s both !important; }
 html[data-aim-local]:not(#es) body .al-result-verdict-splash.is-died { --verdict: var(--es-red); }
 html[data-aim-local]:not(#es) body .al-result-verdict-splash.is-cleared { --verdict: var(--es-green); }
-html[data-aim-local]:not(#es) body .al-result-verdict-splash.is-time { --verdict: #ffb84d; }
+html[data-aim-local]:not(#es) body .al-result-verdict-splash.is-time { --verdict: var(--es-warn); }
 html[data-aim-local]:not(#es) body .al-result-verdict-splash {
   position: fixed !important;
   inset: 0 !important;
@@ -881,7 +1071,7 @@ html[data-aim-local]:not(#es) body .al-result-verdict-splash span {
 html[data-aim-local]:not(#es) body .al-mr {
   --mr-teal: var(--es-green);
   --mr-red: var(--es-red);
-  --mr-gold: #ffcf5a;
+  --mr-gold: var(--es-warn);
   font-family: var(--es-head) !important;
 }
 html[data-aim-local]:not(#es) body .al-mr-shade {
@@ -913,8 +1103,8 @@ html[data-aim-local]:not(#es) body .al-mr-verdict b::before {
   transform-origin: left center;
   animation: es-mr-bar 0.35s 0.08s var(--es-ease) both;
 }
-html[data-aim-local]:not(#es) body .al-mr.is-pass .al-mr-verdict b::before { background: #1fa463; }
-html[data-aim-local]:not(#es) body .al-mr.is-time .al-mr-verdict b::before { background: #c98a1c; }
+html[data-aim-local]:not(#es) body .al-mr.is-pass .al-mr-verdict b::before { background: var(--es-green); }
+html[data-aim-local]:not(#es) body .al-mr.is-time .al-mr-verdict b::before { background: var(--es-warn); }
 html[data-aim-local]:not(#es) body .al-mr-verdict span { font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; animation: es-mr-in 0.35s 0.2s var(--es-ease) both !important; }
 html[data-aim-local]:not(#es) body .al-mr-clock { animation: es-mr-in 0.45s 0.18s var(--es-ease) both; }
 html[data-aim-local]:not(#es) body .al-mr-big { font: 700 180px/0.86 var(--es-head) !important; font-stretch: 75% !important; font-variant-numeric: tabular-nums; }

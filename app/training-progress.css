@@ -1,0 +1,105 @@
+/* Training progress (training-progress.js): "Your skills" section in TRAINING HISTORY and the
+   "PB · runs" chip on lobby drill cards. Own tp- classes (the history's .rov-* rules are Vue
+   scoped); colours and shapes from the theme tokens in theme-esports.css (ux-style.md). */
+.tp-sec {
+  --tp-up: var(--es-green);
+  --tp-down: var(--es-red);
+  display: flex; flex-direction: column; gap: 16px;
+  margin: 24px 0; color: var(--es-text); font-family: var(--es-head);
+}
+.tp-sec .tp-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.tp-sec .tp-head h3 { margin: 0; font-size: 18px; letter-spacing: 0.04em; }
+.tp-sec .tp-head p { margin: 0; font-size: 13px; color: var(--es-muted); }
+.tp-sec .tp-cap {
+  display: block; font-size: 11px; font-weight: 700; font-stretch: 75%; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--es-muted);
+}
+
+/* What to practise */
+.tp-sec .tp-hint {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  padding: 12px 16px; background: var(--es-panel); border: 1px solid var(--es-line); border-left: 3px solid var(--es-red);
+}
+.tp-sec .tp-hint p { margin: 4px 0 0; font-size: 15px; color: var(--es-text); }
+.tp-sec .tp-play {
+  flex: none; height: 36px; padding: 0 20px; border: 0; border-left: 3px solid var(--es-line-2); border-radius: 0;
+  background: var(--es-raised-2); color: var(--es-text); cursor: pointer;
+  font: 700 13px var(--es-head); font-stretch: 75%; letter-spacing: 0.04em; text-transform: uppercase;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tp-sec .tp-play:hover { border-left-color: var(--es-red); background: var(--es-raised); }
+
+/* Skill cards */
+.tp-sec .tp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin: 0; }
+.tp-sec .tp-card { padding: 12px; background: var(--es-panel); border: 1px solid var(--es-line); clip-path: var(--es-cut); }
+.tp-sec .tp-card.is-empty { opacity: 0.6; }
+.tp-sec .tp-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.tp-sec .tp-card-head h4 {
+  margin: 0; font-size: 15px; font-weight: 800; font-stretch: 75%; letter-spacing: 0.04em; text-transform: uppercase; font-style: normal;
+}
+.tp-sec .tp-card-head span { font-size: 11px; color: var(--es-muted); font-variant-numeric: tabular-nums; text-transform: uppercase; letter-spacing: 0.06em; }
+.tp-sec .tp-stats { display: grid; gap: 4px; margin: 0; }
+.tp-sec .tp-stat { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.tp-sec .tp-stat dt { font-size: 11px; color: var(--es-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.tp-sec .tp-stat dd { margin: 0; display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
+.tp-sec .tp-stat b { font-size: 15px; font-weight: 700; color: var(--es-text); }
+.tp-sec .tp-delta { display: inline-flex; align-items: center; gap: 4px; min-width: 54px; justify-content: flex-end; font-size: 11px; color: var(--es-muted); }
+.tp-sec .tp-delta[data-dir="up"]::before,
+.tp-sec .tp-delta[data-dir="down"]::before { content: ""; width: 8px; height: 6px; background: currentColor; }
+.tp-sec .tp-delta[data-dir="up"]::before { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.tp-sec .tp-delta[data-dir="down"]::before { clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.tp-sec .tp-delta.is-good { color: var(--tp-up); }
+.tp-sec .tp-delta.is-bad { color: var(--tp-down); }
+
+/* Aim habits under a card's metrics (aim-training-analytics-v1). The game's tier word sits on a
+   second line under the label, so value + change keep the same column as the metric rows. */
+.tp-sec .tp-habits { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--es-line); }
+.tp-sec .tp-habits > .tp-cap { margin-bottom: 4px; }
+.tp-sec .tp-habit dt { min-width: 0; }
+.tp-sec .tp-tier {
+  display: block; margin-top: 2px; font-size: 11px; font-weight: 700; font-stretch: 75%; letter-spacing: 0.06em; text-transform: uppercase; color: var(--es-soft);
+}
+.tp-sec .tp-tier:is([data-tier="elite"], [data-tier="great"]) { color: var(--tp-up); }
+.tp-sec .tp-tier[data-tier="weak"] { color: var(--es-warn, #ffd166); }
+.tp-sec .tp-habits-none { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--es-line); font-size: 13px; color: var(--es-muted); }
+
+/* Drill trend */
+.tp-sec .tp-trend { padding: 12px 16px 8px; background: var(--es-panel); border: 1px solid var(--es-line); }
+.tp-sec .tp-trend-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+.tp-sec .tp-sub { margin: 0; font-size: 15px; font-weight: 800; font-stretch: 75%; letter-spacing: 0.04em; text-transform: uppercase; font-style: normal; }
+.tp-sec .tp-pick { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 260px; }
+.tp-sec .tp-pick select {
+  flex: 1; min-width: 0; max-width: 420px; height: 32px; padding: 0 8px; border: 1px solid var(--es-line-2); border-radius: 0;
+  background: var(--es-raised); color: var(--es-text); font: 13px var(--es-head); cursor: pointer;
+}
+.tp-sec .tp-pick select option { background: var(--es-raised); color: var(--es-text); }
+.tp-sec .tp-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.tp-sec .tp-tab {
+  height: 32px; padding: 0 12px; border: 1px solid var(--es-line); border-radius: 0; background: var(--es-raised); color: var(--es-soft);
+  cursor: pointer; font: 700 12px var(--es-head); font-stretch: 75%; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.tp-sec .tp-tab:hover { color: var(--es-text); border-color: var(--es-line-2); }
+.tp-sec .tp-tab[aria-pressed="true"] { background: var(--es-red-wash); border-color: var(--es-red); color: var(--es-text); }
+.tp-sec :is(.tp-tab, .tp-play, select):focus-visible { outline: 2px solid var(--es-red); outline-offset: 2px; }
+.tp-sec .tp-chart { display: block; width: 100%; height: auto; max-height: 240px; }
+.tp-sec .tp-grid { stroke: var(--es-line); stroke-width: 1; }
+.tp-sec .tp-axis { fill: var(--es-muted); font: 11px var(--es-head); font-variant-numeric: tabular-nums; }
+.tp-sec .tp-line { fill: none; stroke: var(--es-red); stroke-width: 2; stroke-linejoin: round; }
+.tp-sec .tp-pb { stroke: var(--es-soft); stroke-width: 1; stroke-dasharray: 5 4; }
+.tp-sec .tp-pb-label { fill: var(--es-soft); font: 700 11px var(--es-head); letter-spacing: 0.06em; }
+.tp-sec .tp-hit { fill: transparent; }
+.tp-sec .tp-dot { fill: var(--es-bg); stroke: var(--es-red); stroke-width: 2; }
+.tp-sec .tp-pt.is-easy .tp-dot { stroke: var(--es-muted); }
+.tp-sec .tp-pt:hover .tp-dot { fill: var(--es-red); }
+.tp-sec .tp-none { margin: 8px 0; font-size: 13px; color: var(--es-muted); }
+.tp-sec .tp-foot { margin: 4px 0 0; font-size: 11px; color: var(--es-muted); }
+
+/* Lobby card chip: same shape as the rank chip (theme-esports.css .aim-rank-chip). */
+html[data-aim-local]:not(#es) body .tp-chip {
+  display: inline-flex; align-items: center; height: 26px; margin: 8px 0 0; padding: 0 12px 0 10px; max-width: 100%;
+  font: 700 12px var(--es-head); font-stretch: 75%; letter-spacing: 0.06em; text-transform: uppercase; font-variant-numeric: tabular-nums;
+  color: var(--es-soft); background: color-mix(in srgb, var(--es-muted) 22%, rgba(14, 17, 23, 0.82)); border-left: 2px solid var(--es-line-2); clip-path: var(--es-slant-sm);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: top;
+}
+/* Gap between the two chips, whichever script added its chip first. */
+html[data-aim-local]:not(#es) body :is(.aim-rank-chip + .tp-chip, .tp-chip + .aim-rank-chip) { margin-left: 6px; }

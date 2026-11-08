@@ -54,10 +54,13 @@
 //      start on the next tick.
 // state.botPlant is separate from the player's state.plant; the view shows only botPlanting
 // (botPlant > 0) and never which bot carries the spike (view.spike.carrier is 'player' or null).
+// state.plantCue = {pan, gain} | null: the enemy plant sound (plantCue below), set at the end of
+// each tick's plant / defuse steps. state.useHeld = the player's use key this tick (view.useHeld,
+// for the in-app check; it is the player's own input, nothing about the bots).
 
 export const ROUND_DEFAULTS = {
   barrierSec: 20, roundSec: 100, plantSec: 4, spikeSec: 45, defuseSec: 7, defuseCheckpointSec: 3.5,
-  endHoldSec: 3, defuseRadius: 1.6, defuseFacingDeg: 60, pickupRadius: 1.5, holdMaxSpeed: 3.2, barrierPad: 0.4,
+  endHoldSec: 4, defuseRadius: 1.6, defuseFacingDeg: 60, pickupRadius: 1.5, holdMaxSpeed: 3.2, barrierPad: 0.4,
   blastRadius: 35,
 };
 
@@ -154,10 +157,10 @@ export function roundCreate(cfg, tickSec) {
   const side = cfg?.side === 'defense' ? 'defense' : 'attack';
   return {
     phase: 'barrier', tick: 0, liveTick: 0, plantTick: -1, endTick: -1, done: false,
-    side, playerAlive: true, enemiesDead: 0,
+    side, playerAlive: true, enemiesDead: 0, kills: 0,
     spike: { carrier: side === 'attack' ? 'player' : null, dropped: null, planted: null },
     plant: 0, defuse: 0, checkpoint: false, holding: null, zone: null, near: false, defuser: null,
-    botPlant: 0, carrierAt: null,
+    botPlant: 0, carrierAt: null, plantCue: null, useHeld: false,
     winner: null, reason: null, events: 0,
   };
 }
@@ -278,6 +281,24 @@ function botCarrier(cfg, state, bots, enemyCount) {
   return false;
 }
 
+// The enemy plant sound for a defending player (round-hud.js plays it), or null. Only while a bot
+// plant is counting (live, botPlant > 0), the player is alive and the planter (carrierAt, refreshed
+// this tick) is within PLANT_CUE_M (3D). pan = how far to the player's right the planter is (xz dot
+// of the direction with the player's right vector (cos yaw, -sin yaw); forward is (-sin yaw, -cos
+// yaw)), -1..1 in 0.25 steps; gain = 1 - d / PLANT_CUE_M in 0.1 steps (at least 0.1). Quantised and
+// no position, so the HUD learns no more than a stereo sound would tell.
+const PLANT_CUE_M = 30;
+function plantCue(cfg, state, p) {
+  const c = state.carrierAt;
+  if (state.side !== 'defense' || state.phase !== 'live' || !(state.botPlant > 0) || !state.playerAlive || !c || !p) return null;
+  const dx = c.x - p.x, dy = c.y - p.y, dz = c.z - p.z, d = Math.hypot(dx, dy, dz), h = Math.hypot(dx, dz);
+  if (!(d <= PLANT_CUE_M)) return null;
+  const yaw = Number.isFinite(p.yaw) ? p.yaw : 0;
+  const right = h > 1e-6 ? (Math.cos(yaw) * dx - Math.sin(yaw) * dz) / h : 0;
+  const pan = Math.round(right * 4) / 4 + 0, gain = Math.max(0.1, Math.round((1 - d / PLANT_CUE_M) * 10) / 10);
+  return { pan, gain };
+}
+
 // One sim tick. io = { tick, tickSec, player:{x,y,z,yaw,speed,grounded,health,knife}, kills, hold:{plant,use},
 // bots:[{id,alive,x,y,z,defusing,spawnerId,planting}] (optional; bot defuse, bot carrier / plant) }.
 // knife: the melee weapon is out (switching to it cancels a plant / defuse).
@@ -289,13 +310,17 @@ export function roundStep(cfg, state, io) {
   state.tick = t;
   if (state.phase === 'ended') {
     if (!state.done && t - state.endTick >= T(cfg, 'endHoldSec', ts)) state.done = true;
-    state.holding = null;
+    state.holding = null; state.plantCue = null; state.useHeld = false;
     // Dying after the end (the blast) still freezes the player for the end banner.
     if ((io.player?.health ?? 1) <= 0) state.playerAlive = false;
     return ev;
   }
   const p = io.player, hold = io.hold ?? {};
-  state.enemiesDead += Math.max(0, io.kills | 0);
+  state.useHeld = !!hold.use;
+  // io.kills = this tick's kill events before the blast (the blast kills come after roundStep
+  // and add to enemiesDead only), so state.kills is the player's own kills.
+  const k = Math.max(0, io.kills | 0);
+  state.enemiesDead += k; state.kills = (state.kills | 0) + k;
   const enemyCount = Math.max(0, num(cfg?.enemyCount, 5));
   const enemiesAlive = Math.max(0, enemyCount - state.enemiesDead);
   const alive = (p.health ?? 1) > 0;
@@ -383,6 +408,7 @@ export function roundStep(cfg, state, io) {
       }
     } else state.botPlant = 0;
   }
+  state.plantCue = plantCue(cfg, state, p);
 
   // Outcomes, in precedence order.
   const attackAlive = state.side === 'attack' ? (state.playerAlive ? 1 : 0) : enemiesAlive;
@@ -399,14 +425,30 @@ export function roundStep(cfg, state, io) {
     else if (state.phase === 'live' && t - state.liveTick >= T(cfg, 'roundSec', ts)) { winner = 'defense'; reason = 'timeout'; }
   }
   if (winner) {
-    state.phase = 'ended'; state.endTick = t; state.winner = winner; state.reason = reason; state.holding = null;
+    state.phase = 'ended'; state.endTick = t; state.winner = winner; state.reason = reason; state.holding = null; state.plantCue = null;
     ev.push({ kind: 'roundEnd', winner, reason, win: winner === own });
   }
   state.events += ev.length;
   return ev;
 }
 
+// Site ids of a round config in data order (['A', 'B'] today), for the HUD's "Take the spike to
+// A or B site" hint. One frozen array per cfg object (cached), so roundView allocates nothing for it.
+const SITE_IDS = new WeakMap();
+function siteIds(cfg) {
+  if (!cfg || typeof cfg !== 'object') return [];
+  let ids = SITE_IDS.get(cfg);
+  if (!ids) {
+    ids = Object.freeze((Array.isArray(cfg.sites) ? cfg.sites : []).map((s) => s?.id).filter((id) => typeof id === 'string' && id !== ''));
+    SITE_IDS.set(cfg, ids);
+  }
+  return ids;
+}
+
 // What the HUD needs (snapshot().round, copied to window.__aimRound every tick).
+// Round stats (end banner / result card): kills = the player's kills; plantClock = the round clock
+// when the spike went down (s, what the HUD clock showed: roundSec - time since the barriers dropped),
+// null before any plant; defuseLeft = spike time left when a defuse ended the round (s), else null.
 export function roundView(cfg, state, tickSec) {
   if (!state) return null;
   const t = state.tick, ts = tickSec, sec = (n) => Math.max(0, n * ts);
@@ -416,17 +458,23 @@ export function roundView(cfg, state, tickSec) {
   else if (state.phase === 'planted') timeLeft = sec(T(cfg, 'spikeSec', ts) - (t - state.plantTick));
   const enemyCount = Math.max(0, num(cfg?.enemyCount, 5));
   return {
-    map: cfg?.map ?? null, side: state.side, phase: state.phase, timeLeft,
+    map: cfg?.map ?? null, sites: siteIds(cfg), side: state.side, phase: state.phase, timeLeft,
     spikeSec: num(cfg?.spikeSec, ROUND_DEFAULTS.spikeSec),
     plant: state.plant / T(cfg, 'plantSec', ts), defuse: state.defuse / T(cfg, 'defuseSec', ts),
     checkpoint: state.checkpoint, holding: state.holding, zone: state.zone, near: state.near,
     botDefusing: state.phase === 'planted' && state.defuser != null, defuser: state.defuser ?? null,
     botPlanting: state.phase === 'live' && (state.botPlant | 0) > 0,
+    // the enemy plant sound ({pan, gain} or null, see plantCue) and the player's own use key
+    plantCue: state.plantCue ? { pan: state.plantCue.pan, gain: state.plantCue.gain } : null,
+    useHeld: state.useHeld === true,
     // never which bot carries it (defense side): carrier is 'player' or null
     carrying: state.spike.carrier === 'player',
     spike: { carrier: state.spike.carrier === 'player' ? 'player' : null, dropped: state.spike.dropped, planted: state.spike.planted },
     enemiesAlive: Math.max(0, enemyCount - state.enemiesDead), enemyCount, playerAlive: state.playerAlive,
     winner: state.winner, reason: state.reason, win: state.winner ? state.winner === state.side : null,
     done: state.done, tick: t,
+    kills: state.kills | 0,
+    plantClock: state.plantTick >= 0 ? sec(T(cfg, 'roundSec', ts) - (state.plantTick - state.liveTick)) : null,
+    defuseLeft: state.reason === 'defused' && state.plantTick >= 0 ? sec(T(cfg, 'spikeSec', ts) - (state.endTick - state.plantTick)) : null,
   };
 }
