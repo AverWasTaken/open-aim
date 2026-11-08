@@ -18,11 +18,19 @@
   to { opacity: 1; transform: none; }
 }
 
-/* ---------- overlay: light tint instead of a near-black screen ---------- */
-.al-pause-layer,
-.al-pause-overlay {
+/* ---------- overlay: the Tab menu dims the scene evenly; the "Paused" panel keeps a light tint ---------- */
+.al-pause-layer {
   background: radial-gradient(circle at 50% 50%, rgba(5, 8, 11, 0.12), rgba(5, 8, 11, 0.42)) !important;
 }
+.al-pause-layer.al-pause-overlay {
+  background: rgba(9, 11, 15, 0.66) !important;
+}
+/* Score box stays readable above the Tab menu. .al-hud is its own z-index:5 stack under the
+   menu (z-index:8), so lift the whole HUD and hide everything in it except the score box.
+   Round mode hides the score box itself (round-ui), so these rules skip html.aim-round-on. */
+html[data-aim-local]:not(.aim-round-on):not(#es) body .al-stage-wrap.is-paused .al-hud { z-index: 9 !important; }
+html[data-aim-local]:not(.aim-round-on):not(#es) body .al-stage-wrap.is-paused .al-hud > :not(.al-hud-top) { visibility: hidden !important; }
+html[data-aim-local]:not(.aim-round-on):not(#es) body .al-stage-wrap.is-paused .al-hud-top { display: flex !important; }
 
 /* ---------- Tab menu: title block + actions block become one card ---------- */
 .al-pause-layer:has(> .al-pause-acts) {

@@ -43,7 +43,7 @@ MARKER = b"/* maps-sky */"
 # rook/duality/juliett: #2f5f96 read close to evening in the hp shots; #4a7fbf looks like day and
 # still sets off their pale walls.
 SKY = {
-    "ascent": "#2c5689",
+    "ascent": "#3f73ad",
     "bonsai": "#3f73ad",
     "duality": "#4a7fbf",
     "infinity": "#3f73ad",

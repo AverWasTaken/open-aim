@@ -24,6 +24,7 @@ Run them from the repository root with Python 3.
 | `round_bots_patch.py` | Round mode bots: the `roundBot` behaviour hook (logic in `app/mods/aim-rounds/round-bots.mjs`, whose header is the contract). Adds `roundBot` to the bot behaviours (its update also gets the game's mover `il`), to the movers list `dA` and to the sim's ground movers; the behaviour ctx gets `round:{cfg,state,bots}` in round runs only (a start-of-tick bot list) and the round tick gets `io.bots` (bot defuse); the shooter neither fires nor stops-to-shoot while `actor.roundDefusing===1` and re-rolls its reaction time while `actor.roundHoldFire===1` (barrier phase); the scene validator accepts the kind. Edits the mods `BiMsX6Xn.js`, `CnrSARj_.js` and `D_iGclxB.js` (both copies). `--print-pairs` dumps its (old, new) pairs for the A/B parity test (`scripts/test-round-bots-parity.mjs`). Details in the script's docstring. |
 | `feel_audio_patch.py` | Audio buses for the volume mixer and hooks for `app/feel-audio.js`: the sound engine gets five category buses (weapon, enemy, footsteps, hits, round/UI) and a soft clipper after the master volume (no change below 0.8), publishes `window.__aimAudio`, `__aimAudioEngine` and `__aimStepBuffers`, passes 3D info for bot shots, asks the shell for headshot / kill cues and calls it every frame. Render side only (no sim or replay change); without `app/feel-audio.js` every sound plays as before. Edits the mods `OkAdunfX.js` (both copies). Details in the script's docstring. |
 | `feel_xbloom_patch.py` | Crosshair spread: the in-game crosshair lines move out while you move or spray, like VALORANT, following each line's Movement/Firing error settings (see the patch order below). |
+| `round_minimap_patch.py` | Round mode minimap markers: the site letters A/B and the spike (planted: both sides; dropped: attack side only) on the in-game corner map and the big map. Drawing code in `app/mods/aim-rounds/round-minimap.mjs` (header = contract); the data is `window.__aimRoundMarks`, set by `round-visual.mjs` only while a round scene runs (null in normal drills, which then draw exactly as before). Edits the mods `OkAdunfX.js` (both copies): an import line, the small-map bot overlay block (shared world-to-screen mapper), both minimap redraw keys and the big-map overlay. `--print-pairs` dumps its (old, new) pairs for `scripts/test-round-minimap.mjs`. Details in the script's docstring. |
 | `round_author.mjs` | Writes `app/mods/aim-rounds/<map>.json` (Round mode map data: spawns, barriers, plant zones, defender setups, retake staging points, attacker routes and plant spots) from the map files in `site/aim-maps/`, node only. Maps: Ascent and Corrode (`--map rook`). `--plot <file.svg>` draws it (also a `.png`), `--check` fails when the stored file is out of date, `--attack-plot <file.png>` draws the attacker data from the nav.bin header. See [Round mode data](#round-mode-data). |
 | `round_terrain.mjs` | Round mode helper (node module, no CLI): `loadTerrain(map)` rebuilds the game's real pawn and projectile collision in plain node with the game's own code (meshopt decoder, terrain worker, BVH builder and raycast, all lifted from the repo files at runtime). Triangle sets are cached in `%TEMP%/open-aim-round-cache/`. Used by `round_nav.mjs` and the round tests. |
 | `round_navdata.mjs`, `round_navlib.mjs`, `round_png.mjs` | Helpers for `round_nav.mjs`, `round_author.mjs` and the round tests: nav header data (setup facings, staging and zone checks, attacker route / plant / post-plant data, travel report, plots, retake and attacker staging candidates, plant spot candidates), graph searches (floods, Dijkstra, barrier edge mask), a small PNG canvas. |
@@ -99,8 +100,18 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 22. `graphics_fx_patch.py` (after `round_patch.py`; applied after 20 and 21 in the shipped files; refuses to run twice: it looks for `__aimFxBoot`)
 23. `graphics_holes_patch.py` (needs `graphics_fx_patch.py`; refuses to run twice: it looks for `__aimHoleFree`)
 24. `graphics_botfx_patch.py` (after `graphics_holes_patch.py`; refuses to run twice: it looks for `/* graphics-botfx */`). It keeps each copy's own line ends.
-25. `map_sky_patch.py` (BiMsX6Xn only; independent of the others, run after `graphics_look_patch.py`; refuses to run twice: it looks for `/* maps-sky */`; keeps each copy's own line ends). See below.
-26. `map_salt_patch.py` (BiMsX6Xn only; independent of the others, run after `map_sky_patch.py`; refuses to run twice: it looks for `MI_RockSalt`; keeps each copy's own line ends). See below.
+25. `ux_hud_patch.py` (ux; after `ux_result_patch.py` (15); applied last in the shipped files; touches no string any other patch uses;
+    refuses to run twice: it looks for `__aimEmitHits` in
+    `OkAdunfX.js`). Read-only HUD events for `app/ux-hud.js` (hit marker, kills line). The live tick
+    calls `__aimEmitHits(Ze,Ae)` after the replay recorder `Ou(je,Ze)` and `Cn.push(...Ze)`: one window
+    event `aim-hit` {head, kill, dot, pellets, tick} per player shot that hit (kill = the step had a
+    non-aimBlast kill, on its first hitting shot; dot = a ball/grid target and no bot). The HUD builder
+    `ya()` calls `__aimEmitHud(Z,F)` only when the stat box changed (`Hu` false): `aim-hud` {kills,
+    total (null on respawning drills), headshots, humanoidHits, score, hits, shots}. Listener errors
+    are caught. No sim, RNG, recorder or replay code: `C_VPDXvn.js` imports only BiMsX6Xn,
+    index.uPZ7wDgX, DXHU7cEs, D_iGclxB and CnrSARj_, and only ChJ6FlD4/Hwnlm6zD import OkAdunfX, so
+    saved runs and replays are unchanged. Tests: `npm run test:hit` (`--mods <dir>` patches another
+    copy; includes real sim steps). It keeps each copy's own line ends.
 
 ## Map sky (map_sky_patch.py)
 
@@ -141,6 +152,9 @@ and the view model keep their colours. Studio arenas, the official non-map drill
 `npm run test:graphics-look` (in `app/`).
 
 
+26. `round_minimap_patch.py` (after `round_patch.py`, independent of 15: it anchors on round_patch's `round-core.mjs` import line and refuses to run without it; only touches `OkAdunfX.js`; refuses to run twice: it looks for `/aim-rounds/round-minimap.mjs`). It keeps each copy's own line ends. Normal drills are unchanged: `scripts/test-round-minimap.mjs` rebuilds the un-patched minimap code from the script's own pairs and compares the canvas calls.
+27. `map_sky_patch.py` (BiMsX6Xn only; independent of the others, run after `graphics_look_patch.py`; refuses to run twice: it looks for `/* maps-sky */`; keeps each copy's own line ends). See below.
+28. `map_salt_patch.py` (BiMsX6Xn only; independent of the others, run after `map_sky_patch.py`; refuses to run twice: it looks for `MI_RockSalt`; keeps each copy's own line ends). See below.
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate

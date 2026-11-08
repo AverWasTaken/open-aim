@@ -155,6 +155,12 @@ const STARTUP_SCREEN_JS = fs.readFileSync(path.join(__dirname, "startup-screen.j
 const PAGE_WATCH_JS = fs.readFileSync(path.join(__dirname, "page-watch.js"), "utf-8");
 // Result screen keys (R = play again, Esc = back) and Q in the Tab menu.
 const UX_KEYS_JS = fs.readFileSync(path.join(__dirname, "ux-keys.js"), "utf-8");
+// Hit marker at the crosshair and the kills line on bot drills (events from tools/ux_hud_patch.py).
+const UX_HUD_JS = fs.readFileSync(path.join(__dirname, "ux-hud.js"), "utf-8");
+// Empty container on the result card for other teams' rows (training's routine bar).
+const UX_RESULT_JS = fs.readFileSync(path.join(__dirname, "ux-result.js"), "utf-8");
+// First-run "getting started" banner under the VALORANT Training hero.
+const UX_WELCOME_JS = fs.readFileSync(path.join(__dirname, "ux-welcome.js"), "utf-8");
 const SMOOTH_SCROLL_JS = fs.readFileSync(path.join(__dirname, "smooth-scroll.js"), "utf-8");
 const VIDEO_SETTINGS_JS = fs.readFileSync(path.join(__dirname, "video-settings.js"), "utf-8");
 // Map lighting setting (Enhanced / Original), read by the patched BiMsX6Xn.js. Optional:
@@ -171,6 +177,9 @@ const FEEL_AUDIO_JS = fs.readFileSync(path.join(__dirname, "feel-audio.js"), "ut
 const ADVANCED_TRACERS_JS = fs.readFileSync(path.join(__dirname, "advanced-tracers.js"), "utf-8");
 const LOCAL_CUSTOMIZATION_JS = fs.readFileSync(path.join(__dirname, "local-customization.js"), "utf-8");
 const PLAYER_TOOLS_JS = fs.readFileSync(path.join(__dirname, "player-tools.js"), "utf-8");
+// Find my sens (feel-sens-finder-core.js logic + feel-sens-finder.js page side): a block in Sens tools.
+const SENS_FINDER_JS = ["feel-sens-finder-core.js", "feel-sens-finder.js"]
+  .map(name => fs.readFileSync(path.join(__dirname, name), "utf-8")).join("\n");
 const RANK_PICKER_JS = fs.readFileSync(path.join(__dirname, "rank-picker.js"), "utf-8");
 // Round mode (round-scene.js builds the scenes): lobby panel and in-game HUD.
 const ROUND_PANEL_JS = fs.readFileSync(path.join(__dirname, "round-panel.js"), "utf-8");
@@ -215,6 +224,9 @@ const MAPS_LOCATION_JS = fs.readFileSync(path.join(__dirname, "maps-location.js"
 const UI_SCRIPTS = [
   ["PAGE WATCH", PAGE_WATCH_JS],
   ["UX KEYS", UX_KEYS_JS],
+  ["UX HUD", UX_HUD_JS],
+  ["UX RESULT", UX_RESULT_JS],
+  ["UX WELCOME", UX_WELCOME_JS],
   ["AIM TICK HUB", AIM_TICK_HUB_JS],
   ["SMOOTH SCROLL", SMOOTH_SCROLL_JS],
   ["SNIPER SCOPES", SNIPER_SCOPES_JS],
@@ -223,6 +235,7 @@ const UI_SCRIPTS = [
   ["ADVANCED TRACERS", ADVANCED_TRACERS_JS],
   ["LOCAL CUSTOMIZATION", LOCAL_CUSTOMIZATION_JS],
   ["PLAYER TOOLS", PLAYER_TOOLS_JS],
+  ["SENS FINDER", SENS_FINDER_JS],
   ["INTERFACE MODE", INTERFACE_MODE_JS],
   ["FRAME METER", FRAME_METER_JS],
   ["VIDEO SETTINGS", VIDEO_SETTINGS_JS],

@@ -82,9 +82,46 @@ test('the stored Ascent data is what tools/round_author.mjs builds', { skip: !HA
 
 test('round codes: only known maps/sides/weapons/barrier times', () => {
   assert.deepEqual(parseCode('round-ascent-attack-vandal-20'), { map: 'ascent', side: 'attack', weapon: 'vandal', barrierSec: 20 });
-  for (const bad of ['round-ascent-attack-vandal-25', 'round-ascent-defense-vandal-20', 'round-ascent-attack-knife-20', 'round-../x-attack-vandal-20', 'x', '']) assert.equal(parseCode(bad), null, bad);
+  assert.deepEqual(parseCode('round-ascent-defense-vandal-20'), { map: 'ascent', side: 'defense', weapon: 'vandal', barrierSec: 20 });
+  assert.deepEqual(parseCode('round-rook-defense-sheriff-30'), { map: 'rook', side: 'defense', weapon: 'sheriff', barrierSec: 30 });
+  for (const bad of ['round-ascent-attack-vandal-25', 'round-ascent-retake-vandal-20', 'round-ascent-defence-vandal-20', 'round-ascent-attack-knife-20', 'round-../x-attack-vandal-20', 'x', '']) assert.equal(parseCode(bad), null, bad);
   assert.equal(roundScene(MODS, 'round-nomap-attack-vandal-20'), null);
+  assert.equal(roundScene(MODS, 'round-nomap-defense-vandal-20'), null);
   assert.equal(roundScene(MODS, 'd43f842fb33e4d46'), null);
+  // Both sides build on every round map; the defense scene's bots stand on the attacker spawns.
+  for (const map of ['ascent', 'rook', 'bonsai']) for (const side of ['attack', 'defense']) {
+    const env = roundScene(MODS, `round-${map}-${side}-vandal-20`), doc = JSON.parse(env.doc);
+    assert.equal(doc.rules.round.side, side, `${map} ${side}`);
+    if (side === 'defense') {
+      const data = JSON.parse(fs.readFileSync(path.join(MODS, 'aim-rounds', `${map}.json`), 'utf-8'));
+      assert.deepEqual(doc.spawners.map((s) => s.position), data.spawns.attack.map((p) => ({ x: p.x, y: p.y, z: p.z })), `${map}: attacker spawns`);
+      assert.deepEqual(doc.rules.round.attackData, data.attack, `${map}: attack data`);
+      assert.deepEqual(doc.playerSpawn.position, { x: data.spawns.defense[0].x, y: data.spawns.defense[0].y, z: data.spawns.defense[0].z });
+    }
+  }
+});
+
+test('generated scene: brief card text (name, description with map, side, weapon, barrier, goal, keys)', () => {
+  const env = roundScene(MODS, 'round-ascent-attack-operator-10');
+  assert.equal(env.name, 'Round: Ascent (Attack)');
+  assert.equal(env.description, [
+    'Ascent · Attack · Operator · 10 s barrier.',
+    'Plant the spike. Defenders hold the sites.',
+    'Enter: start · Hold 4: plant · Esc: menu',
+  ].join('\n'));
+  assert.ok(!/[—–]/.test(env.name + env.description), 'no dashes');
+  assert.match(roundScene(MODS, 'round-ascent-attack-vandal-20').description, /^Ascent · Attack · Vandal · 20 s barrier\./);
+  // Defense: the defender's goal and the defuse key; the map name comes from the map data.
+  for (const [code, name, line1] of [
+    ['round-ascent-defense-vandal-20', 'Round: Ascent (Defense)', 'Ascent · Defense · Vandal · 20 s barrier.'],
+    ['round-rook-defense-sheriff-30', 'Round: Corrode (Defense)', 'Corrode · Defense · Sheriff · 30 s barrier.'],
+    ['round-bonsai-defense-vandal-10', 'Round: Split (Defense)', 'Split · Defense · Vandal · 10 s barrier.'],
+  ]) {
+    const d = roundScene(MODS, code);
+    assert.equal(d.name, name);
+    assert.equal(d.description, [line1, 'Stop the plant, or defuse it.', 'Enter: start · Hold F: defuse · Esc: menu'].join('\n'));
+    assert.ok(!/[—–]/.test(d.name + d.description), 'no dashes');
+  }
 });
 
 test('generated scene: envelope, rules.round, 5 kept spawners after prep, no respawn', () => {
@@ -234,7 +271,9 @@ test('detonation 45 s after the plant wins the round; done after the end hold', 
   assert.deepEqual(ev, [{ kind: 'roundEnd', winner: 'attack', reason: 'detonated', win: true }]);
   assert.equal(view(r).win, true);
   assert.equal(r.st.done, false);
-  r.run(sec(3));
+  r.run(sec(4) - 1);
+  assert.equal(r.st.done, false, 'the end hold is 4 s');
+  r.step();
   assert.equal(r.st.done, true);
   assert.ok(core.roundNoFire(r.st) && core.roundBotsHold(r.st));
 });
@@ -681,7 +720,11 @@ test('shell files are wired into main.js and the build', () => {
   const pkg = JSON.parse(read('app', 'package.json'));
   for (const f of ['round-panel.js', 'round-hud.js', 'round-scene.js']) assert.ok(pkg.build.files.includes(f), f);
   assert.ok(pkg.build.extraResources.some((e) => e.from === 'mods'), 'mods (aim-rounds) ship as extra resources');
-  assert.match(read('app', 'lobby-bar.js'), /Round \(beta\)/);
+  const bar = read('app', 'lobby-bar.js');
+  assert.ok(bar.includes('roundLabel.textContent = "Round";'), 'lobby button label: Round');
+  assert.ok(bar.includes('round.title = "One VALORANT-style round vs 5 bots. Pick map and side.";'), 'lobby button tooltip');
+  for (const f of ['lobby-bar.js', 'round-panel.js']) assert.ok(!/\(beta\)/i.test(read('app', f)), `${f}: no "(beta)"`);
+  assert.ok(read('app', 'round-panel.js').includes('<h2>Round</h2>'), 'panel title: Round');
 });
 
 // ---------------------------------------------------------------- R3 S2: attack plan, bot carrier / drop / pickup / plant (defense side)
@@ -692,11 +735,12 @@ const SPAWNERS = ['round-spawn-1', 'round-spawn-2', 'round-spawn-3', 'round-spaw
 const defDoc = (attackData = null) => {
   const d = buildDoc(data, { side: 'defense', weapon: 'vandal', barrierSec: 20 });
   if (attackData) d.rules.round.attackData = attackData;
+  else delete d.rules.round.attackData; // buildDoc adds the map's attack data on the defense side (R3 S3)
   return d;
 };
 // sha256 (first 16 hex) of JSON.stringify(roundPrepare(doc, seed)), seeds 1..20, computed on 1d040e8
-// (before R3): the attack doc of round-ascent-attack-vandal-20, and the defense doc (buildDoc, no
-// attackData) with rules.round.attack deleted.
+// (before R3): the attack doc of round-ascent-attack-vandal-20, and the defense doc (buildDoc) with
+// rules.round.attack and rules.round.attackData deleted.
 const FROZEN_PREPARE = {
   attack: ['0a7382415e8b8a27', '326759ed4bd2eb0a', '5a2c67e679348198', 'c030352a142aea93', '4a06ddaff7f86fc0', '5fefcbe7368622cc', '8b24c23f07728e9b', 'ddcd183327472202', '7bba2c922402d7b8', '516b69d97a093379',
     'efa2ea8a29bc972b', '6c2a5ea308e9b3ea', 'afd8212ffdda8975', 'd158e63b3d4d4271', 'c82104713f0e0502', '634b7ccfbe80a8f3', 'eeb122c2822d1afd', 'd2dbfd1bba6e01fe', '7c4792e5510d9027', '931406121cac768e'],
@@ -742,6 +786,7 @@ test('R3 roundPrepare: attack side, defense spawns and spawners byte-identical t
     const d = core.roundPrepare(defDoc(), s);
     assert.ok(d.rules.round.attack, 'defense side has a plan');
     delete d.rules.round.attack;
+    delete d.rules.round.attackData;
     assert.equal(h(d), FROZEN_PREPARE.defense[s - 1], `defense seed ${s}`);
     const w = core.roundPrepare(defDoc(data.attack), s);
     assert.deepEqual(w.playerSpawn, d.playerSpawn, 'attackData does not move the player spawn');
@@ -861,6 +906,85 @@ test('R3 bot plant: counts only live, alive, planting = 1, in a zone; 4 s plants
   // no second plant, no re-election after the plant
   r.run(10, bots());
   assert.equal(r.st.spike.carrier, null); assert.equal(r.st.botPlant, 0);
+});
+
+test('S4 enemy plant sound: plantCue {pan, gain} only while a bot plant counts within 30 m of the living player; pan follows the player\'s yaw; no position in the view; save/restore', () => {
+  const { r, c } = carrierOnSite();
+  const cue = () => dview(r).plantCue;
+  // Player 10 m from the plant spot (east of it, +x), facing -z (yaw 0): the planter is to the left.
+  Object.assign(r.player, { x: PLANT_A.x + 10, y: PLANT_A.y, z: PLANT_A.z, yaw: 0 });
+  r.step(r.bots({ planting: 0 }));
+  assert.equal(cue(), null, 'no plant counting -> no cue');
+  r.step(r.bots());
+  assert.ok(r.st.botPlant > 0);
+  assert.deepEqual(cue(), { pan: -1, gain: 0.7 }, 'planter 10 m to the left');
+  // Facing +z (yaw pi): the same planter is now on the right.
+  r.player.yaw = Math.PI; r.step(r.bots());
+  assert.deepEqual(cue(), { pan: 1, gain: 0.7 }, 'yaw pi: on the right');
+  // Planter to the player's right at yaw pi/2 (forward -x, right -z).
+  Object.assign(r.player, { x: PLANT_A.x, z: PLANT_A.z + 20, yaw: Math.PI / 2 }); r.step(r.bots());
+  assert.deepEqual(cue(), { pan: 1, gain: 0.3 }, 'yaw pi/2, planter 20 m on -z: right');
+  // Straight ahead, quantised: 0.25 steps, 0.1 gain steps, at least 0.1.
+  Object.assign(r.player, { x: PLANT_A.x, z: PLANT_A.z + 29.9, yaw: 0 }); r.step(r.bots());
+  assert.deepEqual(cue(), { pan: 0, gain: 0.1 }, 'ahead, near the edge');
+  for (let k = 0; k < 40; k++) {
+    Object.assign(r.player, { x: PLANT_A.x + Math.cos(k) * (2 + k * 0.6), z: PLANT_A.z + Math.sin(k) * (2 + k * 0.6), yaw: k * 0.37 }); r.step(r.bots());
+    const q = cue();
+    if (q === null) { assert.ok(Math.hypot(r.player.x - PLANT_A.x, r.player.z - PLANT_A.z) > 30, `k ${k}: null only beyond 30 m`); continue; }
+    assert.deepEqual(Object.keys(q).sort(), ['gain', 'pan'], 'no position keys');
+    assert.equal(q.pan * 4, Math.round(q.pan * 4)); assert.ok(q.pan >= -1 && q.pan <= 1);
+    assert.equal(Math.round(q.gain * 10) / 10, q.gain); assert.ok(q.gain >= 0.1 && q.gain <= 1);
+  }
+  // Beyond 30 m (3D): null.
+  Object.assign(r.player, { x: PLANT_A.x + 30.5, z: PLANT_A.z, yaw: 0 }); r.step(r.bots());
+  assert.equal(cue(), null, 'beyond 30 m');
+  // Save -> step -> restore keeps it (plain JSON state).
+  Object.assign(r.player, { x: PLANT_A.x + 5, z: PLANT_A.z }); r.step(r.bots());
+  const saved = core.roundClone(r.st), want = cue();
+  assert.ok(want);
+  r.st = core.roundClone(saved);
+  assert.deepEqual(cue(), want, 'restored');
+  // Dead player: null (the round ends: the player is the only defender).
+  r.step(r.bots(), {}); r.player.health = 0; r.step(r.bots());
+  assert.equal(cue(), null, 'dead player / round over');
+  // The view never names the carrier, carrierAt stays out of it.
+  assert.equal('carrierAt' in dview(r), false);
+  assert.equal(c > 0, true);
+});
+
+test('S4 plantCue: never on the attack side, never in the barrier phase, cleared by the plant; useHeld mirrors the use key', () => {
+  // Attack side: the player plants; useHeld still mirrors the key, no cue.
+  const a = makeRound();
+  a.run(sec(21));
+  a.step({ hold: { use: true } });
+  assert.equal(view(a).plantCue, null); assert.equal(view(a).useHeld, true);
+  a.step({ hold: {} });
+  assert.equal(view(a).useHeld, false);
+  // Barrier phase on defense: a planting carrier nearby gives no cue.
+  const r = makeDefense({ seed: SEED }), c = carrierId(r);
+  Object.assign(r.player, { x: PLANT_A.x + 3, y: PLANT_A.y, z: PLANT_A.z });
+  r.run(sec(1), atkBots(r.cfg, { [c]: { ...at(PLANT_A), planting: 1 } }));
+  assert.equal(dview(r).plantCue, null, 'barrier');
+  r.step(atkBots(r.cfg), { hold: { use: true } });
+  assert.equal(dview(r).useHeld, true, 'useHeld on defense');
+  r.toLive(atkBots(r.cfg));
+  const bots = atkBots(r.cfg, { [c]: { ...at(PLANT_A), planting: 1 } });
+  r.run(sec(4) - 1, bots);
+  assert.ok(dview(r).plantCue, 'cue while planting');
+  r.step(bots);
+  assert.equal(r.st.phase, 'planted');
+  assert.equal(dview(r).plantCue, null, 'cleared on the plant tick');
+  // The round timer runs out while a bot plant counts: the end tick carries no cue.
+  const q = makeDefense({ seed: SEED }), qc = carrierId(q);
+  Object.assign(q.player, { x: PLANT_A.x + 3, y: PLANT_A.y, z: PLANT_A.z });
+  q.toLive(atkBots(q.cfg));
+  const qb = atkBots(q.cfg, { [qc]: { ...at(PLANT_A), planting: 1 } });
+  q.run(sec(1), qb);
+  assert.ok(dview(q).plantCue);
+  q.st.liveTick = q.tick + 1 - sec(100);
+  q.step(qb);
+  assert.equal(q.st.reason, 'timeout');
+  assert.equal(dview(q).plantCue, null, 'no cue on the end tick');
 });
 
 test('R3 carrier death drops the spike at its io.bots position and resets the plant; a missing carrier drops at carrierAt', () => {
@@ -1024,4 +1148,72 @@ test('R4 every map with round data builds a round scene that roundPrepare and th
       if (validate) validate(env.doc);
     }
   } finally { if (tmp) fs.rmSync(tmp, { force: true }); }
+});
+
+// ---------------------------------------------------------------- R5: round stats (kills, plant clock, defuse time left)
+test('R5 stats: the end hold is 4 s by default', () => {
+  assert.equal(core.ROUND_DEFAULTS.endHoldSec, 4);
+});
+
+test('R5 stats: kills = the kills io reports while the round runs (not after the end); plantClock = the round clock at the plant', () => {
+  const r = makeRound({ barrierSec: 1 });
+  assert.equal(view(r).kills, 0);
+  assert.equal(view(r).plantClock, null);
+  assert.equal(view(r).defuseLeft, null);
+  r.run(sec(1));
+  assert.equal(r.st.liveTick, sec(1));
+  r.step({ kills: 2 });
+  assert.equal(view(r).kills, 2);
+  assert.equal(view(r).enemiesAlive, 3);
+  r.step({ kills: -3 }); // nonsense io: ignored
+  assert.equal(view(r).kills, 2);
+  r.run(sec(10));
+  r.toSite('A');
+  r.run(sec(4), { hold: { plant: true } });
+  assert.equal(r.st.phase, 'planted');
+  const v = view(r);
+  // Barriers dropped at 1 s, 10 s waited + the 4 s plant + 2 kill steps: 14 s 2 ticks into the 100 s round.
+  assert.equal(r.st.plantTick - r.st.liveTick, sec(14) + 2);
+  assert.equal(v.plantClock, (sec(100) - sec(14) - 2) * TS);
+  assert.equal(v.defuseLeft, null, 'no defuse');
+  // A clone (the sim's save / restore) keeps the count.
+  assert.equal(core.roundView(r.cfg, core.roundClone(r.st), TS).kills, 2);
+  r.run(sec(45));
+  assert.equal(r.st.reason, 'detonated');
+  r.step({ kills: 1 });
+  assert.equal(view(r).kills, 2, 'no kills counted after the end');
+  assert.equal(view(r).defuseLeft, null, 'detonated: no defuse time');
+  // Timeout without a plant: no plant clock.
+  const t = makeRound({ barrierSec: 1 });
+  t.run(sec(1)); t.run(sec(100));
+  assert.equal(t.st.reason, 'timeout');
+  assert.equal(view(t).plantClock, null);
+  assert.equal(view(t).kills, 0);
+});
+
+test('R5 stats: defuseLeft = the spike time left when a defuse ends the round (defending player and attacking side bot defuse)', () => {
+  const cfg = { ...JSON.parse(roundScene(MODS, 'round-ascent-attack-vandal-10').doc).rules.round, side: 'defense', barrierSec: 1 };
+  const st = core.roundCreate(cfg, TS);
+  const s = cfg.sites[0];
+  const p = { x: s.center.x, y: s.center.y, z: s.center.z, speed: 0, grounded: true, health: 100 };
+  let tick = 0;
+  const step = (hold = {}, kills = 0) => core.roundStep(cfg, st, { tick: ++tick, tickSec: TS, player: p, kills, hold });
+  for (let i = 0; i < sec(1); i++) step();
+  for (let i = 0; i < sec(20); i++) step({}, i === 5 ? 1 : 0);
+  st.phase = 'planted'; st.plantTick = tick; st.spike.planted = { x: p.x, y: p.y, z: p.z, site: s.id };
+  assert.equal(core.roundView(cfg, st, TS).plantClock, (sec(100) - sec(20)) * TS);
+  for (let i = 0; i < sec(5); i++) step();
+  for (let i = 0; i < sec(7); i++) step({ use: true });
+  assert.equal(st.reason, 'defused');
+  const v = core.roundView(cfg, st, TS);
+  assert.equal(v.defuseLeft, (sec(45) - sec(12)) * TS);
+  assert.equal(v.kills, 1);
+  // Attack side, a bot defuses the player's spike: defuseLeft is set as well (the HUD says "Enemy defused").
+  const r = makeRound({ barrierSec: 1 });
+  r.run(sec(1)); r.toSite('A'); r.run(sec(4), { hold: { plant: true } });
+  const sp = r.st.spike.planted;
+  const bot = { id: 1, alive: true, x: sp.x + 0.2, y: sp.y, z: sp.z, defusing: 1 };
+  for (let i = 0; i < sec(7) && r.st.phase !== 'ended'; i++) core.roundStep(r.cfg, r.st, { tick: r.st.tick + 1, tickSec: TS, player: { ...r.player }, kills: 0, hold: {}, bots: [bot] });
+  assert.equal(r.st.reason, 'defused');
+  assert.equal(view(r).defuseLeft, (sec(45) - sec(7)) * TS);
 });

@@ -134,3 +134,35 @@ test('mergeImported gives repeated names a number, within 32 chars', () => {
   assert.deepEqual(m.state.list.map(p => p.name), ['Main', 'main (2)', 'Main (3)', long, 'L'.repeat(28) + ' (2)']);
   assert.ok(m.state.list.every(p => Array.from(p.name).length <= 32));
 });
+
+// valorant-import-ui.js: the startup prompt stays away while ux-welcome's banner offers the import.
+test('startup prompt skipped for new players (welcome banner offers the import)', () => {
+  const fs = require('fs'), path = require('path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'app', 'valorant-import-ui.js'), 'utf-8');
+  const m = src.match(/function welcomeOffersImport\(\) \{[\s\S]*?\n  \}\r?\n/);
+  assert.ok(m, 'welcomeOffersImport found');
+  const make = (store, innerHeight = 1000) => {
+    const localStorage = { getItem: (k) => (k in store ? store[k] : null) };
+    return new Function('localStorage', 'window', m[0] + 'return welcomeOffersImport;')(localStorage, { innerHeight });
+  };
+  assert.equal(make({ 'ux-welcome-v1': 'shown' }, 800)(), false, 'compact banner (<= 800 px) has no Import button');
+  assert.equal(make({ 'ux-welcome-v1': 'shown' })(), true);
+  assert.equal(make({ 'ux-welcome-v1': 'done' })(), false);
+  assert.equal(make({})(), true, 'not decided yet, no runs = new player');
+  assert.equal(make({ 'al-workshop-runs-v1': '[{"id":1}]' })(), false, 'has runs = existing player');
+  assert.equal(make({ 'al-pw-runs-v1': '[{"id":1}]' })(), false);
+  assert.equal(make({ 'al-workshop-runs-v1': 'garbage' })(), true);
+  assert.match(src, /if \(!welcomeOffersImport\(\)\) \{ sessionStorage\.setItem\(SHOWN, "1"\); open\(\); \}/);
+});
+
+test('import prompt rule still matches ux-welcome.js (800 px, key, run keys)', () => {
+  const fs = require('fs'), path = require('path');
+  const ux = fs.readFileSync(path.join(__dirname, '..', 'app', 'ux-welcome.js'), 'utf-8');
+  const ui = fs.readFileSync(path.join(__dirname, '..', 'app', 'valorant-import-ui.js'), 'utf-8');
+  assert.match(ux, /const COMPACT_MAX_H = 800;/);
+  assert.match(ux, /const KEY = "ux-welcome-v1";/);
+  assert.match(ux, /const RUN_KEYS = \["al-workshop-runs-v1", "al-pw-runs-v1"\];/);
+  assert.match(ui, /innerHeight \|\| 0\) > 800/);
+  assert.match(ui, /"ux-welcome-v1"/);
+  assert.match(ui, /runs\("al-workshop-runs-v1"\) && !runs\("al-pw-runs-v1"\)/);
+});
