@@ -12,6 +12,8 @@
 .tr-strip-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; }
 .tr-strip-head h2 { margin: 0; font-size: 18px; font-weight: 800; font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.04em; }
 .tr-strip-head p { margin: 0; font-size: 13px; color: var(--es-muted); }
+/* refused Start / Continue (sensitivity finder running), shown for a few seconds */
+.tr-notice { min-width: 0; font-size: 13px; color: var(--es-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .tr-resume {
   display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
@@ -82,12 +84,39 @@
 .tr-bar-text b { color: var(--es-text); font-weight: 800; font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.04em; }
 .tr-bar-step { color: var(--es-red-2); font-weight: 700; font-variant-numeric: tabular-nums; }
 .tr-bar-acts { display: flex; gap: 8px; }
+/* inside ux's result container (app/ux-result.js), which spaces its rows itself */
+.ux-result-extra > .tr-bar { margin: 0; }
 /* Scenario results fill the screen (scaled stage): the bar floats at the top instead. */
 .tr-bar.is-floating {
   position: fixed; z-index: 2147481000; top: 16px; left: 50%; transform: translateX(-50%);
   width: min(720px, calc(100vw - 32px)); margin: 0;
   background: rgba(14, 17, 23, 0.92);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+/* ---------- compact strip: one line on short windows (ux keeps the first drill row visible at
+   1280x720). Same markup; the blurb, drill list and last-done line drop (both stay in the card's
+   title). With a routine in progress only the resume row shows. ---------- */
+@media (max-height: 800px) {
+  .tr-strip { display: flex; align-items: center; gap: 12px; margin: 4px 0 8px; }
+  .tr-strip-head { flex: 0 1 auto; flex-wrap: nowrap; gap: 12px; min-width: 0; margin: 0; }
+  .tr-strip-head h2 { flex: none; font-size: 15px; }
+  .tr-strip-head p, .tr-blurb, .tr-drills, .tr-last { display: none; }
+  .tr-cards { display: flex; flex: 1 1 0; flex-wrap: nowrap; gap: 8px; min-width: 0; overflow: hidden; }
+  /* no corner cut here: on a 34 px chip it would clip the Start button */
+  .tr-card { flex: 1 1 0; flex-direction: row; align-items: center; gap: 8px; padding: 2px 2px 2px 10px; border-top-width: 1px; border-left: 3px solid var(--es-line-2); clip-path: none; }
+  .tr-card:hover { border-left-color: var(--es-red); }
+  .tr-card-head { flex: 1 1 auto; min-width: 0; gap: 6px; }
+  .tr-card-head h3 { min-width: 0; font-size: 13px; }
+  .tr-card-foot { flex: none; margin: 0; padding: 0; }
+  .tr-strip .tr-btn { height: 28px; padding: 0 10px; }
+  .tr-resume { flex: 1 1 0; flex-wrap: nowrap; min-width: 0; margin: 0; padding: 2px 2px 2px 10px; }
+  .tr-resume-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .tr-resume-acts { flex: none; flex-wrap: nowrap; }
+  .tr-strip.has-run .tr-cards { display: none; }
+}
+@media (max-height: 800px) and (max-width: 1360px) {
+  .tr-meta-min { display: none; }
 }
 
 /* ---------- summary (inside .es-tool) ---------- */

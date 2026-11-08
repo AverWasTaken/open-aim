@@ -241,3 +241,169 @@ test('last done and day streak use local calendar days', () => {
   // several the same day count once; across a month end
   assert.equal(core.streak(mk(day(2026, 11, 1, 8), day(2026, 11, 1, 20), day(2026, 10, 31)), 'warmup', day(2026, 11, 1, 22)), 2);
 });
+
+// ---------- R2: feel hooks, ux result container, compact strip ----------
+function fakeWin(extra = {}) {
+  const calls = [];
+  class CustomEvent { constructor(type, init) { this.type = type; this.detail = init && init.detail; } }
+  return {
+    calls, CustomEvent,
+    dispatchEvent(e) { calls.push(['event', e.type, e.detail]); return true; },
+    __aimLaunchWorkshop(item) { calls.push(['launch', item.shareCode]); return true; },
+    ...extra,
+  };
+}
+
+test('step event: payload, fired right before each launch, none without a drill or launcher', () => {
+  let run = core.start(core.resolve(fakeRoutine, fakeList, variants), 0);
+  const win = fakeWin();
+  assert.equal(core.launchStep(win, run, core.itemFor(run.codes[0], fakeList, variants)), true);
+  run = core.onScene(run, EASY, variants);
+  run = core.onResult(run, rec(EASY), variants);
+  run = core.advance(run, 10);
+  core.launchStep(win, run, core.itemFor(run.codes[run.index], fakeList, variants));
+  assert.deepEqual(win.calls, [
+    ['event', 'aim-routine-step', { routineId: 'r', index: 0, total: 3, shareCode: HARD, name: 'Twin drill' }],
+    ['launch', HARD],
+    ['event', 'aim-routine-step', { routineId: 'r', index: 1, total: 3, shareCode: OTHER, name: 'Other drill' }],
+    ['launch', OTHER],
+  ]);
+  assert.equal(core.STEP_EVENT, 'aim-routine-step');
+  // A refused launch still reports false; no item / no launcher: no event, no launch.
+  const refuse = fakeWin({ __aimLaunchWorkshop() { refuse.calls.push(['launch']); return false; } });
+  assert.equal(core.launchStep(refuse, run, fakeList[1]), false);
+  assert.deepEqual(refuse.calls.map((c) => c[0]), ['event', 'launch']);
+  const none = fakeWin({ __aimLaunchWorkshop: undefined });
+  assert.equal(core.launchStep(none, run, fakeList[1]), false);
+  assert.equal(core.launchStep(win, run, null), false);
+  assert.equal(none.calls.length, 0);
+  assert.equal(win.calls.length, 4);
+});
+
+test('sensitivity finder: Start / Continue refused before any state change, notice for 4 s', () => {
+  assert.equal(core.sensFinderBusy({}), false);
+  assert.equal(core.sensFinderBusy({ __aimSensFinderActive: 0 }), false);
+  assert.equal(core.sensFinderBusy({ __aimSensFinderActive: true }), true);
+  assert.equal(core.sensFinderBusy({ __aimSensFinderActive: { step: 2 } }), true);
+  assert.equal(core.sensFinderBusy({ get __aimSensFinderActive() { throw new Error('x'); } }), false);
+  const notice = { text: core.SENS_NOTICE, until: 1000 + core.NOTICE_MS };
+  assert.equal(core.NOTICE_MS, 4000);
+  assert.equal(core.SENS_NOTICE, 'Finish or stop the sensitivity finder first.');
+  assert.ok(!/[—–]/.test(core.SENS_NOTICE));
+  assert.equal(core.noticeText(notice, 1000), core.SENS_NOTICE);
+  assert.equal(core.noticeText(notice, 1000 + core.NOTICE_MS), '');
+  assert.equal(core.noticeText(null, 0), '');
+  const list = [core.resolve(fakeRoutine, fakeList, variants)];
+  const on = core.stripModel(list, null, core.readStore(null), 1000, notice);
+  const off = core.stripModel(list, null, core.readStore(null), 1000 + core.NOTICE_MS, notice);
+  assert.equal(on.notice, core.SENS_NOTICE);
+  assert.notEqual(JSON.stringify(on), JSON.stringify(off), 'the strip redraws when the notice ends');
+  assert.match(core.stripHtml(on), /<span class="tr-notice" role="status">Finish or stop the sensitivity finder first\.<\/span>/);
+  assert.doesNotMatch(core.stripHtml(off), /tr-notice/);
+  // The shell checks the finder first thing, before closeSummary / stopWatching / setRun.
+  const src = fs.readFileSync(path.join(root, 'app', 'training-routines.js'), 'utf-8');
+  for (const fn of ['startRoutine(id)', 'continueRoutine()']) {
+    const body = src.slice(src.indexOf('function ' + fn + ' {'));
+    const first = body.split('\n')[1].trim();
+    assert.equal(first, 'if (refusedBySensFinder()) return;', fn);
+  }
+  assert.match(src, /C\.launchStep\(window, run, item\)/);
+});
+
+// Minimal DOM: enough for resultSpot / placeBar (querySelector by one class, siblings, moves).
+class El {
+  constructor(cls = '', kids = []) { this.className = cls; this.children = []; this.parentElement = null; for (const k of kids) this.append(k); }
+  get classList() { const list = this.className.split(/\s+/).filter(Boolean); return { contains: (c) => list.includes(c) }; }
+  get firstElementChild() { return this.children[0] || null; }
+  _sib(d) { const p = this.parentElement; if (!p) return null; return p.children[p.children.indexOf(this) + d] || null; }
+  get previousElementSibling() { return this._sib(-1); }
+  get nextElementSibling() { return this._sib(1); }
+  remove() { const p = this.parentElement; if (p) { p.children.splice(p.children.indexOf(this), 1); this.parentElement = null; } }
+  append(el) { el.remove(); el.parentElement = this; this.children.push(el); }
+  prepend(el) { el.remove(); el.parentElement = this; this.children.unshift(el); }
+  before(el) { const p = this.parentElement; el.remove(); el.parentElement = p; p.children.splice(p.children.indexOf(this), 0, el); }
+  contains(el) { for (let e = el; e; e = e.parentElement) if (e === this) return true; return false; }
+  querySelector(sel) {
+    const c = sel.replace(/^\./, '');
+    for (const k of this.children) { if (k.classList.contains(c)) return k; const d = k.querySelector(sel); if (d) return d; }
+    return null;
+  }
+}
+
+test("result bar: fallback above the shell rows, then into ux's container once, never re-moved", () => {
+  const actions = new El('al-run-actions');
+  const shot = new El('es-shotgraph-sum');
+  const body = new El('al-run-body', [new El('al-run-hero'), shot, actions]);
+  const modal = new El('al-result-modal', [body]);
+  const doc = new El('', [new El('al-result-overlay', [modal])]);
+  doc.body = doc;
+  const bar = new El('tr-bar');
+  const names = () => body.children.map((k) => k.className);
+
+  let spot = core.resultSpot(doc);
+  assert.equal(spot.kind, 'card');
+  core.placeBar(bar, spot);
+  assert.deepEqual(names(), ['al-run-hero', 'tr-bar', 'es-shotgraph-sum', 'al-run-actions']);
+  core.placeBar(bar, core.resultSpot(doc)); // stable
+  assert.deepEqual(names(), ['al-run-hero', 'tr-bar', 'es-shotgraph-sum', 'al-run-actions']);
+
+  // ux-result.js place(): container above the shot summary; "ux-result-extra" fires -> sync.
+  const extra = new El('ux-result-extra');
+  shot.before(extra);
+  spot = core.resultSpot(doc);
+  assert.equal(spot.kind, 'extra');
+  assert.equal(spot.parent, extra);
+  core.placeBar(bar, spot);
+  assert.equal(bar.parentElement, extra);
+  assert.deepEqual(names(), ['al-run-hero', 'ux-result-extra', 'es-shotgraph-sum', 'al-run-actions']);
+
+  // Another script adds its row first in the container: the bar is not moved to fix the order.
+  const other = new El('xx-row');
+  extra.prepend(other);
+  let moves = 0;
+  const count = (fn) => function (...a) { moves++; return fn.apply(this, a); };
+  for (const k of ['prepend', 'append', 'before']) { extra[k] = count(El.prototype[k]); bar[k] = count(El.prototype[k]); }
+  core.placeBar(bar, core.resultSpot(doc));
+  core.placeBar(bar, core.resultSpot(doc));
+  assert.equal(moves, 0);
+  assert.deepEqual(extra.children.map((k) => k.className), ['xx-row', 'tr-bar']);
+
+  // A container outside the result card is ignored; the Scenario result floats on the body.
+  const lone = new El('', [new El('ux-result-extra'), new El('al-mr-stage')]);
+  lone.body = lone;
+  assert.equal(core.resultSpot(lone).kind, 'moment');
+  assert.equal(core.resultSpot(lone).parent, lone);
+  assert.equal(core.resultSpot(new El('')), null);
+});
+
+test('compact strip: same markup and state at every window size; CSS keeps every button', () => {
+  const store = core.addCompletion(core.readStore(null), { ...core.start(core.resolve(fakeRoutine, fakeList, variants), 0), results: [core.summarize(rec(EASY))] }, Date.now());
+  const list = [core.resolve(fakeRoutine, fakeList, variants)];
+  const paused = core.pause(core.start(list[0], 1));
+  const render = () => [null, paused].map((run) => {
+    const model = core.stripModel(list, run, store, Date.now(), null);
+    return JSON.stringify(model) + core.stripHtml(model);
+  });
+  const g = globalThis;
+  const saved = { innerHeight: g.innerHeight, innerWidth: g.innerWidth, matchMedia: g.matchMedia };
+  try {
+    Object.assign(g, { innerWidth: 1280, innerHeight: 720, matchMedia: () => ({ matches: true }) });
+    const small = render();
+    Object.assign(g, { innerWidth: 1920, innerHeight: 1080, matchMedia: () => ({ matches: false }) });
+    assert.deepEqual(render(), small);
+  } finally { Object.assign(g, saved); }
+  // Last done moves into the card title (every layout), with the drill list.
+  const html = core.stripHtml(core.stripModel(list, null, store, Date.now(), null));
+  assert.match(html, /<article class="tr-card" data-routine="r" title="Twin drill, Other drill, Clock drill\nLast done: Today">/);
+  assert.match(html, /<span class="tr-meta-n">3 drills<\/span><span class="tr-meta-min"> · ~4 min<\/span>/);
+  // The compact block only hides text, never a button or the resume row's actions.
+  const css = fs.readFileSync(path.join(root, 'app', 'training-routines.css'), 'utf-8');
+  const at = css.indexOf('@media (max-height: 800px) {');
+  assert.ok(at > 0);
+  const block = css.slice(at, css.indexOf('/* ---------- summary', at)).replace(/@media[^{]*{/g, '');
+  for (const m of block.matchAll(/([^{}]+)\{[^}]*display:\s*none/g)) {
+    for (const sel of m[1].split(',').map((x) => x.trim())) {
+      assert.ok(['.tr-strip-head p', '.tr-blurb', '.tr-drills', '.tr-last', '.tr-strip.has-run .tr-cards', '.tr-meta-min'].includes(sel), 'hidden in compact: ' + sel);
+    }
+  }
+});

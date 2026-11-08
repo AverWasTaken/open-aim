@@ -5,10 +5,18 @@
 // - Start / Next drill / Continue launch drills like a lobby click (window.__aimLaunchWorkshop,
 //   tools/training_launch_patch.py), so the rank picker, run history and 'aim-local-result' work
 //   as usual. "Next drill" first closes the open drill (window.__aimLeaveTraining).
-// - Result screen: a routine bar above the shooting summary with Next drill / End routine.
+// - Result screen: a routine bar with Next drill / End routine. Inside ux's div.ux-result-extra
+//   (app/ux-result.js, event "ux-result-extra") when the card has one, else above the shooting
+//   summary. Scenario results: floating at the top.
 // - After the last drill: a summary (score, hit rate, personal best per drill, time played).
 // The routine in progress is kept in sessionStorage (aim-training-routine-run-v1); a reload always
 // leaves it paused in the lobby. Finished routines go to localStorage aim-training-routines-v1.
+// Hooks for other scripts (feel's sensitivity finder):
+// - window CustomEvent "aim-routine-step", detail {routineId, index, total, shareCode, name}
+//   (index 0-based), fired synchronously right before each routine drill is launched (Start,
+//   Next drill, Continue). The launch can still be dropped after it (rank picker cancelled).
+// - Start / Continue do nothing while window.__aimSensFinderActive is truthy; the strip shows
+//   "Finish or stop the sensitivity finder first." for 4 s instead.
 (() => {
   if (window.__aimTrainingRoutines) return;
   window.__aimTrainingRoutines = true;
@@ -27,7 +35,7 @@
   });
   const session = store(() => sessionStorage);
   const local = store(() => localStorage);
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const esc = C.esc;
 
   // ---------- drill list ----------
   let catalogue = null;
@@ -72,6 +80,17 @@
   save();
   let pending = null; // launch watch: {at, picker, layer, timer}
   let leaving = null; // "Next drill" waiting for the lobby
+  let notice = null; // {text, until}: short line on the strip (refused Start / Continue)
+  let noticeTimer = 0;
+  // Refuses Start / Continue while feel's sensitivity finder runs; state stays untouched.
+  function refusedBySensFinder() {
+    if (!C.sensFinderBusy(window)) return false;
+    notice = { text: C.SENS_NOTICE, until: Date.now() + C.NOTICE_MS };
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(schedule, C.NOTICE_MS + 50);
+    schedule();
+    return true;
+  }
 
   // A drill counts as open from its loading screens on: the workshop loading panel (.al-wkload,
   // shown from the click) and the trainer download fallback (.hall-train-loading). 'aim-local-scene'
@@ -104,7 +123,7 @@
     const item = C.itemFor(run.codes[run.index], catalogue, variants);
     let ok = false;
     try {
-      ok = !!item && typeof window.__aimLaunchWorkshop === "function" && window.__aimLaunchWorkshop(item);
+      ok = C.launchStep(window, run, item); // "aim-routine-step", then the lobby launch
     } catch (err) {
       console.error("ROUTINES:", err);
     }
@@ -140,6 +159,7 @@
   }
 
   function startRoutine(id) {
+    if (refusedBySensFinder()) return;
     const r = routines().find((x) => x.id === id);
     if (!r) return;
     closeSummary();
@@ -148,6 +168,7 @@
     launch();
   }
   function continueRoutine() {
+    if (refusedBySensFinder()) return;
     if (!run) return;
     stopWatching();
     if (C.isDone(run)) { openSummary(run); return; }
@@ -246,37 +267,9 @@
     if (!first || !first.querySelector(".al-wk-card") || !first.parentElement) return null;
     return first;
   }
-  function stripSig(list, now) {
-    const store = C.readStore(local.get(C.STORE_KEY));
-    const cards = list.map((r) => {
-      const last = C.lastDone(store, r.id, now);
-      const days = C.streak(store, r.id, now);
-      return { id: r.id, name: r.name, blurb: r.blurb, n: r.steps.length, min: C.minutes(r.steps), drills: r.steps.map((s) => s.name), last: last.label, days };
-    });
-    const state = run ? { id: run.id, name: run.name, phase: run.phase, i: C.nextIndex(run), n: run.codes.length, done: C.isDone(run), next: run.names[Math.min(C.nextIndex(run), run.codes.length - 1)] } : null;
-    return { cards, state };
-  }
-  function stripHtml(sig) {
-    const st = sig.state;
-    let resume = "";
-    if (st) {
-      const step = `drill ${Math.min(st.i + 1, st.n)} of ${st.n}`;
-      const text = st.done ? `<b>${esc(st.name)}</b> All drills played.`
-        : st.phase === "launching" ? `<b>${esc(st.name)}</b> Starting ${step}: ${esc(st.next)}`
-        : `<b>${esc(st.name)}</b> Paused at ${step}: ${esc(st.next)}`;
-      const acts = st.done ? `<button type="button" class="tr-btn is-accent" data-act="summary">See summary</button>`
-        : st.phase === "launching" ? "" : `<button type="button" class="tr-btn is-accent" data-act="continue">Continue routine</button>`;
-      resume = `<div class="tr-resume" role="status"><span class="tr-resume-text">${text}</span><span class="tr-resume-acts">${acts}<button type="button" class="tr-btn is-ghost" data-act="end">End routine</button></span></div>`;
-    }
-    const cards = sig.cards.map((c) => `<article class="tr-card" data-routine="${esc(c.id)}">
-      <div class="tr-card-head"><h3>${esc(c.name)}</h3><span class="tr-meta">${c.n} drills · ~${c.min} min</span></div>
-      <p class="tr-blurb">${esc(c.blurb)}</p>
-      <p class="tr-drills" title="${esc(c.drills.join(", "))}">${esc(c.drills.join(" · "))}</p>
-      <div class="tr-card-foot"><span class="tr-last">Last done: <b>${esc(c.last)}</b>${c.days >= 2 ? ` · <b class="tr-streak">${c.days} day streak</b>` : ""}</span>
-      <button type="button" class="tr-btn" data-act="start" data-routine="${esc(c.id)}" aria-label="Start ${esc(c.name)}">Start</button></div>
-    </article>`).join("");
-    return `<header class="tr-strip-head"><h2>Routines</h2><p>Play a set of drills in a row. Go to the next drill from the result screen.</p></header>${resume}<div class="tr-cards">${cards}</div>`;
-  }
+  // Model and markup live in the core (same markup at every window size; CSS makes it one line
+  // at max-height 800px).
+  const stripSig = (list, now) => C.stripModel(list, run, C.readStore(local.get(C.STORE_KEY)), now, notice);
   function onStripClick(e) {
     const b = e.target.closest("button[data-act]");
     if (!b) return;
@@ -304,36 +297,14 @@
     const sig = JSON.stringify(stripSig(list, Date.now()));
     if (strip.dataset.sig !== sig) {
       strip.dataset.sig = sig;
-      strip.innerHTML = stripHtml(JSON.parse(sig));
+      const model = JSON.parse(sig);
+      strip.classList.toggle("has-run", !!model.state);
+      strip.innerHTML = C.stripHtml(model);
     }
   }
 
   // ---------- result bar ----------
-  // The usual result card (.al-result-modal) or the full-screen Scenario result (.al-mr-stage).
-  function resultSpot() {
-    const modal = document.querySelector(".al-result-modal");
-    if (modal) {
-      const actions = modal.querySelector(".al-run-actions");
-      if (actions && actions.parentElement) {
-        // Above every shell-added section (shooting summary, progress card) that sits right over
-        // the buttons: those have classes but none of the game's "al-" ones.
-        const added = (el) => {
-          const cls = typeof el.className === "string" ? el.className.trim() : "";
-          return cls !== "" && !cls.split(/\s+/).some((c) => c.startsWith("al-"));
-        };
-        let before = actions;
-        for (let p = actions.previousElementSibling; p && added(p); p = p.previousElementSibling) {
-          if (!p.classList.contains("tr-bar")) before = p;
-        }
-        return { kind: "card", parent: actions.parentElement, before };
-      }
-      const body = modal.querySelector(".al-run-body") || modal;
-      return { kind: "card", parent: body, before: body.firstElementChild };
-    }
-    const stage = document.querySelector(".al-mr-stage");
-    if (stage) return { kind: "moment", parent: document.body, before: null };
-    return null;
-  }
+  // Placement: C.resultSpot / C.placeBar (ux's .ux-result-extra when the card has one).
   function barSig() {
     if (!run || run.phase !== "playing" || !run.results[run.index]) return null;
     const n = run.codes.length;
@@ -343,7 +314,7 @@
   function syncBar() {
     let bar = document.querySelector(".tr-bar");
     const sig = barSig();
-    const spot = sig && resultSpot();
+    const spot = sig && C.resultSpot(document);
     if (!spot) { if (bar) bar.remove(); return; }
     if (!bar) {
       bar = document.createElement("div");
@@ -361,9 +332,7 @@
       for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) bar.addEventListener(type, (e) => e.stopPropagation());
     }
     if (bar.classList.contains("is-floating") !== (spot.kind === "moment")) bar.classList.toggle("is-floating", spot.kind === "moment");
-    if (spot.before) {
-      if (bar.parentElement !== spot.parent || bar.nextElementSibling !== spot.before) spot.before.before(bar);
-    } else if (bar.parentElement !== spot.parent) spot.parent.append(bar);
+    C.placeBar(bar, spot);
     const key = JSON.stringify(sig);
     if (bar.dataset.sig === key) return;
     bar.dataset.sig = key;
@@ -391,5 +360,6 @@
   }
   window.__aimWatchPage?.(schedule, { childList: true, subtree: true });
   addEventListener("storage", schedule);
+  addEventListener("ux-result-extra", schedule); // ux's result container appeared
   schedule();
 })();

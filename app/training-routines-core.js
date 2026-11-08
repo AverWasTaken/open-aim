@@ -345,8 +345,116 @@
     return n;
   }
 
+  // ---------- hooks for other scripts (feel's sensitivity finder) ----------
+  // Before each routine drill is launched, window gets CustomEvent "aim-routine-step" with
+  // detail {routineId, index, total, shareCode, name}: index is 0-based (first drill = 0), total is
+  // the routine's drill count, shareCode the code being launched (the lobby card of the step).
+  // It fires synchronously in the click, right before window.__aimLaunchWorkshop(item); the launch
+  // can still be dropped after it (rank picker cancelled, drill already open).
+  const STEP_EVENT = "aim-routine-step";
+  function stepDetail(run, item) {
+    const i = run.index;
+    return { routineId: run.id, index: i, total: run.codes.length, shareCode: (item && item.shareCode) || run.codes[i], name: run.names[i] };
+  }
+  // Fires the step event, then launches like a lobby click. Returns whether the launch was taken.
+  function launchStep(win, run, item) {
+    if (!run || !item || typeof win.__aimLaunchWorkshop !== "function") return false;
+    try {
+      win.dispatchEvent(new win.CustomEvent(STEP_EVENT, { detail: stepDetail(run, item) }));
+    } catch (err) {
+      console.error("ROUTINES:", err);
+    }
+    return !!win.__aimLaunchWorkshop(item);
+  }
+  // Start / Continue are refused while feel's sensitivity finder runs (window.__aimSensFinderActive).
+  const SENS_NOTICE = "Finish or stop the sensitivity finder first.";
+  const NOTICE_MS = 4000;
+  function sensFinderBusy(win) {
+    try { return !!win.__aimSensFinderActive; } catch { return false; }
+  }
+  const noticeText = (notice, now) => (notice && typeof notice.text === "string" && notice.until > now ? notice.text : "");
+
+  // ---------- lobby strip (pure: same markup at every window size; CSS makes it one line at
+  // max-height 800px, see training-routines.css) ----------
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  // list: resolved routines; store: aim-training-routines-v1; notice: {text, until} or null.
+  function stripModel(list, run, store, now, notice) {
+    const cards = list.map((r) => {
+      const last = lastDone(store, r.id, now);
+      return { id: r.id, name: r.name, blurb: r.blurb, n: r.steps.length, min: minutes(r.steps), drills: r.steps.map((s) => s.name), last: last.label, days: streak(store, r.id, now) };
+    });
+    const state = run ? { id: run.id, name: run.name, phase: run.phase, i: nextIndex(run), n: run.codes.length, done: isDone(run), next: run.names[Math.min(nextIndex(run), run.codes.length - 1)] } : null;
+    return { cards, state, notice: noticeText(notice, now) };
+  }
+  function stripHtml(sig) {
+    const st = sig.state;
+    let resume = "";
+    if (st) {
+      const step = `drill ${Math.min(st.i + 1, st.n)} of ${st.n}`;
+      const text = st.done ? `<b>${esc(st.name)}</b> All drills played.`
+        : st.phase === "launching" ? `<b>${esc(st.name)}</b> Starting ${step}: ${esc(st.next)}`
+        : `<b>${esc(st.name)}</b> Paused at ${step}: ${esc(st.next)}`;
+      const acts = st.done ? `<button type="button" class="tr-btn is-accent" data-act="summary">See summary</button>`
+        : st.phase === "launching" ? "" : `<button type="button" class="tr-btn is-accent" data-act="continue">Continue routine</button>`;
+      resume = `<div class="tr-resume" role="status"><span class="tr-resume-text">${text}</span><span class="tr-resume-acts">${acts}<button type="button" class="tr-btn is-ghost" data-act="end">End routine</button></span></div>`;
+    }
+    const cards = sig.cards.map((c) => {
+      const lastText = `Last done: ${c.last}${c.days >= 2 ? `, ${c.days} day streak` : ""}`;
+      return `<article class="tr-card" data-routine="${esc(c.id)}" title="${esc(`${c.drills.join(", ")}\n${lastText}`)}">
+      <div class="tr-card-head"><h3>${esc(c.name)}</h3><span class="tr-meta"><span class="tr-meta-n">${c.n} drills</span><span class="tr-meta-min"> · ~${c.min} min</span></span></div>
+      <p class="tr-blurb">${esc(c.blurb)}</p>
+      <p class="tr-drills">${esc(c.drills.join(" · "))}</p>
+      <div class="tr-card-foot"><span class="tr-last">Last done: <b>${esc(c.last)}</b>${c.days >= 2 ? ` · <b class="tr-streak">${c.days} day streak</b>` : ""}</span>
+      <button type="button" class="tr-btn" data-act="start" data-routine="${esc(c.id)}" aria-label="Start ${esc(c.name)}">Start</button></div>
+    </article>`;
+    }).join("");
+    const notice = sig.notice ? `<span class="tr-notice" role="status">${esc(sig.notice)}</span>` : "";
+    return `<header class="tr-strip-head"><h2>Routines</h2><p>Play a set of drills in a row. Go to the next drill from the result screen.</p>${notice}</header>${resume}<div class="tr-cards">${cards}</div>`;
+  }
+
+  // ---------- result bar placement (DOM, no layout reads) ----------
+  // The usual result card (.al-result-modal) or the full-screen Scenario result (.al-mr-stage).
+  // In the card, ux's container (div.ux-result-extra, app/ux-result.js) wins when it is there;
+  // otherwise the bar goes above every shell-added section (shooting summary, progress card) that
+  // sits right over the buttons: those have classes but none of the game's "al-" ones.
+  function resultSpot(doc) {
+    const modal = doc.querySelector(".al-result-modal");
+    if (modal) {
+      const extra = modal.querySelector(".ux-result-extra");
+      if (extra && modal.contains(extra)) return { kind: "extra", parent: extra, before: null };
+      const actions = modal.querySelector(".al-run-actions");
+      if (actions && actions.parentElement) {
+        const added = (el) => {
+          const cls = typeof el.className === "string" ? el.className.trim() : "";
+          return cls !== "" && !cls.split(/\s+/).some((c) => c.startsWith("al-"));
+        };
+        let before = actions;
+        for (let p = actions.previousElementSibling; p && added(p); p = p.previousElementSibling) {
+          if (!p.classList.contains("tr-bar")) before = p;
+        }
+        return { kind: "card", parent: actions.parentElement, before };
+      }
+      const body = modal.querySelector(".al-run-body") || modal;
+      return { kind: "card", parent: body, before: body.firstElementChild };
+    }
+    const stage = doc.querySelector(".al-mr-stage");
+    if (stage) return { kind: "moment", parent: doc.body, before: null };
+    return null;
+  }
+  // Moves the bar only when it is not in place. In ux's container it is prepended once and never
+  // moved again to fix the order (other scripts own their rows there).
+  function placeBar(bar, spot) {
+    if (spot.kind === "extra") {
+      if (bar.parentElement !== spot.parent) spot.parent.prepend(bar);
+    } else if (spot.before) {
+      if (bar.parentElement !== spot.parent || bar.nextElementSibling !== spot.before) spot.before.before(bar);
+    } else if (bar.parentElement !== spot.parent) spot.parent.append(bar);
+  }
+
   return {
     ROUTINES, RUN_KEY, STORE_KEY, TEST_KEY, RUNS_KEY, CAP,
+    STEP_EVENT, SENS_NOTICE, NOTICE_MS, stepDetail, launchStep, sensFinderBusy, noticeText,
+    esc, stripModel, stripHtml, resultSpot, placeBar,
     drillName, groupOf, sameGroup, itemFor, resolve, minutes, testRoutine,
     start, nextIndex, isDone, onScene, onResult, pause, advance, restore,
     summarize, better, pbStatus, parseRuns, formatValue, formatAccuracy, formatClock, playedSeconds, summary,
