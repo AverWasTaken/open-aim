@@ -3,13 +3,15 @@
 // (round-<map>-<side>-<weapon>-<barrierSec>, served by main.js from app/round-scene.js) through
 // window.__aimLaunchScene (tools/round_patch.py). The rank is the same setting the drills use
 // (localStorage "aim-enemy-rank", read by the game when a round starts); "Default" = the round's
-// own bots. Last choices are kept in "aim-round-setup".
-// It also prefetches the bots' nav graph of every round map (see prefetchNav below).
+// own bots. Last choices (map, weapon, barrier) are kept in "aim-round-setup".
+// Maps: MAPS below; each needs app/mods/aim-rounds/<id>.json (name = the label) and <id>.nav.bin
+// (scripts/test-round-ui.mjs checks this). It also prefetches the bots' nav graph of every round
+// map (see prefetchNav below).
 (() => {
   if (window.__aimRoundPanel) return;
   const SETUP_KEY = "aim-round-setup";
   const RANK_KEY = "aim-enemy-rank";
-  const MAPS = [{ id: "ascent", name: "Ascent" }];
+  const MAPS = [{ id: "ascent", name: "Ascent" }, { id: "rook", name: "Corrode" }];
   const SIDES = [{ id: "attack", name: "Attack", sub: "Plant the spike" }, { id: "defense", name: "Defense", sub: "Coming soon", off: true }];
   const WEAPONS = [["vandal", "Vandal"], ["phantom", "Phantom"], ["spectre", "Spectre"], ["guardian", "Guardian"], ["sheriff", "Sheriff"], ["marshal", "Marshal"], ["outlaw", "Outlaw"], ["operator", "Operator"]];
   const BARRIERS = [10, 20, 30];
@@ -197,6 +199,6 @@
     shade.querySelector(".aim-round-start").focus({ preventScroll: true });
   }
 
-  window.__aimRoundPanel = { open: openPanel, close, prefetchNav, navState };
+  window.__aimRoundPanel = { open: openPanel, close, prefetchNav, navState, maps: MAPS.map((m) => ({ ...m })) };
   prefetchAll();
 })();

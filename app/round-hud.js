@@ -146,6 +146,18 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
     [...box.children].forEach((p, i) => p.classList.toggle("dead", i >= alive));
   }
   const text = (r) => (typeof window.__aimRoundText === "function" ? window.__aimRoundText(r) : r.reason || "");
+  // "Take the spike to A or B site" from the round's site ids (r.sites, round-core roundView):
+  // "A site", "A or B site", "A, B or C site"; no usable ids -> "a site". Ids are 1-2 letters or
+  // digits (anything else is dropped, so nothing odd reaches innerHTML). Cached per array.
+  let sitesRef = null, sitesHint = "";
+  function siteHint(sites) {
+    if (sites === sitesRef && sitesHint) return sitesHint;
+    const ids = (Array.isArray(sites) ? sites : []).map(String).filter((s) => /^[A-Za-z0-9]{1,2}$/.test(s));
+    const list = ids.length > 1 ? `${ids.slice(0, -1).join(", ")} or ${ids[ids.length - 1]}` : ids[0];
+    sitesRef = sites;
+    sitesHint = list ? `Take the spike to ${list} site` : "Take the spike to a site";
+    return sitesHint;
+  }
 
   function render(r, now) {
     pips(el.us, 1, r.playerAlive ? 1 : 0);
@@ -179,7 +191,7 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
     // Hint.
     let hint = "";
     if (r.phase === "barrier") hint = `Barriers drop in ${Math.ceil(r.timeLeft)} s`;
-    else if (r.phase === "live" && r.carrying && r.playerAlive) hint = r.zone ? (holding ? "" : `Hold <kbd>4</kbd> to plant`) : "Take the spike to A or B site";
+    else if (r.phase === "live" && r.carrying && r.playerAlive) hint = r.zone ? (holding ? "" : `Hold <kbd>4</kbd> to plant`) : siteHint(r.sites);
     else if (r.phase === "planted" && r.side === "defense" && r.near && !holding) hint = `Hold <kbd>F</kbd> to defuse`;
     el.hint.hidden = !hint;
     if (hint && el.hint.innerHTML !== hint) el.hint.innerHTML = hint;

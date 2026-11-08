@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -52,16 +53,20 @@ test('round panel: prefetches every map nav on load into globalThis.__aimRoundNa
   const urls = [];
   const ctx = context({ fetch: async (u) => { urls.push(u); return response(rnav()); } });
   vm.runInContext(src('round-panel.js'), ctx);
-  assert.deepEqual(urls, ['/aim-rounds/ascent.nav.bin']);
+  assert.deepEqual(urls, ['/aim-rounds/ascent.nav.bin', '/aim-rounds/rook.nav.bin']);
   await flush();
-  assert.ok(ctx.__aimRoundNav.ascent instanceof ArrayBuffer);
-  assert.equal(ctx.__aimRoundPanel.navState.ascent, 'ok');
+  for (const m of ['ascent', 'rook']) {
+    assert.ok(ctx.__aimRoundNav[m] instanceof ArrayBuffer, m);
+    assert.equal(ctx.__aimRoundPanel.navState[m], 'ok', m);
+  }
   for (const [name, fetchFn] of [['404', async () => response(null, false)], ['not RNAV', async () => response(new ArrayBuffer(16))], ['network', async () => { throw new Error('x'); }]]) {
     const c = context({ fetch: fetchFn });
     vm.runInContext(src('round-panel.js'), c);
     await flush();
-    assert.equal(c.__aimRoundPanel.navState.ascent, 'missing', name);
-    assert.ok(!c.__aimRoundNav?.ascent, name);
+    for (const m of ['ascent', 'rook']) {
+      assert.equal(c.__aimRoundPanel.navState[m], 'missing', `${name} ${m}`);
+      assert.ok(!c.__aimRoundNav?.[m], `${name} ${m}`);
+    }
   }
 });
 
@@ -81,16 +86,17 @@ test('round panel: Start launches inside the click when the nav is cached or kno
   ctx = context({ fetch: async () => { fetches++; return response(null, false); }, __aimLaunchScene: (o) => { launches.push(o); return true; } });
   vm.runInContext(src('round-panel.js'), ctx);
   await flush();
-  ctx.__aimRoundPanel.open(); // opening retries the missing file
+  ctx.__aimRoundPanel.open(); // opening retries the missing files (both maps)
   await flush();
-  assert.equal(fetches, 2);
+  assert.equal(fetches, 4);
   ctx.document.body.children.at(-1).querySelector('.aim-round-start').click();
   assert.equal(launches.length, 1);
-  assert.equal(fetches, 2);
+  assert.equal(fetches, 4);
   // Cold: the fetch is still running -> wait for it, then launch once (a second click does nothing).
   launches = [];
-  let release;
-  ctx = context({ fetch: () => new Promise((r) => { release = () => r(response(rnav())); }), __aimLaunchScene: (o) => { launches.push(o); return true; } });
+  const releases = [];
+  const release = () => { for (const f of releases.splice(0)) f(); };
+  ctx = context({ fetch: () => new Promise((r) => { releases.push(() => r(response(rnav()))); }), __aimLaunchScene: (o) => { launches.push(o); return true; } });
   vm.runInContext(src('round-panel.js'), ctx);
   ctx.__aimRoundPanel.open();
   const shade = ctx.document.body.children.at(-1);
@@ -102,6 +108,73 @@ test('round panel: Start launches inside the click when the nav is cached or kno
   await flush(); await flush();
   assert.equal(launches.length, 1);
   assert.ok(ctx.__aimRoundNav.ascent instanceof ArrayBuffer, 'cached before the launch');
+});
+
+test('round panel: Ascent and Corrode in the map row; picking Corrode starts round-rook-... ("Round · Corrode") and is remembered', async () => {
+  const launches = [];
+  const ctx = context({ fetch: async () => response(rnav()), __aimLaunchScene: (o) => { launches.push(o); return true; } });
+  vm.runInContext(src('round-panel.js'), ctx);
+  await flush();
+  assert.equal(JSON.stringify(ctx.__aimRoundPanel.maps.map((m) => [m.id, m.name])), JSON.stringify([['ascent', 'Ascent'], ['rook', 'Corrode']]), 'vm-realm array');
+  ctx.__aimRoundPanel.open();
+  let shade = ctx.document.body.children.at(-1);
+  const row = shade.querySelector('[data-k="map"]');
+  assert.deepEqual(row.children.map((b) => b.dataset.v), ['ascent', 'rook']);
+  assert.ok(row.children[0].classList.contains('is-active'), 'Ascent picked by default');
+  row.children[1].click();
+  assert.ok(row.children[1].classList.contains('is-active') && !row.children[0].classList.contains('is-active'));
+  shade.querySelector('.aim-round-start').click();
+  assert.equal(launches.length, 1);
+  assert.equal(launches[0].shareCode, 'round-rook-attack-vandal-20');
+  assert.equal(launches[0].name, 'Round · Corrode');
+  assert.equal(JSON.parse(ctx.localStorage.getItem('aim-round-setup')).map, 'rook');
+  ctx.__aimRoundPanel.open();
+  shade = ctx.document.body.children.at(-1);
+  const row2 = shade.querySelector('[data-k="map"]');
+  assert.ok(row2.children[1].classList.contains('is-active') && !row2.children[0].classList.contains('is-active'), 'Corrode remembered');
+  // A stored map that is no longer listed falls back to the first map.
+  ctx.localStorage.setItem('aim-round-setup', JSON.stringify({ map: 'nowhere' }));
+  ctx.__aimRoundPanel.open();
+  assert.ok(ctx.document.body.children.at(-1).querySelector('[data-k="map"]').children[0].classList.contains('is-active'));
+});
+
+test('round panel maps: every listed map ships aim-rounds/<id>.json (schema 1, map = id, name = the label, A-C sites) and <id>.nav.bin (RNAV); its round scene builds', () => {
+  const ctx = context({ fetch: async () => response(rnav()) });
+  vm.runInContext(src('round-panel.js'), ctx);
+  const { buildDoc } = createRequire(import.meta.url)(path.join(root, 'app', 'round-scene.js'));
+  const dir = path.join(root, 'app', 'mods', 'aim-rounds');
+  assert.ok(ctx.__aimRoundPanel.maps.length >= 2);
+  for (const m of ctx.__aimRoundPanel.maps) {
+    const data = JSON.parse(fs.readFileSync(path.join(dir, `${m.id}.json`), 'utf-8'));
+    assert.equal(data.schema, 1, m.id);
+    assert.equal(data.map, m.id);
+    assert.equal(data.name, m.name, `${m.id}: json name is the panel label`);
+    assert.ok(data.sites.length >= 2 && data.sites.every((s) => /^[A-C]$/.test(s.id)), `${m.id}: site ids`);
+    const nav = fs.readFileSync(path.join(dir, `${m.id}.nav.bin`));
+    assert.equal(nav.subarray(0, 4).toString('latin1'), 'RNAV', `${m.id}: nav.bin magic`);
+    const doc = buildDoc(data, { side: 'attack', weapon: 'vandal', barrierSec: 20 });
+    assert.equal(doc.rules.round.map, m.id);
+    assert.equal(doc.meta.id, `round-${m.id}-attack`);
+  }
+});
+
+test('round core: roundView.sites = the cfg site ids (A, B on both maps; A, B, C on a 3-site cfg; [] without sites), one frozen array per cfg', async () => {
+  const core = await import(pathToFileURL(path.join(root, 'app', 'mods', 'aim-rounds', 'round-core.mjs')).href);
+  const { buildDoc } = createRequire(import.meta.url)(path.join(root, 'app', 'round-scene.js'));
+  const TS = 1 / 128;
+  for (const map of ['ascent', 'rook']) {
+    const data = JSON.parse(fs.readFileSync(path.join(root, 'app', 'mods', 'aim-rounds', `${map}.json`), 'utf-8'));
+    const cfg = buildDoc(data, { side: 'attack', weapon: 'vandal', barrierSec: 20 }).rules.round;
+    const st = core.roundCreate(cfg, TS);
+    const v1 = core.roundView(cfg, st, TS), v2 = core.roundView(cfg, st, TS);
+    assert.deepEqual([...v1.sites], ['A', 'B'], map);
+    assert.equal(v1.sites, v2.sites, `${map}: cached per cfg`);
+    assert.ok(Object.isFrozen(v1.sites));
+    const three = { ...cfg, sites: [...cfg.sites, { ...cfg.sites[0], id: 'C' }] };
+    assert.deepEqual([...core.roundView(three, core.roundCreate(three, TS), TS).sites], ['A', 'B', 'C']);
+    const none = { ...cfg, sites: undefined };
+    assert.deepEqual([...core.roundView(none, st, TS).sites], []);
+  }
 });
 
 // ---------------------------------------------------------------- HUD
@@ -151,6 +224,21 @@ test('round HUD: an enemy defusing your spike shows "Spike being defused", its p
   h.show({ ...base, phase: 'planted', tick: tick++, botDefusing: false }, 2.9);
   assert.equal(root.querySelector('.arh-bar').hidden, true);
   assert.equal(h.tones.filter((t) => t.f === 260).length, 6);
+});
+
+test('round HUD: the carry hint names the round sites ("A or B", "A, B or C"); no usable sites -> "a site"', () => {
+  const h = hud();
+  const hint = () => h.el().querySelector('.arh-hint');
+  const live = { ...base, phase: 'live', carrying: true, zone: null, spike: { carrier: 'player', dropped: null, planted: null } };
+  let tick = 1;
+  const cases = [[['A', 'B'], 'Take the spike to A or B site'], [['A', 'B', 'C'], 'Take the spike to A, B or C site'], [['B'], 'Take the spike to B site'], [undefined, 'Take the spike to a site'], [[], 'Take the spike to a site'], [['<i>'], 'Take the spike to a site']];
+  for (const [sites, want] of cases) {
+    h.show({ ...live, sites, tick: tick++ }, tick * 0.3);
+    assert.equal(hint().hidden, false, String(sites));
+    assert.equal(hint().innerHTML, want, String(sites));
+  }
+  h.show({ ...live, sites: ['A', 'B'], zone: 'A', tick: tick++ }, tick * 0.3);
+  assert.match(hint().innerHTML, /Hold <kbd>4<\/kbd> to plant/, 'in a zone: the plant hint');
 });
 
 test('round HUD: defused as the attacker = loss tone, no success chirp; as the defender the chirp stays', () => {

@@ -8,7 +8,9 @@
 // Split, rank and movement mode vary with the seed.
 //
 // Heavy (about 6 s per run on hp): run it on hp only, one CPU job at a time:
-//   node scripts/round-bots-sweep.mjs [--seeds 6] [--out /tmp/round-bots-sweep.json] [--max-min 9]
+//   node scripts/round-bots-sweep.mjs [--map rook] [--seeds 6] [--out /tmp/round-bots-sweep.json] [--max-min 9]
+// --map (or env ROUND_MAP) picks the map: app/mods/aim-rounds/<map>.json + .nav.bin and its real
+// collision (default ascent). ASCENT / NAV_AB below hold that map's data, whatever the map.
 // (npm run sweep:round-bots in app/). scripts/test-round-bots-real.mjs imports retakeRun from here.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -23,11 +25,13 @@ const navlib = await import(pathToFileURL(path.join(root, 'tools', 'round_navlib
 const I = bots.roundBotsInternals;
 export const TPS = 128;
 export const IDLE = { forward: 0, strafe: 0, mouseDx: 0, mouseDy: 0, jump: false, crouch: false, walk: false, fire: false };
-export const ASCENT = JSON.parse(fs.readFileSync(path.join(MODS, 'aim-rounds', 'ascent.json'), 'utf-8'));
+const mapArg = process.argv.indexOf('--map');
+export const MAP = (mapArg > 0 ? process.argv[mapArg + 1] : process.env.ROUND_MAP) || 'ascent';
+export const ASCENT = JSON.parse(fs.readFileSync(path.join(MODS, 'aim-rounds', `${MAP}.json`), 'utf-8'));
 export const { buildDoc } = createRequire(import.meta.url)(path.join(root, 'app', 'round-scene.js'));
-const NAV_BYTES = fs.readFileSync(path.join(MODS, 'aim-rounds', 'ascent.nav.bin'));
+const NAV_BYTES = fs.readFileSync(path.join(MODS, 'aim-rounds', `${MAP}.nav.bin`));
 const NAV_AB = NAV_BYTES.buffer.slice(NAV_BYTES.byteOffset, NAV_BYTES.byteOffset + NAV_BYTES.byteLength);
-export const useNav = () => { globalThis.__aimRoundNav = { ascent: NAV_AB }; return I.navFor('ascent'); };
+export const useNav = () => { globalThis.__aimRoundNav = { [MAP]: NAV_AB }; return I.navFor(MAP); };
 const DEF_BARS = ASCENT.barriers.filter((b) => b.team === 'defense');
 const crossesBar = (a, b) => DEF_BARS.some((w) => navlib.segCross(a.x, a.z, b.x, b.z, w.a.x, w.a.z, w.b.x, w.b.z));
 const STOPPED = new Set([I.MODE.hold, I.MODE.wait, I.MODE.stage, I.MODE.cover, I.MODE.defuse]);
@@ -183,10 +187,10 @@ async function main() {
   globalThis.localStorage ??= { getItem: () => null, setItem() {}, removeItem() {} };
   const sim = await import(pathToFileURL(path.join(MODS, 'next', 'js', 'CnrSARj_.js')).href);
   const { loadTerrain } = await import(pathToFileURL(path.join(root, 'tools', 'round_terrain.mjs')).href);
-  const W = await loadTerrain('ascent', { root });
+  const W = await loadTerrain(MAP, { root });
   const N = useNav(), spots = { A: zoneSpots(N, 'A'), B: zoneSpots(N, 'B') };
   const t0 = Date.now(), rows = [];
-  console.log(`zone spots: A ${spots.A.all.length} (${spots.A.box.length} box), B ${spots.B.all.length} (${spots.B.box.length} box)`);
+  console.log(`${MAP} zone spots: A ${spots.A.all.length} (${spots.A.box.length} box), B ${spots.B.all.length} (${spots.B.box.length} box)`);
   outer: for (let k = 0; k < seeds; k++) for (const site of ['A', 'B']) for (const barrierSec of [10, 20]) for (const player of ['hidden', 'dead']) {
     if (Date.now() - t0 > maxMin * 60e3) { console.log(`time budget (${maxMin} min) reached, stopping`); break outer; }
     const seed = 1000 + k * 100 + (site === 'B' ? 50 : 0) + (barrierSec === 20 ? 20 : 0) + (player === 'dead' ? 5 : 0), R = rng(seed); // unique per run

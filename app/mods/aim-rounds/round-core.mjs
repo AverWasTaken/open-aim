@@ -406,6 +406,19 @@ export function roundStep(cfg, state, io) {
   return ev;
 }
 
+// Site ids of a round config in data order (['A', 'B'] today), for the HUD's "Take the spike to
+// A or B site" hint. One frozen array per cfg object (cached), so roundView allocates nothing for it.
+const SITE_IDS = new WeakMap();
+function siteIds(cfg) {
+  if (!cfg || typeof cfg !== 'object') return [];
+  let ids = SITE_IDS.get(cfg);
+  if (!ids) {
+    ids = Object.freeze((Array.isArray(cfg.sites) ? cfg.sites : []).map((s) => s?.id).filter((id) => typeof id === 'string' && id !== ''));
+    SITE_IDS.set(cfg, ids);
+  }
+  return ids;
+}
+
 // What the HUD needs (snapshot().round, copied to window.__aimRound every tick).
 export function roundView(cfg, state, tickSec) {
   if (!state) return null;
@@ -416,7 +429,7 @@ export function roundView(cfg, state, tickSec) {
   else if (state.phase === 'planted') timeLeft = sec(T(cfg, 'spikeSec', ts) - (t - state.plantTick));
   const enemyCount = Math.max(0, num(cfg?.enemyCount, 5));
   return {
-    map: cfg?.map ?? null, side: state.side, phase: state.phase, timeLeft,
+    map: cfg?.map ?? null, sites: siteIds(cfg), side: state.side, phase: state.phase, timeLeft,
     spikeSec: num(cfg?.spikeSec, ROUND_DEFAULTS.spikeSec),
     plant: state.plant / T(cfg, 'plantSec', ts), defuse: state.defuse / T(cfg, 'defuseSec', ts),
     checkpoint: state.checkpoint, holding: state.holding, zone: state.zone, near: state.near,
