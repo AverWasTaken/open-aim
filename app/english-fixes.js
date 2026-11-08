@@ -915,7 +915,7 @@ module.exports = {
   "试玩不写训练记录，所以没有走势对比。": "Test runs aren't saved to your history, so there's no trend to compare.",
   "试玩 · 名场面（不记成绩）": "Test · Highlight (not scored)",
   "试玩结束": "Test finished",
-  "场景试玩完成": "Test finished",
+  "场景试玩完成": "Run complete",
   "试玩报告": "Test report",
   "// 试玩报告": "// Test report",
   "编辑器试玩按文件里的算": "Test runs in the editor use the value in the file",
@@ -1174,6 +1174,10 @@ module.exports = {
   "靶打掉后不再出现，打完为止。": "Targets don't come back after a kill. Play until all are down.",
 
   // ux result screen (strings added by tools/ux_result_patch.py)
+  // result screen, generic and Round results (round asked, BOARD 17:41)
+  "返回训练清单": "Back to drills",
+  "掉血": "Damage taken",
+  "这一局没开枪": "No shots fired",
   "追平了个人纪录。": "You tied your best.",
   "小球工坊 · 训练完成": "TARGET DRILL · COMPLETE",
 };
