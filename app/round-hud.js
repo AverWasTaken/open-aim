@@ -189,7 +189,7 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
   // Headshot % = head hits / hits on enemies, from the game's shot events: main.js makes the play
   // page call window.__aimShot(event) for every player shot. feel's shooting-error.js owns that
   // hook, so this chains onto it (the previous hook runs first, always) at round start and on each
-  // frame if someone replaced it. A shotgun shot counts each pellet. The player can only fire while
+  // frame if someone replaced it. A shotgun shot counts each pellet, a wallbang each enemy hit. The player can only fire while
   // live / planted and on the tick that ends the round (round-core roundNoFire), and the page hands
   // over a step's shots after window.__aimRound already shows that step, so "ended" counts too: it is
   // the shot that won the round. The counts reset when a round starts and during the barrier phase.
@@ -202,9 +202,10 @@ html.aim-round-on .al-scene-brief-says p { white-space: pre-line; display: block
     if (ph !== "live" && ph !== "planted" && ph !== "ended") return;
     const list = Array.isArray(e.pellets) && e.pellets.length ? e.pellets : [e];
     for (const p of list) {
-      if (!p || p.hitActorId === null || p.hitActorId === undefined) continue;
-      hits++;
-      if (p.hitPart === "head") heads++;
+      if (!p) continue;
+      if (p.hitActorId !== null && p.hitActorId !== undefined) { hits++; if (p.hitPart === "head") heads++; }
+      // A bullet that goes through one enemy into another lists the next ones in also: [{actorId, part}].
+      if (Array.isArray(p.also)) for (const a of p.also) if (a && a.actorId !== null && a.actorId !== undefined) { hits++; if (a.part === "head") heads++; }
     }
   }
   function hookShots() {

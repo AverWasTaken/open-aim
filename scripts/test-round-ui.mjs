@@ -571,16 +571,20 @@ test('R5 HUD: HS% = head hits / hits on enemies from window.__aimShot (chained: 
   assert.equal(h.ctx.__aimRoundStats.heads, 3);
   h.ctx.__aimShot(head);
   assert.equal(h.ctx.__aimRoundStats.hits, 6, 'the same event object counts once');
+  // A bullet through one enemy into another (also: [{actorId, part}]): each enemy hit counts.
+  h.ctx.__aimShot({ hitActorId: 1, hitPart: 'body', also: [{ actorId: 2, part: 'head' }, { actorId: null, part: null }] });
+  assert.equal(h.ctx.__aimRoundStats.hits, 8);
+  assert.equal(h.ctx.__aimRoundStats.heads, 4);
   // The round-ending shot arrives with the view already "ended": it counts.
   const won = { ...live, phase: 'ended', reason: 'eliminated', winner: 'attack', win: true, kills: 5 };
   h.show({ ...won, tick: tick++ }, 0.4);
   h.ctx.__aimShot({ hitActorId: 5, hitPart: 'head' });
   h.show({ ...won, tick: tick++ }, 0.5);
-  assert.equal(stats(h).textContent, 'Kills 5 · HS 57%');
+  assert.equal(stats(h).textContent, 'Kills 5 · HS 56%');
   // Not in a round: nothing counts.
   h.ctx.__aimRoundOn = false;
   h.ctx.__aimShot({ hitActorId: 5, hitPart: 'head' });
-  assert.equal(h.ctx.__aimRoundStats.hits, 7);
+  assert.equal(h.ctx.__aimRoundStats.hits, 9);
   // The next round starts clean (off -> on resets the counts and the line).
   h.ctx.__aimRoundOn = true;
   assert.equal(h.ctx.__aimRoundStats.hits, 0);
