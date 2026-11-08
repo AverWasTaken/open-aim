@@ -22,7 +22,8 @@
     "test:feelsens": "node --test ../scripts/test-feel-sens.cjs",
     "test:maps": "node --test ../scripts/test-maps-callouts.mjs",
     "test:result": "node --test ../scripts/test-ux-result.mjs",
-    "test:words": "node --test ../scripts/test-ux-words.mjs"
+    "test:words": "node --test ../scripts/test-ux-words.mjs",
+    "test:training-hooks": "node --test ../scripts/test-training-hooks.mjs"
   },
   "build": {
     "appId": "local.aimtrainer.offline",
