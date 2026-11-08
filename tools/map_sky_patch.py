@@ -3,10 +3,11 @@
 Render-only (no sim, replay, RNG or scene hash change). Patches both copies of `BiMsX6Xn.js`.
 
 The sky (three.js `scene.background`) came from each scene's `environment.skyColor`, so the same
-map looked different per drill: Corrode (rook), Bind (duality) and Juliett scenes mostly use
-#ffffff (blown-out white horizon), Infinity, Plummet, Bonsai and Ascent scenes #111820 (night
-navy over midday light). Now a scene with a known `environment.map` uses that map's colour from
-one table, whichever drill, practice area or round loaded it.
+map looked different per drill: Corrode (rook), Bind (duality) and Sunset (juliett) scenes
+mostly use #ffffff (blown-out white horizon), Abyss (infinity), Summit (plummet), Split (bonsai)
+and Ascent scenes #111820 (night navy over midday light). Now a scene with a known
+`environment.map` uses that map's colour from one table, whichever drill, practice area or round
+loaded it.
 
 1. Before the stage factory `DU` it adds `aimSky`: the table `t` (map id -> #rrggbb) and
    `pick(env)`, which returns `window.__aimMapSky[map]` (a live override for tuning, e.g. over
@@ -39,15 +40,17 @@ DIRS = [os.path.join("next", "js"), os.path.join("_assets", "r20261021-1", "next
 
 MARKER = b"/* maps-sky */"
 # Map id -> sky colour (sRGB hex). Daytime blues; triad's own scene colour was the reference.
+# rook/duality/juliett: #2f5f96 read close to evening in the hp shots; #4a7fbf looks like day and
+# still sets off their pale walls.
 SKY = {
     "ascent": "#2c5689",
     "bonsai": "#3f73ad",
-    "duality": "#2f5f96",
+    "duality": "#4a7fbf",
     "infinity": "#3f73ad",
     "jam": "#3f73ad",
-    "juliett": "#2f5f96",
+    "juliett": "#4a7fbf",
     "plummet": "#3f73ad",
-    "rook": "#2f5f96",
+    "rook": "#4a7fbf",
     "triad": "#33659e",
 }
 for k, v in SKY.items():

@@ -103,8 +103,8 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 ## Map sky (map_sky_patch.py)
 
 The sky colour (`scene.background`) used to come from each scene's `environment.skyColor`, so a
-map looked different per drill: white horizon on Corrode, Bind and Juliett scenes, night navy over
-midday light on Infinity, Plummet, Bonsai and Ascent. Now any scene on a known map uses that map's
+map looked different per drill: white horizon on Corrode, Bind and Sunset scenes, night navy over
+midday light on Abyss, Summit, Split and Ascent. Now any scene on a known map uses that map's
 colour from the `aimSky` table (set in `SKY` in the script), whether a drill, a practice area or a
 round loaded it. Range drills and Studio arenas without a map keep their own sky; a Studio drill
 on a map gets the map's sky. Fog keeps the scene colour (fog is off in every shipped scene). No
