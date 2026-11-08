@@ -13,7 +13,23 @@ import {
   LAUNCHER_PROFILE_RE, safeLauncherProfile, launcherConfig, mainLogError, ALLOW, pidAlive, sleep,
   portClaimed, stopperName,
 } from "./lib.mjs";
-import { startLauncher, stopApp, preempted } from "./launch.mjs";
+// Everything run.mjs imports from launch.mjs (a missing export only shows when the suite starts).
+import { startLauncher, stopApp, preempted, startApp, appGone, sessionReport, REPO } from "./launch.mjs";
+assert.equal(typeof startApp, "function");
+assert.equal(typeof appGone, "function");
+assert.equal(typeof sessionReport, "function");
+assert.equal(typeof REPO, "string");
+import { STEPS, PAGE_LIB, recover } from "./steps.mjs";
+import { Cdp } from "./cdp.mjs";
+
+test("steps module: imports resolve, page library parses, step names unique", () => {
+  assert.equal(typeof recover, "function");
+  assert.equal(typeof Cdp, "function");
+  assert.doesNotThrow(() => new Function(PAGE_LIB), "PAGE_LIB is valid JS");
+  const names = STEPS.map((s) => s.name);
+  assert.equal(new Set(names).size, names.length);
+  for (const s of STEPS) assert.ok(typeof s.run === "function" && s.timeoutMs > 0, s.name);
+});
 import { guardLauncher } from "./guard.mjs";
 
 const tmpRoot = () => fs.mkdtempSync(path.join(os.tmpdir(), "smoke-slots-"));

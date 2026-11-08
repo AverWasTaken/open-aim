@@ -79,6 +79,11 @@ function tailFile(file, onLine) {
 
 export const launcherCfg = () => launcherConfig();
 
+export async function startApp(o) {
+  const cfg = o.cfg === undefined ? launcherConfig() : o.cfg;
+  return cfg ? startLauncher({ ...o, cfg }) : startDirect(o);
+}
+
 // ---------------------------------------------------------------- launcher mode
 // Returns a handle. h.busy is set (and nothing was started) when hp is busy.
 export async function startLauncher({ cfg, port, cdp, outDir, log = console.log, onLine = () => {}, onMainLine = () => {}, maxMinutes = 20, appDir = APP_DIR, cdpWaitMs = 90000, guardScript = GUARD }) {
