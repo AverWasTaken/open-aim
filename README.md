@@ -128,9 +128,9 @@ attack and **inspect (Y)** animations. Choose yours in **Settings**.
 
 <br>
 
-## Round mode (beta)
+## Round mode
 
-Play **one VALORANT-style round**, you against 5 bots. Open it with **Round (beta)** in the
+Play **one VALORANT-style round**, you against 5 bots. Open it with **Round** in the
 lobby's top bar, pick the map (**Ascent** or **Corrode**), your side (**Attack** or **Defense**),
 the enemy rank, your weapon and how long the barriers stay up (10, 20 or 30 seconds), then press
 **Start**. The panel remembers your picks.
@@ -167,7 +167,7 @@ For both sides:
 - 4 and F are the plant and defuse keys shown in game; F is the game's "use" key, so if you moved
   "use" to another key, defuse with that one.
 
-Known limits of the beta: you can walk through bots; on Ascent the attackers reach B from the
+Known limits: you can walk through bots; on Ascent the attackers reach B from the
 defender side of B Main (they don't take the gap jump), so you may see them early from the
 defender spawn; and the barriers were placed from the map data, not checked in game on every
 corner. How the map data is made: [tools/README.md](tools/README.md#round-mode-data).
