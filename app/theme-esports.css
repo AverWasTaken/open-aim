@@ -317,15 +317,19 @@ html[data-aim-local]:not(#es) body .hall-root .st-view .st-main > .st-side { con
    --st-rest is the measured height of everything but the preview; it grows with the number of stat rows. */
 html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack { --st-rest: 236px; width: min(100cqw, (100cqh - var(--st-rest)) * 16 / 9, 1232px); }
 html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack.is-cross { --st-rest: 196px; }
-/* Medium heights (preview about 650-980px wide): 6+ stats (.is-dense) take 3 columns there, so 2 or more rows. */
-@container st-side (max-height: 779px) {
+/* Medium heights (preview about 650-980px wide): 6+ stats (.is-dense) take 3 columns there, so 2 or more rows;
+   in a column 620px or narrower every stat count takes 3 columns, so 4-5 stats make 2 rows too. */
+@container st-side (600px < height < 780px) {
   html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele.is-dense) { --st-rest: 274px; }
   html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele.is-dense > :nth-child(7)) { --st-rest: 330px; }
+}
+@container st-side (600px < height < 780px) and (width <= 620px) {
+  html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele > :nth-child(4)) { --st-rest: 274px; }
 }
 /* Short columns (1280x720 and similar): no hint line above the scene preview (the help box below says the same),
    the crosshair note on its own line under the title, tighter stats, 2 stat columns, and a preview at least
    240px wide (the column scrolls if that is still too tall). */
-@container st-side (max-height: 600px) {
+@container st-side (height <= 600px) {
   html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack { --st-rest: 160px; width: min(100cqw, max(240px, (100cqh - var(--st-rest)) * 16 / 9), 1232px); }
   html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele) { --st-rest: 204px; }
   html[data-aim-local]:not(#es) body .hall-root .st-view .st-stack:has(> .st-tele > :nth-child(3)) { --st-rest: 250px; }
