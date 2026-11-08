@@ -47,13 +47,18 @@
   }
   load();
   // Drills whose spots are picked by rank (app/mods/aim-ranks/spot-scores.json, tools/spot_scores.mjs):
-  // their picker says so under the rank tiles.
+  // their picker says so under the rank tiles. Entries with all-equal scores (flat 0.5, e.g. the
+  // *-peekers drills) have no bias, so no hint.
   let spotCodes = null;
   fetch("/aim-ranks/spot-scores.json", { cache: "no-cache" })
     .then((r) => (r.ok ? r.json() : null))
     .then((j) => {
       const set = new Set();
-      for (const e of Object.values(j?.scenes || {})) for (const c of e?.codes || []) set.add(c);
+      for (const e of Object.values(j?.scenes || {})) {
+        const v = Object.values(e?.scores || {});
+        if (v.length && v.every((x) => x === v[0])) continue;
+        for (const c of e?.codes || []) set.add(c);
+      }
       spotCodes = set;
     })
     .catch(() => {});

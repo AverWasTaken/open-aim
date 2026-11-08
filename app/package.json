@@ -27,6 +27,7 @@
     "test:words": "node --test ../scripts/test-ux-words.mjs",
     "test:training-hooks": "node --test ../scripts/test-training-hooks.mjs ../scripts/test-training-launch.mjs",
     "test:training": "node --test ../scripts/test-training-scenarios.mjs",
+    "test:peekers": "node --test ../scripts/test-training-peekers.mjs",
     "test:feelaudio": "node --test ../scripts/test-feel-audio.cjs",
     "test:feelaudiopatch": "node --test ../scripts/test-feel-audio-patch.cjs",
     "test:feelxbloom": "node --test ../scripts/test-feel-xbloom.mjs",
