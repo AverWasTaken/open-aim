@@ -64,7 +64,17 @@ test('real training list: 28 exact pairs + 4 near pairs, 2 older copies hidden',
     return shooterStats(docOf(scene));
   };
   const r = mergeVariants(items, botsOf);
-  assert.equal(items.length, 108);
+  // 77 official list entries + 37 training-set drills (31 + the 6 added 2026-11: counter-strafe taps,
+  // jiggle-peek duels, long-range taps, sheriff one-taps, operator angle hold, spray transfer).
+  assert.equal(items.length, 114);
+  const added = ['d522b8584d057391', '1ee402b08e6fe47b', 'f12ecead87952aa4', '44e40db6736c1916', 'da695c3c99a7d3cf', '4f6729c818033962'];
+  for (const code of added) {
+    assert.ok(items.some((x) => x.shareCode === code), code);
+    assert.ok(!r.hidden.includes(code), `${code} stays a card`);
+    // Jiggle-peek duels has bots that shoot back: the rank picker shows (no Easy twin).
+    if (code === '1ee402b08e6fe47b') assert.equal(r.variants[code]?.easy, null);
+    else assert.equal(r.variants[code], undefined);
+  }
   assert.equal(r.hidden.length, 34);
   assert.equal(r.data.length, items.length - 34);
   const groups = [...new Set(Object.values(r.variants))];
