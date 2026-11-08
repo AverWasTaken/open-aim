@@ -53,6 +53,21 @@ copies (`next/js/` and `_assets/r20261021-1/next/js/`) are identical before writ
 10. `spotvary_patch.py` (needs `spotbias_patch.py`; refuses to run twice: it looks for `aimSpotApply`)
 11. `peekmove_patch.py` (needs `spotvary_patch.py`; refuses to run twice: it looks for `aimPeekUpdate`)
 12. `round_patch.py` (after `peekmove_patch.py`; refuses to run twice: it looks for `/aim-rounds/round-core.mjs`). It keeps each copy's own line ends.
+16. `graphics_look_patch.py` (needs `lighting_patch.py`; BiMsX6Xn only; refuses to run twice: it looks
+    for `/* graphics-look */`; keeps each copy's own line ends). It doesn't share code with the other
+    graphics scripts (fx, holes, botfx, warm, leak) and applies on top of them in any order. See below.
+
+## Range drill floor (graphics_look_patch.py)
+
+The shipped range drills (Micro flicks, Drift, the strafers...) store the old default light values
+(ambient 1.55, key 2.2) but are tagged `lightingVersion: 2`, so the game uses them as raw
+multipliers (x1.55 / x2.2). Non-map scenes have no tone mapping, so their light grey floor came
+out flat white. With **Enhanced** map lighting, the block with id `ground` in a scene with exactly
+that signature (no map, lightingVersion 2, ambient 1.55, key 2.2) now gets its own copy of its
+material with the colour multiplied by `__aimMapLighting.look.floor`. Targets, bots, the backdrop
+and the view model keep their colours. Studio arenas, the official non-map drills, map scenes and
+**Original** lighting are unchanged; switching the setting applies live. Test:
+`npm run test:graphics-look` (in `app/`).
 
 Exact fire rate: every run started after `hitreg_patch.py` saves `exactFireRate: true` in its
 replay meta, and a held trigger (continuous full-auto, hip or ADS) fires at the configured rate
